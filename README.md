@@ -63,3 +63,7 @@ BT 来源是番剧 RSS 的主流形式。设置 `DOWNLOAD_MODE=aria2`、`qbittor
 ## 说明
 
 仅使用合法、公开授权的 RSS 内容和下载来源。若 RSS 地址在国内网络不可达，程序无法绕过网络限制，应更换为 NAS 可访问的来源。
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源发布。
