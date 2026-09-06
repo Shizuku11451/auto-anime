@@ -1,0 +1,18 @@
+
+# 本地数据、数据库与下载文件
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# 本地可执行文件与构建产物
+*.exe
+*.test
+auto-anime
+
+# 缓存与日志
+__pycache__/
+*.log
+
+# 本地环境与凭据
+.env

@@ -1,0 +1,7 @@
+.git/
+.gitignore
+data/
+__pycache__/
+*.test
+*.exe
+*.log
