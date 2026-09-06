@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>自动追番</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="name">自动追番</div>
+      <div class="sub">RSS · NAS MEDIA LIBRARY</div>
+    </div>
+    <button class="nav-btn active" data-view="items"><span class="icon">▤</span>最近条目</button>
+    <button class="nav-btn" data-view="feeds"><span class="icon">☰</span>订阅管理</button>
+    <div class="spacer"></div>
+    <div class="side-card" id="runtime-card">正在读取运行状态…</div>
+    <div class="side-actions">
+      <button class="small" id="btn-backup">下载备份</button>
+      <button class="small" id="btn-restore">恢复订阅</button>
+      <button class="small" id="btn-opml">导入 OPML</button>
+      <input type="file" id="file-restore" accept="application/json" hidden>
+      <input type="file" id="file-opml" accept=".opml,application/xml,text/xml" hidden>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="view active" id="view-items">
+      <div class="view-head">
+        <div>
+          <h1>最近条目</h1>
+          <div class="desc">最新 100 条，每 5 秒自动刷新</div>
+        </div>
+        <input type="search" class="toolbar-input" id="item-search" placeholder="搜索番剧、原始标题、字幕组">
+      </div>
+      <div class="chips" id="status-chips"></div>
+      <div id="items"></div>
+    </section>
+
+    <section class="view" id="view-feeds">
+      <div class="view-head">
+        <div>
+          <h1>订阅管理</h1>
+          <div class="desc">按关键词过滤 RSS 条目，自动下载新番</div>
+        </div>
+        <button class="primary" id="btn-add-feed">＋ 添加订阅</button>
+      </div>
+      <div class="feed-grid" id="feeds"></div>
+    </section>
+  </main>
+</div>
+
+<div class="overlay" id="feed-dialog">
+  <div class="dialog">
+    <h2 id="feed-dialog-title">添加订阅</h2>
+    <div class="field">
+      <label for="f-name">订阅名称</label>
+      <input type="text" id="f-name" placeholder="例如：动漫花园 · 完结动画">
+    </div>
+    <div class="field">
+      <label for="f-url">RSS 地址</label>
+      <input type="url" id="f-url" placeholder="https://example.com/rss.xml">
+    </div>
+    <div class="field row2">
+      <div>
+        <label for="f-include">包含关键词（全部匹配，逗号分隔）</label>
+        <input type="text" id="f-include" placeholder="例如：1080p,简中">
+      </div>
+      <div>
+        <label for="f-exclude">排除关键词（任一匹配，逗号分隔）</label>
+        <input type="text" id="f-exclude" placeholder="例如：480p,广告">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="f-auto">新条目自动发送下载</label>
+    <div class="preview-box" id="f-preview" hidden></div>
+    <p class="form-msg" id="f-msg" role="status"></p>
+    <div class="foot">
+      <button id="f-preview-btn" type="button">预览 RSS</button>
+      <button id="f-cancel" type="button">取消</button>
+      <button class="primary" id="f-save" type="button">保存并获取</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="confirm-dialog">
+  <div class="dialog">
+    <h2 id="confirm-title">确认</h2>
+    <p id="confirm-text" style="color:var(--muted);margin:0 0 6px"></p>
+    <div class="foot">
+      <button id="confirm-cancel" type="button">取消</button>
+      <button class="primary" id="confirm-ok" type="button">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

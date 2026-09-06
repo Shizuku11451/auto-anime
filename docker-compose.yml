@@ -1,0 +1,45 @@
+services:
+  auto-anime:
+    build: .
+    container_name: auto-anime
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    ports:
+      - "8000:8000"
+    environment:
+      DOWNLOAD_DIR: /data/downloads
+      POLL_MINUTES: "30"
+      # 如使用 Aria2，将 DOWNLOAD_MODE 改为 aria2，并填写 NAS 内网地址
+      DOWNLOAD_MODE: direct
+      ARIA2_URL: http://aria2:6800/jsonrpc
+      ARIA2_TOKEN: ""
+      # ARIA2_DIR 是 Aria2 容器内的下载目录；ARIA2_LOCAL_DIR 是同一目录在本容器内的路径
+      ARIA2_DIR: ""
+      ARIA2_LOCAL_DIR: ""
+      # 如使用 qBittorrent，将 DOWNLOAD_MODE 改为 qbittorrent
+      QBIT_URL: http://qbittorrent:8080
+      QBIT_USER: admin
+      QBIT_PASSWORD: ""
+      QBIT_SAVE_PATH: ""
+      # QBIT_LOCAL_DIR 是 QBIT_SAVE_PATH 在本容器内的对应路径
+      QBIT_LOCAL_DIR: ""
+      # 下载器任务轮询间隔（秒），最小 5
+      DOWNLOADER_POLL_SECONDS: "30"
+      WEBHOOK_URL: ""
+      # 可选：同时设置 WEB_USER 和 WEB_PASSWORD 后启用 Web 登录
+      WEB_USER: ""
+      WEB_PASSWORD: ""
+      # 如使用 Transmission，将 DOWNLOAD_MODE 改为 transmission
+      TRANSMISSION_URL: http://transmission:9091
+      TRANSMISSION_USER: ""
+      TRANSMISSION_PASSWORD: ""
+      TRANSMISSION_DOWNLOAD_DIR: ""
+      # TRANSMISSION_LOCAL_DIR 是 TRANSMISSION_DOWNLOAD_DIR 在本容器内的对应路径
+      TRANSMISSION_LOCAL_DIR: ""
+    volumes:
+      - ./data:/data
