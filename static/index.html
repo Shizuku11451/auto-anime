@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>自动追番</title>
+<meta name="theme-color" content="#0e1216">
+<script>
+/* 主题初始化：手动选择优先，否则跟随系统偏好；内联执行避免刷新时闪色 */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  document.documentElement.dataset.theme = t;
+})();
+</script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -21,6 +33,7 @@
       <button class="small" id="btn-backup">下载备份</button>
       <button class="small" id="btn-restore">恢复订阅</button>
       <button class="small" id="btn-opml">导入 OPML</button>
+      <button class="small theme-btn" id="btn-theme" type="button" title="切换到亮色主题" aria-label="切换到亮色主题">☀</button>
       <input type="file" id="file-restore" accept="application/json" hidden>
       <input type="file" id="file-opml" accept=".opml,application/xml,text/xml" hidden>
     </div>

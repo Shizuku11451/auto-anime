@@ -74,6 +74,42 @@ function confirmDialog(title, text) {
 $("#confirm-ok").onclick = () => { $("#confirm-dialog").classList.remove("open"); confirmResolve?.(true); };
 $("#confirm-cancel").onclick = () => { $("#confirm-dialog").classList.remove("open"); confirmResolve?.(false); };
 
+/* ---- 主题切换 ---- */
+const THEME_KEY = "theme";
+const themeMedia = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+
+function storedTheme() {
+  try { return localStorage.getItem(THEME_KEY); } catch { return null; }
+}
+function isLightTheme() { return document.documentElement.dataset.theme === "light"; }
+function syncThemeButton() {
+  const btn = $("#btn-theme");
+  const light = isLightTheme();
+  btn.textContent = light ? "☾" : "☀";
+  const label = light ? "切换到暗色主题" : "切换到亮色主题";
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = light ? "#f4f6f8" : "#0e1216";
+}
+$("#btn-theme").onclick = () => {
+  const next = isLightTheme() ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch {}
+  syncThemeButton();
+};
+/* 未手动选择过主题时，跟随系统亮暗变化 */
+if (themeMedia?.addEventListener) {
+  themeMedia.addEventListener("change", (e) => {
+    const stored = storedTheme();
+    if (stored !== "light" && stored !== "dark") {
+      document.documentElement.dataset.theme = e.matches ? "light" : "dark";
+      syncThemeButton();
+    }
+  });
+}
+syncThemeButton();
+
 /* ---- 视图切换 ---- */
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.onclick = () => {
@@ -111,18 +147,24 @@ function renderItems() {
     const downloading = badge.cls === "downloading";
     const progress = Math.max(0, Math.min(100, x.progress || 0));
     const retryable = ["待下载", "下载失败", "等待下载器"].includes(x.status);
+    const cover = x.cover
+      ? `<img class="cover" src="${esc(x.cover)}" alt="" loading="lazy">`
+      : `<div class="cover ph" aria-hidden="true">📺</div>`;
     return `<article class="item-row">
-      <div class="info">
-        <h3>${esc(x.anime_title || x.title)}${x.episode ? `<span class="ep">第 ${esc(x.episode)} 集</span>` : ""}</h3>
-        <div class="meta-line">
-          <span>${esc(x.fansub_group || "未知字幕组")}</span>
-          <span>${esc(x.quality || "未识别清晰度")}</span>
-          <span>${esc(x.feed_name || "未知订阅")}</span>
-          <span>${esc(formatTime(x.published))}</span>
+      <div class="item-main">
+        ${cover}
+        <div class="info">
+          <h3>${esc(x.anime_title || x.title)}${x.episode ? `<span class="ep">第 ${esc(x.episode)} 集</span>` : ""}</h3>
+          <div class="meta-line">
+            <span>${esc(x.fansub_group || "未知字幕组")}</span>
+            <span>${esc(x.quality || "未识别清晰度")}</span>
+            <span>${esc(x.feed_name || "未知订阅")}</span>
+            <span>${esc(formatTime(x.published))}</span>
+          </div>
+          <div class="original">${esc(x.title)}</div>
+          ${x.task_error ? `<div class="error-line">${esc(x.task_error)}</div>` : ""}
+          ${downloading ? `<div class="progress"><div class="bar" style="width:${progress}%"></div></div>` : ""}
         </div>
-        <div class="original">${esc(x.title)}</div>
-        ${x.task_error ? `<div class="error-line">${esc(x.task_error)}</div>` : ""}
-        ${downloading ? `<div class="progress"><div class="bar" style="width:${progress}%"></div></div>` : ""}
       </div>
       <div class="item-side">
         <span class="badge ${badge.cls}">${esc(badge.text)}${downloading && progress > 0 ? " " + progress + "%" : ""}</span>
@@ -133,6 +175,15 @@ function renderItems() {
       </div>
     </article>`;
   }).join("");
+  box.querySelectorAll("img.cover").forEach((img) => {
+    img.onerror = () => {
+      const ph = document.createElement("div");
+      ph.className = "cover ph";
+      ph.textContent = "📺";
+      ph.setAttribute("aria-hidden", "true");
+      img.replaceWith(ph);
+    };
+  });
   box.querySelectorAll("[data-download]").forEach((btn) => {
     btn.onclick = async () => {
       btn.disabled = true;
