@@ -43,6 +43,7 @@ var qbitLocalDir = env("QBIT_LOCAL_DIR", "")
 var transmissionLocalDir = env("TRANSMISSION_LOCAL_DIR", "")
 var downloaderPollSeconds = 30
 var webhookURL = strings.TrimSpace(env("WEBHOOK_URL", ""))
+var listenPort = env("PORT", "8000")
 var webUser = env("WEB_USER", "")
 var webPassword = env("WEB_PASSWORD", "")
 var httpClient = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{Proxy: nil}}
@@ -237,7 +238,7 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS feeds(id INTEGER PRIMARY KEY,name TEXT NOT NULL,url TEXT UNIQUE NOT NULL,include_words TEXT DEFAULT '',exclude_words TEXT DEFAULT '',auto_download INTEGER DEFAULT 0,enabled INTEGER DEFAULT 1,last_sync TEXT DEFAULT '',last_error TEXT DEFAULT '',created_at TEXT);CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,feed_id INTEGER,title TEXT,link TEXT UNIQUE,published TEXT,description TEXT,status TEXT DEFAULT '待下载',file_path TEXT,created_at TEXT);`)
+	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS feeds(id INTEGER PRIMARY KEY,name TEXT NOT NULL,url TEXT UNIQUE NOT NULL,include_words TEXT DEFAULT '',exclude_words TEXT DEFAULT '',auto_download INTEGER DEFAULT 0,enabled INTEGER DEFAULT 1,last_sync TEXT DEFAULT '',last_error TEXT DEFAULT '',created_at TEXT);CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,feed_id INTEGER,title TEXT,link TEXT UNIQUE,published TEXT,description TEXT,status TEXT DEFAULT '待下载',file_path TEXT,created_at TEXT);CREATE TABLE IF NOT EXISTS anime_meta(anime_title TEXT PRIMARY KEY,subject_id INTEGER DEFAULT 0,name TEXT DEFAULT '',name_cn TEXT DEFAULT '',cover_url TEXT DEFAULT '',cover_file TEXT DEFAULT '',source TEXT DEFAULT '',updated_at TEXT);`)
 	if e != nil {
 		log.Fatal(e)
 	}
@@ -395,6 +396,9 @@ func syncFeed(id int) (int, error) {
 		lastError = writeErr.Error()
 	}
 	db.Exec("UPDATE feeds SET last_sync=?,last_error=? WHERE id=?", time.Now().Format(time.RFC3339), lastError, id)
+	// Cover lookups run in the background; a slow metadata source must not
+	// stretch the sync request.
+	enqueueMissingMeta()
 	return n, writeErr
 }
 func downloadItem(id int) {
@@ -796,7 +800,7 @@ func items(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "items.status=?")
 		args = append(args, status)
 	}
-	query := "SELECT items.id,COALESCE(items.title,''),COALESCE(items.link,''),COALESCE(items.published,''),COALESCE(items.status,'待下载'),COALESCE(items.anime_title,''),COALESCE(items.episode,''),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),COALESCE(items.downloader,''),COALESCE(items.task_error,''),COALESCE(items.progress,0) FROM items LEFT JOIN feeds ON feeds.id=items.feed_id"
+	query := "SELECT items.id,COALESCE(items.title,''),COALESCE(items.link,''),COALESCE(items.published,''),COALESCE(items.status,'待下载'),COALESCE(items.anime_title,''),COALESCE(items.episode,''),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),COALESCE(items.downloader,''),COALESCE(items.task_error,''),COALESCE(items.progress,0),COALESCE(anime_meta.cover_file,'') FROM items LEFT JOIN feeds ON feeds.id=items.feed_id LEFT JOIN anime_meta ON anime_meta.anime_title=items.anime_title"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -821,11 +825,16 @@ func items(w http.ResponseWriter, r *http.Request) {
 		Downloader string `json:"downloader"`
 		TaskError  string `json:"task_error"`
 		Progress   int    `json:"progress"`
+		CoverFile  string `json:"-"`
+		Cover      string `json:"cover"`
 	}
 	out := []item{}
 	for rows.Next() {
 		var x item
-		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress)
+		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.CoverFile)
+		if x.CoverFile != "" {
+			x.Cover = "/api/covers/" + x.CoverFile
+		}
 		out = append(out, x)
 	}
 	jsonOut(w, out)
@@ -841,6 +850,8 @@ func main() {
 	}
 	go resumeDownloads(recovered)
 	startTaskPoller()
+	startMetaWorker()
+	go enqueueMissingMeta()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.ServeFile(w, r, "static/index.html")
@@ -863,6 +874,7 @@ func main() {
 	})
 	http.HandleFunc("/api/items", items)
 	http.HandleFunc("/api/health", healthStatus)
+	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
 	http.HandleFunc("/api/items/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" {
@@ -916,8 +928,8 @@ func main() {
 			time.Sleep(time.Duration(pollMinutes) * time.Minute)
 		}
 	}()
-	log.Println("自动追番运行在 :8000")
-	log.Fatal(http.ListenAndServe(":8000", auth(http.DefaultServeMux)))
+	log.Printf("自动追番运行在 :%s", listenPort)
+	log.Fatal(http.ListenAndServe(":"+listenPort, auth(http.DefaultServeMux)))
 }
 
 func syncEnabledFeeds() error {
