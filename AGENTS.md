@@ -33,7 +33,6 @@
 - 端到端实测（Windows 本机，Aria2 1.37.0 RPC + anibt.net 真实 RSS 订阅）：订阅"绿茶字幕组 与你相恋到生命尽头"过滤出 4 条（07/08/08v2/09），全部正确识别集数并提交 aria2 BT 下载；09、08 两集已完成并自动归档，文件与 RSS enclosure 声明大小完全一致（399331889/391943072 字节），MP4 box 链（ftyp>mdat>moov）与 MKV EBML+Segment 结构均校验为完整可播放；`info.json`/NFO 集数字段与 RSS 描述互证。
 - 管理界面 2026-09-06 重构为深色管理面板（原生 CSS/JS，无 CDN 依赖，styles: `static/style.css`，逻辑: `static/app.js`，`forms.js` 已移除）：左侧导航切换条目/订阅视图，状态筛选徽章带全库计数，下载中条目显示进度条，添加/编辑订阅改用弹窗（含 RSS 预览），删除等操作使用确认弹窗与通知，替代浏览器原生 prompt/alert。已用桌面 1280px 和手机 390px 视口浏览器实测：条目/订阅渲染、状态筛选、确认弹窗、RSS 预览弹窗、空状态均正常。
 - 本轮已执行并通过 `go vet ./...`、`go test ./... -count=1 -timeout=120s`、`go build ./...`；`docker compose config` 尚未在本轮重跑。
-- 测试仍使用本地 HTTP 服务及临时数据库；真实 BT 下载仅在本机 Windows 验证，NAS 挂载权限、Docker 容器内运行和国内 NAS 实机仍未验证。当前目录没有 Git 仓库。
 
 ### 已知缺口
 
