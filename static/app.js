@@ -302,16 +302,18 @@ function renderFeeds() {
 }
 
 /* ---- 订阅弹窗 ---- */
+// feed 可传完整订阅（编辑），也可传只有预填字段的伪对象（找番结果一键订阅）。
 function openFeedDialog(feed) {
-  state.editingFeedId = feed ? feed.id : null;
+  const editing = !!(feed && feed.id);
+  state.editingFeedId = editing ? feed.id : null;
   state.editingFeedEnabled = feed ? !!feed.enabled : true;
-  $("#feed-dialog-title").textContent = feed ? "编辑订阅" : "添加订阅";
+  $("#feed-dialog-title").textContent = editing ? "编辑订阅" : "添加订阅";
   $("#f-name").value = feed ? feed.name : "";
   $("#f-url").value = feed ? feed.url : "";
   $("#f-include").value = feed ? feed.include_words || "" : "";
   $("#f-exclude").value = feed ? feed.exclude_words || "" : "";
   $("#f-auto").checked = feed ? !!feed.auto_download : true;
-  $("#f-url").disabled = !!feed;
+  $("#f-url").disabled = editing;
   $("#f-preview").hidden = true;
   $("#f-preview").textContent = "";
   $("#f-msg").textContent = "";
@@ -715,33 +717,40 @@ $("#cd-save").onclick = async () => {
 };
 
 /* ---- 找番 ---- */
-const discoverState = { sources: [], loaded: false, last: null };
+const discoverState = { sources: [], last: null };
 
 function renderDiscoverMessage(text, icon = "🔎") {
   $("#d-summary").hidden = true;
   $("#d-results").innerHTML = `<div class="empty"><div class="big">${icon}</div>${esc(text)}</div>`;
 }
 
+let discoverInitialHintDone = false;
+
+// 每次进入找番视图都刷新搜索源：设置页新增/清空自定义模板后回到本视图立即生效。
 async function initDiscoverView() {
-  if (discoverState.loaded) return;
-  discoverState.loaded = true;
-  renderDiscoverMessage("输入关键词搜索资源站，从结果里把 RSS 地址添加为订阅");
+  if (!discoverInitialHintDone) {
+    discoverInitialHintDone = true;
+    renderDiscoverMessage("输入关键词搜索资源站，从结果里把 RSS 地址添加为订阅");
+  }
+  const previous = $("#d-source").value;
   try {
     const data = await api("/api/discover/sources");
     discoverState.sources = data.sources || [];
   } catch (e) {
     $("#d-source").innerHTML = `<option value="">搜索源加载失败</option>`;
-    renderDiscoverMessage(`搜索源加载失败：${e.message}`, "⚠️");
-    discoverState.loaded = true;
     return;
   }
   if (!discoverState.sources.length) {
     $("#d-source").innerHTML = `<option value="">无可用搜索源</option>`;
-    renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "⚠️");
+    if (!discoverState.last) renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "⚠️");
     return;
   }
   $("#d-source").innerHTML = discoverState.sources.map((s) =>
     `<option value="${esc(s.id)}" title="${esc(s.hint || s.name)}">${esc(s.name)}</option>`).join("");
+  // 之前选中的源仍存在时保持选择，否则回到第一个可用源。
+  if (previous && discoverState.sources.some((s) => s.id === previous)) {
+    $("#d-source").value = previous;
+  }
 }
 
 async function runDiscoverSearch() {
