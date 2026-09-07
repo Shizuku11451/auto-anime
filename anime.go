@@ -230,6 +230,7 @@ func animeEntryAPI(w http.ResponseWriter, r *http.Request) {
 
 type resourceItem struct {
 	ID        int64  `json:"id"`
+	AnimeID   int64  `json:"anime_id"`
 	Title     string `json:"title"`
 	Status    string `json:"status"`
 	Episode   string `json:"episode"`
@@ -264,7 +265,7 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	coverFile, metaName, metaNameCN := "", "", ""
 	db.QueryRow(`SELECT COALESCE(cover_file,''),COALESCE(name,''),COALESCE(name_cn,'') FROM anime_meta WHERE anime_title=?`, a.Title).
 		Scan(&coverFile, &metaName, &metaNameCN)
-	rows, err := db.Query(`SELECT items.id,COALESCE(items.title,''),COALESCE(items.status,'待下载'),COALESCE(items.episode,''),
+	rows, err := db.Query(`SELECT items.id,COALESCE(items.anime_id,0),COALESCE(items.title,''),COALESCE(items.status,'待下载'),COALESCE(items.episode,''),
 		COALESCE(items.season,0),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),
 		COALESCE(items.file_path,''),COALESCE(items.link,''),COALESCE(items.manual,0)
 		FROM items LEFT JOIN feeds ON feeds.id=items.feed_id
@@ -280,7 +281,7 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	for rows.Next() {
 		var it resourceItem
 		var manual int
-		if err := rows.Scan(&it.ID, &it.Title, &it.Status, &it.Episode, &it.Season, &it.Quality, &it.Group, &it.Feed, &it.FilePath, &it.Link, &manual); err != nil {
+		if err := rows.Scan(&it.ID, &it.AnimeID, &it.Title, &it.Status, &it.Episode, &it.Season, &it.Quality, &it.Group, &it.Feed, &it.FilePath, &it.Link, &manual); err != nil {
 			http.Error(w, "查询失败", 500)
 			return
 		}

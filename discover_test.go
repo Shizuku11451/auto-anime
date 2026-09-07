@@ -257,7 +257,7 @@ func TestDiscoverCustomTemplateSetting(t *testing.T) {
 	}
 
 	// 自定义模板真实生效：搜索请求打到模板展开后的地址。
-	var hits int32
+	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("kw") == "测试" {
 			hits.Add(1)

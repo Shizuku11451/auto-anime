@@ -699,6 +699,7 @@ $("#cd-save").onclick = async () => {
   const newTitle = $("#cd-anime-new").value.trim();
   if (newTitle) body.anime_title = newTitle;
   else if ($("#cd-anime").value) body.anime_id = Number($("#cd-anime").value);
+  else if (correctingItem.item.anime_id) body.anime_id = correctingItem.item.anime_id;
   else { msg.textContent = "请选择目标番剧或输入新番剧名"; return; }
   body.rearchive = $("#cd-move").checked;
   const btn = $("#cd-save");

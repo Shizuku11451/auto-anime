@@ -21,7 +21,8 @@
 | 番剧识别 | 从标题提取字幕组、集数和清晰度：支持 `[07]`、`S01E09`、`- 09`、`第08话`、`[09v2]`；季标记（第三季/S01/3期）不误判为集数；已用 anibt RSS 50 条真实标题验证 | `main.go` |
 | 封面识别 | 后台 worker 按识别标题查询 Bangumi（名称双向包含 + 长度下限的启发式匹配，先剥离 `[标签]`、拆分 `中文名 / Romaji`）；封面下载到 `COVERS_DIR`（内容寻址文件名、10MB 上限、仅 bgm.tv 域名），浏览器只加载本地副本 `/api/covers/{hash}`；无匹配记负缓存一周后重试，网络失败不写记录下次重试；查询间隔 0.5 秒，失败不阻塞同步下载 | `meta.go`、`main.go`、`static/` |
 | 直链下载 | 自动或手动下载 HTTP/HTTPS 资源，限制两个同时下载；临时目录写入后提交归档；`.torrent`/磁力不再被误存为视频 | `main.go`、`archive.go` |
-| 媒体库归档 | 一部番一个文件夹：识别到集数的资源按 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy.ext` 归档（集数补零、同名 `.nfo` 与 `-info.json`），无集数资源放番剧根目录保留原始文件名，BT 多文件资源放 `SxxEyy/` 集文件夹；同番不同字幕组落到同一目录，重名冲突自动加 ` (n)`；每番可自定义存储目录与季号（`anime_storage` 表，`/api/anime/{title}/storage`，条目「位置」弹窗），配置随 v2 备份导出/恢复；已归档文件不迁移 | `archive.go`、`main.go`、`static/` |
+| 媒体库归档 | 一部番一个文件夹：识别到集数的资源按 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy.ext` 归档（集数补零、同名 `.nfo` 与 `-info.json`、番剧根目录 `tvshow.nfo`），无集数资源放番剧根目录保留原始文件名，BT 多文件资源放 `SxxEyy/` 集文件夹；同番不同字幕组落到同一目录，重名冲突自动加 ` (n)`；存储目录与季号存在 `animes` 行上（旧 `anime_storage` 启动时迁入并清空），条目级季号覆盖番剧默认值；旧接口 `/api/anime/{title}/storage` 兼容读写 animes；配置随 v3 备份导出/恢复 | `archive.go`、`anime.go`、`main.go`、`static/` |
+| 番剧库 | `animes` 一等实体统一番剧/季/集/资源：识别标题自动入库、items 以 `anime_id` 关联；番剧库列表（封面、资源/集数统计）与详情（按季分组、同集聚合多来源版本、来源订阅列表、缺号排序）；编辑支持改名（级联 items 与 `anime_meta`）、默认季号、存储位置；多来源包含/排除规则：同步时按原始标题归并、`/apply-rules` 回溯收编现有条目（`manual=1` 的纠错条目不动）；元数据绑定：`/api/meta/search` 搜 Bangumi 候选、`PUT /api/animes/{id}/metadata` 按 ID 直连 v0 接口绑定/解绑（source=manual，自动查找不覆盖），`tvshow.nfo` 写入 `<uniqueid type="bangumi">`；条目纠错 `PATCH /api/items/{id}` 改判番剧（可新建）/季/集并置 `manual=1`，`rearchive` 把已保存文件（单文件或多文件集目录）迁移到新位置（rename 跨设备回退复制、清理空目录、重写 NFO/info.json）；备份 v3 含 `animes`，恢复兼容 v1/v2/v3 | `anime.go`、`archive.go`、`meta.go`、`main.go`、`static/` |
 | 外部下载器跟踪 | Aria2/qBittorrent/Transmission 提交并持久化任务 ID（aria2 GID、qbit infohash+标签发现、Transmission ID）；轮询进度与错误；`*_DIR`→`*_LOCAL_DIR` 路径映射；完成后复制归档（不影响做种，aria2 做种中即归档）；任务被删/报错标记失败并显示原因 | `downloader.go`、`main.go` |
 | 种子语义 | 直链模式下磁力与 `.torrent` 链接标记"等待下载器"并显示原因；aria2 对 `.torrent` 链接自动改用 `addTorrent`（含 bencode infohash 计算） | `main.go`、`downloader.go` |
 | 重启恢复 | 重启后恢复符合条件的排队/自动下载条目；带任务 ID 的下载器任务继续跟踪；无任务 ID 的"下载中"改为失败待手动重试 | `recovery.go` |
@@ -46,21 +47,23 @@
 - 出站代理（2026-09-07 新增）：新增 `proxy.go`，`PROXY_URL` 默认空保持显式直连；`parseProxyURL` 支持 http/https/socks5/socks5h（大小写不敏感、无前缀自动补 `http://`、凭据写 URL、`Hostname()` 校验缺失主机）；`applyProxyConfig` 重建 4 个内容客户端（httpClient、mediaClient 保留 30s ResponseHeaderTimeout、torrentClient 新增替代 downloaderClient 抓 `.torrent`、metaClient），`downloaderClient`/`qbitClient` 仍显式直连只用于下载器 RPC；`/api/status` 新增 `proxy` 字段（`redactProxy` 去除账号密码）并在运行卡片显示。验证：新增 `proxy_test.go`（解析边界、假 HTTP 代理证明 RSS 与 `.torrent` 请求以绝对 URI 经过代理、非法配置不改变原配置、脱敏）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。另起 8022 端口实例配置 `PROXY_URL=http://alice:secret@127.0.0.1:8099`（本地假代理）：应用日志与 `/api/status` 均只显示 `http://127.0.0.1:8099`，RSS 预览请求在假代理日志中留下 `GET http://target.example/rss.xml` 绝对 URI；8023 端口实例配置 `ftp://` 前缀启动即失败并输出"不支持的代理协议"；浏览器实测运行卡片显示"代理 http://127.0.0.1:8099"且亮色/暗色布局正常。`docker compose config` 未在本轮重跑（仅新增注释与空变量行，未改结构）。SOCKS5 仅通过解析与 http.Transport 原生支持验证，未起真实 SOCKS5 服务端实测。
 - 媒体库归档与自定义存储位置（2026-09-07 新增）：重写 `archive.go` 归档布局，弃用 `{番剧名}/{随机ID}/` 结构；`archiveTarget` 计算 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy`（集数 Atoi 补零，无集数放番剧根保留原始文件名），存储位置 = `anime_storage` 表自定义目录（优先）或 `DOWNLOAD_DIR/{safeComponent(番剧名)}`；提交从目录级 rename 改为 `commitLinked` 硬链接（O_EXCL 语义，冲突自动 ` (n)` 后缀，失败回退 rename），BT 多文件资源放 `SxxEyy/` 集目录、元数据写在集目录内；`info.json` 更名为 `{基准名}-info.json` 支持多集同目录。新增 `anime_storage` 表与 `PUT/GET /api/anime/{title}/storage`（`sanitizeStorageDir` 要求绝对路径、拒绝 `..`、`path.Clean` 保持 `/` 分隔符跨平台稳定），items API 输出 `file_path`，前端条目卡片新增「位置」弹窗与归档路径展示，备份升级 v2 含 `anime_storages`（restore 接受 v1/v2）。验证：新增 `archive_test.go`（Season/SXXEYY 布局、自定义目录+季号、清除恢复默认、非法路径拒绝且不落库、同集冲突 ` (2)` 后缀、BT 多文件集目录、备份往返 anime_storages），更新 `TestAutomaticDownloadAndDeduplication` 断言；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8024 端口实例 + 本地 RSS/媒体服务端到端实测：添加订阅自动下载两集落 `downloads/夏日动画   [1080p]/Season 01/夏日动画   [1080p] - S01E07.mp4`（NFO/info.json 同名），浏览器条目卡片显示归档路径与「位置」按钮，弹窗设置自定义目录+季 2 保存后删除第 8 集重新同步，新集落 `my-anime/Season 02/...S02E08.mp4`，第 7 集保持默认位置不变。未实测：Docker 容器内运行、真实 NAS 媒体服务器（Emby/Jellyfin）实际刮削效果。
 - 用户设置与首次安装引导（2026-09-07 新增）：新增 `settings.go` 与 `settings` 表（KV），`applyStoredSettings` 把库值映射到全局变量（普通字段键存在即生效——包括清空回退 env；token/密码只增不清；proxy 走 `applyProxyConfig` 热更新），`loadSettings()` 在 `main()` 中 env 代理之后调用（数据库优先）；`authEnabled`/`verifyWebCredentials` 支持哈希凭据（`webHash` 优先于 env 明文对），登录/Basic Auth/引导共用的 `setPasswordCredentials` 只存 `v1$salt$hash`；`setupRequired() = !setupDone && !authEnabled()`，中间件对未初始化实例把页面重定向 `/setup`、其它 API 返回 401（setup/status/static/health 公开），`POST /api/setup` 完成或跳过后锁定 403；`GET/PUT /api/settings` 指针字段区分"未提供/清空"，敏感字段只写不读（响应仅 `*_set` 布尔），密码至少 6 位、改用户名必须同给密码。前端：`static/setup.html` 三步引导（账户/下载方式/网络同步，按模式显隐下载器字段，完成后自动登录），主面板侧栏新增「设置」视图与 `#btn-save-settings`。验证：新增 `settings_test.go`（全新实例判定与向导流程、重启后 loadSettings 恢复、设置热生效与清空回退、非法模式/周期/代理拒绝且不改变原值、密码只存哈希、响应不含明文与哈希、setup 完成后 403、中间件未初始化重定向与跳过后开放），更新 `TestAuthRequiresCompleteConfig`（setupDone 隔离）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8025 端口全新实例浏览器端到端：`/` 302 到 `/setup`，填管理员+aria2+socks5 代理完成引导后自动登录进面板，`/api/setup` 重放 403，设置页回填正确、改代理与同步周期保存后运行卡片立即显示"每 10 分钟同步 · 代理 http://127.0.0.1:7890"，重启实例后凭据/代理/周期全部保留且 `/setup` 跳回首页。未实测：Docker 容器内运行。
+- 番剧订阅管理（2026-09-07 深夜新增）：新增 `anime.go` 与 `animes` 表（title 唯一，含 search_name/bangumi_id/season/storage_dir/include_rules/exclude_rules），`items` 新增 `anime_id/season/manual` 列；`migrateAnimeData()` 启动时把识别标题建库、`anime_storage` 迁入 animes（迁移后清空旧表避免复活）、回填 items.anime_id（幂等）。`syncFeed` 先按番剧规则匹配原始标题（`matchAnimeRule`，include 全匹配且最长者胜），命中归并、否则 `ensureAnime` 建库。归档 `archiveTarget` 接受条目级季号覆盖（`resolveSeason`：条目 > 番剧 > 1），番剧根写 `tvshow.nfo`（绑定后含 Bangumi uniqueid）；`rearchiveSavedItem` 支持已保存文件迁移（区分单文件与多文件集目录、跨设备回退复制、`cleanupEmptyDirs` 清理空目录但不删媒体）。API：`GET /api/animes`、`GET/PUT/DELETE /api/animes/{id}`、`POST /api/animes/{id}/apply-rules`、`PUT /api/animes/{id}/metadata`、`GET /api/meta/search`、`PATCH /api/items/{id}`；`GET /api/animes/{id}` 输出季/集分组（同集聚合、数值排序、loose 资源、来源列表）。备份升级 v3 导出 animes，恢复兼容 v1/v2/v3（v2 storage 并入 animes）。验证：新增 `anime_test.go` 14 个用例（规则同步归并与回溯、manual 保护、详情分组与排序、改名级联与同名 409、绑定/解绑与 manual 不覆盖、搜索候选、纠错迁移落盘与 tvshow.nfo、非法输入拒绝、番剧季号默认与条目覆盖、v2 备份兼容、迁移幂等），更新 `archive_test.go`（storage 断言改 animes、备份测试改 v3）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=240s` 全部通过。8030 端口实例（本地 RSS + 真实 Bangumi）浏览器端到端：添加订阅自动下载 4 条，番剧库出现 3 张卡片；同一部番因标题带清晰度标签拆成两个条目，编辑改名「星海物语」+包含规则保存后点「应用到现有条目」归并 1 条，详情第 07 集显示"2 个版本"（绿茶组 1080p + 清风组 720p）；纠错 720p 版本到第 2 季并勾选迁移，文件从旧目录落到 `星海物语/Season 02/星海物语 - S02E07.mp4`（旧 Season 01 清空）；元数据绑定搜索"葬送的芙莉莲"绑定 #400602 后标题变译名、封面本地缓存（216KB JPEG）、tvshow.nfo 含 `<uniqueid type="bangumi">400602</uniqueid>`；1280px/390px 视口与亮暗主题渲染正常。本轮另修复：详情资源缺 `anime_id` 字段导致纠错弹窗无法预选、仅改季号被误拦（后端补字段+前端放行同番纠错）。分支：全部工作在 `feature/anime-library` 分支提交（基线 daf72ee），main 不含本功能；`docker compose config` 未在本轮重跑。
 
 ### 已知缺口
 
-- **媒体库整理的收尾**：季号识别仍是本地启发式（一律默认 Season 01，手动改季号只影响新归档）；没有 tvshow.nfo；已归档文件不会随新配置迁移，需删除记录重新下载；同季同集不同字幕组会以 ` (n)` 后缀并存，不区分版本优先级。
-- **元数据只有封面**：Bangumi 封面已接入，但没有 TMDB、简介、评分和手动修正入口；封面匹配是本地启发式（双向包含），少量标题可能匹配到同系列错误季或误配；无法从界面重新选择正确条目。
+- **媒体库整理的收尾**：季号识别仍是本地启发式（默认跟随番剧，条目可纠错但无自动季号解析）；已归档文件需逐条纠错迁移（无批量迁移工具）；同季同集不同字幕组会以 ` (n)` 后缀并存，不区分版本优先级；番剧改名不迁移已归档文件（旧目录保留，仅新归档用新名）。
+- **元数据仍以封面为主**：Bangumi 封面已接入且支持手动绑定与解绑，但没有 TMDB、简介、评分；绑定后的简介/年份不展示；绑定搜索一次最多 8 条候选，无翻页。
+- **番剧库细节**：番剧列表无分页（一次全量）；删除番剧要求先清空条目；规则匹配只在同步与手动应用时生效，不会自动撤销用户后续改错的规则；空番剧（条目被移走后遗留）需手动删除。
 - **慢任务无告警**：做种少的旧种（如 8 月底发布、仅 2% 进度的任务）会长期停留在"下载中"，没有超时/卡死检测；手动重试会重复提交任务且不清理下载器中的旧任务。
 - **同步和任务可靠性还需加强**：RSS 响应大小限制未实现；任务取消与删除期间的并发行为未专项测试；下载器临时故障只在日志中体现。
 - **备份恢复不是完整灾备**：不恢复历史条目、下载器任务及媒体文件；备份含 RSS 地址令牌。
-- **管理界面仍有缺口**：条目列表最多 100 条且无分页；没有每条任务的下载器详情页（速度/peer 数/做种状态）；条目卡片没有封面图（依赖元数据接入）。
+- **管理界面仍有缺口**：条目列表最多 100 条且无分页；没有每条任务的下载器详情页（速度/peer 数/做种状态）。
 - **部署验收未完成**：未在 Docker 容器内运行本功能，未用用户 NAS 实机（挂载、权限、amd64/arm64 镜像）做国内直连验收；Windows 本机验证不能等同 NAS 验证。
 
 ### 后续开发顺序
 
-1. 媒体库整理收尾：季号手动修正入口、tvshow.nfo、已归档文件按新结构迁移工具。
-2. 元数据补全：Bangumi 封面已接入，剩余 TMDB 可选来源、简介/年份展示与手动修正（换封面、绑定正确条目）；来源不可达时保留基础订阅下载能力。
+1. 元数据补全：TMDB 可选来源、简介/年份展示与绑定候选翻页；来源不可达时保留基础订阅下载能力。
+2. 番剧库收尾：批量迁移工具（番剧改名/改季号后一键迁移全部已归档文件）、番剧列表分页、版本优先级规则。
 3. 任务卡死检测/超时告警、重试时清理下载器旧任务、RSS 响应大小限制。
 4. 管理界面任务详情与分页。
 5. 构建 NAS 常用架构镜像并在容器内验证本功能，用实际 NAS 的挂载目录、RSS 和下载器完成国内直连验收。
@@ -76,6 +79,7 @@
 ## 项目布局
 
 - `main.go`：启动、HTTP API、订阅同步、解析、下载调度及数据库初始化。
+- `anime.go`：番剧库实体与 API（animes 表、多来源规则、元数据绑定、条目纠错与数据迁移）。
 - `auth.go`：登录页、会话管理、登录限速与访问控制中间件。
 - `settings.go`：用户设置存储与应用、首次安装引导、管理员凭据哈希。
 - `proxy.go`：`PROXY_URL` 解析、统一出站传输配置与代理地址脱敏。
