@@ -30,6 +30,7 @@
 | 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`static/login.html`、`static/` |
 | 出站代理 | `PROXY_URL`（默认空=显式直连）支持 http/https/socks5/socks5h（无前缀按 http，凭据写在 URL）；代理作用于 RSS 同步/预览、直链下载、`.torrent` 字节下载（新增 `torrentClient`）、Bangumi、Webhook；下载器 RPC（`downloaderClient`/`qbitClient`）始终直连；`newTransport()`/`newClient()` 统一传输配置，日志与 `/api/status` 只输出脱敏地址；无效配置启动即失败并给出原因 | `proxy.go`、`main.go`、`meta.go`、`archive.go`、`downloader.go` |
 | 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
+| 找番搜索 | 侧栏「找番」：`GET /api/discover/sources` 列出内置与自定义搜索源；`GET /api/discover/search` 按关键词拉取资源站搜索 RSS（20 秒超时、8MB 响应上限、最多 60 条、资源页与种子链接分开保留、相对链接补全），逐条复用标题识别（番剧名/字幕组/集数/清晰度）；内置 ACG.RIP（2026-09-07 实测可国内直连匿名搜索；蜜柑计划/动漫花园的匿名搜索当时不可用，未内置）；设置页可配自定义 RSS 搜索模板（`{keyword}`/`{关键词}` 占位符、http(s) 与主机校验，存 settings 表热生效、清空即回退）；前端结果列表一键预填订阅弹窗（名称=识别番剧名、包含=搜索词），摘要条展示并复制本次搜索的 RSS 地址；搜索走统一出站代理配置 | `discover.go`、`settings.go`、`main.go`、`static/` |
 | 基础运维 | Webhook 事件、Dockerfile（已复制 go.sum）、Compose、健康检查及 `/data` 持久化 | `main.go`、部署文件 |
 
 ### 最近完成与验证（2026-09-06 本轮）
@@ -46,6 +47,7 @@
 - 出站代理（2026-09-07 新增）：新增 `proxy.go`，`PROXY_URL` 默认空保持显式直连；`parseProxyURL` 支持 http/https/socks5/socks5h（大小写不敏感、无前缀自动补 `http://`、凭据写 URL、`Hostname()` 校验缺失主机）；`applyProxyConfig` 重建 4 个内容客户端（httpClient、mediaClient 保留 30s ResponseHeaderTimeout、torrentClient 新增替代 downloaderClient 抓 `.torrent`、metaClient），`downloaderClient`/`qbitClient` 仍显式直连只用于下载器 RPC；`/api/status` 新增 `proxy` 字段（`redactProxy` 去除账号密码）并在运行卡片显示。验证：新增 `proxy_test.go`（解析边界、假 HTTP 代理证明 RSS 与 `.torrent` 请求以绝对 URI 经过代理、非法配置不改变原配置、脱敏）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。另起 8022 端口实例配置 `PROXY_URL=http://alice:secret@127.0.0.1:8099`（本地假代理）：应用日志与 `/api/status` 均只显示 `http://127.0.0.1:8099`，RSS 预览请求在假代理日志中留下 `GET http://target.example/rss.xml` 绝对 URI；8023 端口实例配置 `ftp://` 前缀启动即失败并输出"不支持的代理协议"；浏览器实测运行卡片显示"代理 http://127.0.0.1:8099"且亮色/暗色布局正常。`docker compose config` 未在本轮重跑（仅新增注释与空变量行，未改结构）。SOCKS5 仅通过解析与 http.Transport 原生支持验证，未起真实 SOCKS5 服务端实测。
 - 媒体库归档与自定义存储位置（2026-09-07 新增）：重写 `archive.go` 归档布局，弃用 `{番剧名}/{随机ID}/` 结构；`archiveTarget` 计算 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy`（集数 Atoi 补零，无集数放番剧根保留原始文件名），存储位置 = `anime_storage` 表自定义目录（优先）或 `DOWNLOAD_DIR/{safeComponent(番剧名)}`；提交从目录级 rename 改为 `commitLinked` 硬链接（O_EXCL 语义，冲突自动 ` (n)` 后缀，失败回退 rename），BT 多文件资源放 `SxxEyy/` 集目录、元数据写在集目录内；`info.json` 更名为 `{基准名}-info.json` 支持多集同目录。新增 `anime_storage` 表与 `PUT/GET /api/anime/{title}/storage`（`sanitizeStorageDir` 要求绝对路径、拒绝 `..`、`path.Clean` 保持 `/` 分隔符跨平台稳定），items API 输出 `file_path`，前端条目卡片新增「位置」弹窗与归档路径展示，备份升级 v2 含 `anime_storages`（restore 接受 v1/v2）。验证：新增 `archive_test.go`（Season/SXXEYY 布局、自定义目录+季号、清除恢复默认、非法路径拒绝且不落库、同集冲突 ` (2)` 后缀、BT 多文件集目录、备份往返 anime_storages），更新 `TestAutomaticDownloadAndDeduplication` 断言；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8024 端口实例 + 本地 RSS/媒体服务端到端实测：添加订阅自动下载两集落 `downloads/夏日动画   [1080p]/Season 01/夏日动画   [1080p] - S01E07.mp4`（NFO/info.json 同名），浏览器条目卡片显示归档路径与「位置」按钮，弹窗设置自定义目录+季 2 保存后删除第 8 集重新同步，新集落 `my-anime/Season 02/...S02E08.mp4`，第 7 集保持默认位置不变。未实测：Docker 容器内运行、真实 NAS 媒体服务器（Emby/Jellyfin）实际刮削效果。
 - 用户设置与首次安装引导（2026-09-07 新增）：新增 `settings.go` 与 `settings` 表（KV），`applyStoredSettings` 把库值映射到全局变量（普通字段键存在即生效——包括清空回退 env；token/密码只增不清；proxy 走 `applyProxyConfig` 热更新），`loadSettings()` 在 `main()` 中 env 代理之后调用（数据库优先）；`authEnabled`/`verifyWebCredentials` 支持哈希凭据（`webHash` 优先于 env 明文对），登录/Basic Auth/引导共用的 `setPasswordCredentials` 只存 `v1$salt$hash`；`setupRequired() = !setupDone && !authEnabled()`，中间件对未初始化实例把页面重定向 `/setup`、其它 API 返回 401（setup/status/static/health 公开），`POST /api/setup` 完成或跳过后锁定 403；`GET/PUT /api/settings` 指针字段区分"未提供/清空"，敏感字段只写不读（响应仅 `*_set` 布尔），密码至少 6 位、改用户名必须同给密码。前端：`static/setup.html` 三步引导（账户/下载方式/网络同步，按模式显隐下载器字段，完成后自动登录），主面板侧栏新增「设置」视图与 `#btn-save-settings`。验证：新增 `settings_test.go`（全新实例判定与向导流程、重启后 loadSettings 恢复、设置热生效与清空回退、非法模式/周期/代理拒绝且不改变原值、密码只存哈希、响应不含明文与哈希、setup 完成后 403、中间件未初始化重定向与跳过后开放），更新 `TestAuthRequiresCompleteConfig`（setupDone 隔离）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8025 端口全新实例浏览器端到端：`/` 302 到 `/setup`，填管理员+aria2+socks5 代理完成引导后自动登录进面板，`/api/setup` 重放 403，设置页回填正确、改代理与同步周期保存后运行卡片立即显示"每 10 分钟同步 · 代理 http://127.0.0.1:7890"，重启实例后凭据/代理/周期全部保留且 `/setup` 跳回首页。未实测：Docker 容器内运行。
+- 找番与搜索订阅（2026-09-07 新增，`feature/discover` 分支）：新增 `discover.go`，`GET /api/discover/sources` 与 `GET /api/discover/search`；搜索结果 RSS 用独立解析保留资源页与 enclosure 两条链接，逐条 `extractAnimeInfo` 识别；20 秒请求超时、8MB 响应上限、60 条截断；自定义搜索模板存 `settings` 表（键 `discover_search_template`，`{keyword}`/`{关键词}` 占位符，保存时校验 http(s)+占位符+主机，清空即回退，热生效）；前端侧栏新增「找番」视图（源下拉+关键词+摘要条展示/复制搜索 RSS 地址+结果卡片一键预填订阅弹窗）。验证：新增 `discover_test.go`（源列表与自定义源出现、非法模板忽略、模板校验与占位符替换转义、搜索解析含相对链接补全与空标题过滤、关键词转发、输入校验 400/405、上游 HTTP 错误/非 RSS 文档/超响应上限/连接失败均 502 带原因、设置非法拒绝且不落库、合法保存即生效、清空回退、loadSettings 重启恢复、自定义模板真实请求命中），更新 settings 集成；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8046 端口隔离实例（独立数据目录）浏览器端到端：登录后搜索「芙莉莲」（ACG.RIP 真实源，国内直连）返回 30 条并正确识别字幕组/集数/清晰度，结果「添加订阅」预填弹窗（标题「添加订阅」、地址可改）保存后自动首次同步，17 条入库且种子类资源进「等待下载器」，订阅卡片显示搜索 RSS 地址与同步时间；设置页非法模板（缺占位符）被拒绝、死端口自定义源搜索给出具体连接失败原因；1280px/390px 视口与亮暗主题渲染正常。过程中修复两处前端问题：`openFeedDialog` 按 `feed.id` 判断编辑态（预填伪对象此前被误判为编辑、地址被禁用），搜索源列表改为每次进入找番视图刷新（设置页修改模板后立即生效并保持选中项）。本轮开发在独立工作区进行（目录 `E:\项目\auto-anime-discover`，分支 `feature/discover`，基线为并行会话的 `feature/anime-library` 提交 daf72ee）；测试会话 Cookie 冲突教训：同主机多实例的登录 Cookie 按 host 共享、与端口无关，浏览器实测需用 127.0.0.2 等不同回环地址隔离。未实测：Docker 容器内运行、SOCKS 代理下找番、资源站 IPv6 环境。
 - 测试仍使用本地 HTTP 服务及临时数据库；真实 BT 下载仅在本机 Windows 验证，NAS 挂载权限、Docker 容器内运行和国内 NAS 实机仍未验证。源码已托管在 GitHub（https://github.com/sssshj114/auto-anime，main 分支），`ani-rss-reference/`、数据库、下载文件、本地可执行文件经 `.gitignore` 排除。
 
 ### 已知缺口
@@ -57,6 +59,7 @@
 - **备份恢复不是完整灾备**：不恢复历史条目、下载器任务及媒体文件；备份含 RSS 地址令牌。
 - **管理界面仍有缺口**：条目列表最多 100 条且无分页；没有每条任务的下载器详情页（速度/peer 数/做种状态）；条目卡片没有封面图（依赖元数据接入）。
 - **部署验收未完成**：未在 Docker 容器内运行本功能，未用用户 NAS 实机（挂载、权限、amd64/arm64 镜像）做国内直连验收；Windows 本机验证不能等同 NAS 验证。
+- **找番依赖第三方站点可用性**：内置源只有 ACG.RIP；蜜柑计划搜索接口与动漫花园关键词 RSS 在 2026-09-07 对匿名请求不可用（分别返回空结果、不按关键词过滤），站点改版或不可达时找番不可用（订阅、同步、下载不受影响），可在设置页配置自定义 RSS 搜索模板更换来源；搜索结果按资源站返回顺序展示，无跨源聚合、排序与分页。
 
 ### 后续开发顺序
 
@@ -65,6 +68,7 @@
 3. 任务卡死检测/超时告警、重试时清理下载器旧任务、RSS 响应大小限制。
 4. 管理界面任务详情与分页。
 5. 构建 NAS 常用架构镜像并在容器内验证本功能，用实际 NAS 的挂载目录、RSS 和下载器完成国内直连验收。
+6. 找番增强：跨源聚合与结果分页、蜜柑计划/动漫花园匿名搜索恢复可用后纳入内置源、搜索结果直接手动下载单条资源。
 
 ## 技术栈
 
@@ -80,6 +84,7 @@
 - `auth.go`：登录页、会话管理、登录限速与访问控制中间件。
 - `settings.go`：用户设置存储与应用、首次安装引导、管理员凭据哈希。
 - `proxy.go`：`PROXY_URL` 解析、统一出站传输配置与代理地址脱敏。
+- `discover.go`：找番搜索源注册表、搜索请求（大小/超时限制）与结果解析。
 - `downloader.go`：下载器任务提交、任务 ID 持久化、进度轮询、路径映射与 infohash/种子处理。
 - `meta.go`：Bangumi 封面识别、本地缓存与 `/api/covers/` 服务。
 - `archive.go`：直链与下载器文件的归档、文件名处理和本地元数据生成。
