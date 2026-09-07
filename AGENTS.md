@@ -7,7 +7,7 @@
 - 面向中国大陆网络，默认直接连接，不依赖代理、境外 CDN 或必须访问境外服务才能完成的初始化。
 - 除“开发进度快照”外，本文件描述后续开发约束，不代表其中提及的功能已经实现；实际能力以代码和验证结果为准。
 
-## 开发进度快照（2026-09-06）
+## 开发进度快照（2026-09-07）
 
 当前阶段：外部下载器任务跟踪闭环已打通，并用真实 RSS（anibt.net）+ 本机 Aria2 完成端到端实测（识别 → BT 下载 → 归档 → 可播放 → 集数正确）。以下记录来自当前源码及本轮实际验证，后续完成相关工作时应更新本节，不要直接将规划项标记完成。
 
@@ -20,13 +20,17 @@
 | 过滤去重 | 包含关键词全部匹配、排除关键词任一匹配；按资源 URL 去重 | `main.go` |
 | 番剧识别 | 从标题提取字幕组、集数和清晰度：支持 `[07]`、`S01E09`、`- 09`、`第08话`、`[09v2]`；季标记（第三季/S01/3期）不误判为集数；已用 anibt RSS 50 条真实标题验证 | `main.go` |
 | 封面识别 | 后台 worker 按识别标题查询 Bangumi（名称双向包含 + 长度下限的启发式匹配，先剥离 `[标签]`、拆分 `中文名 / Romaji`）；封面下载到 `COVERS_DIR`（内容寻址文件名、10MB 上限、仅 bgm.tv 域名），浏览器只加载本地副本 `/api/covers/{hash}`；无匹配记负缓存一周后重试，网络失败不写记录下次重试；查询间隔 0.5 秒，失败不阻塞同步下载 | `meta.go`、`main.go`、`static/` |
-| 直链下载 | 自动或手动下载 HTTP/HTTPS 资源，限制两个同时下载；临时目录写入后提交归档，生成 `info.json` 与同名 NFO；`.torrent`/磁力不再被误存为视频 | `main.go`、`archive.go` |
+| 直链下载 | 自动或手动下载 HTTP/HTTPS 资源，限制两个同时下载；临时目录写入后提交归档；`.torrent`/磁力不再被误存为视频 | `main.go`、`archive.go` |
+| 媒体库归档 | 一部番一个文件夹：识别到集数的资源按 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy.ext` 归档（集数补零、同名 `.nfo` 与 `-info.json`），无集数资源放番剧根目录保留原始文件名，BT 多文件资源放 `SxxEyy/` 集文件夹；同番不同字幕组落到同一目录，重名冲突自动加 ` (n)`；每番可自定义存储目录与季号（`anime_storage` 表，`/api/anime/{title}/storage`，条目「位置」弹窗），配置随 v2 备份导出/恢复；已归档文件不迁移 | `archive.go`、`main.go`、`static/` |
 | 外部下载器跟踪 | Aria2/qBittorrent/Transmission 提交并持久化任务 ID（aria2 GID、qbit infohash+标签发现、Transmission ID）；轮询进度与错误；`*_DIR`→`*_LOCAL_DIR` 路径映射；完成后复制归档（不影响做种，aria2 做种中即归档）；任务被删/报错标记失败并显示原因 | `downloader.go`、`main.go` |
 | 种子语义 | 直链模式下磁力与 `.torrent` 链接标记"等待下载器"并显示原因；aria2 对 `.torrent` 链接自动改用 `addTorrent`（含 bencode infohash 计算） | `main.go`、`downloader.go` |
 | 重启恢复 | 重启后恢复符合条件的排队/自动下载条目；带任务 ID 的下载器任务继续跟踪；无任务 ID 的"下载中"改为失败待手动重试 | `recovery.go` |
 | 数据迁移 | JSON 导出订阅及条目元数据；恢复只按 URL 合并订阅；支持嵌套 OPML 导入 | `main.go`、`backup_test.go` |
 | 运行信息 | 条目搜索、API 状态筛选、全库状态统计、公开健康检查；管理面板：左侧导航、状态筛选徽章、下载进度条、失败原因展示、弹窗与通知交互、亮/暗主题切换（手动选择优先，否则跟随系统，存浏览器本地） | `status.go`、`main.go`、`static/` |
-| 基础运维 | Web Basic Auth（`WEB_USER` 与 `WEB_PASSWORD` 齐备才启用，与文档一致）、Webhook 事件、Dockerfile（已复制 go.sum）、Compose、健康检查及 `/data` 持久化 | `main.go`、部署文件 |
+| 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`static/login.html`、`static/` |
+| 出站代理 | `PROXY_URL`（默认空=显式直连）支持 http/https/socks5/socks5h（无前缀按 http，凭据写在 URL）；代理作用于 RSS 同步/预览、直链下载、`.torrent` 字节下载（新增 `torrentClient`）、Bangumi、Webhook；下载器 RPC（`downloaderClient`/`qbitClient`）始终直连；`newTransport()`/`newClient()` 统一传输配置，日志与 `/api/status` 只输出脱敏地址；无效配置启动即失败并给出原因 | `proxy.go`、`main.go`、`meta.go`、`archive.go`、`downloader.go` |
+| 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
+| 基础运维 | Webhook 事件、Dockerfile（已复制 go.sum）、Compose、健康检查及 `/data` 持久化 | `main.go`、部署文件 |
 
 ### 最近完成与验证（2026-09-06 本轮）
 
@@ -36,11 +40,17 @@
 - 主题切换（2026-09-06 晚新增）：CSS 颜色全部收敛为 `:root`（暗色默认）与 `html[data-theme="light"]`（亮色，文字色加深保证对比度）两组变量，硬编码颜色清零；`index.html` 头部内联脚本按"手动选择优先、否则跟随 `prefers-color-scheme`"在首帧前写入 `data-theme`，避免刷新闪色；切换按钮在侧栏操作区（`#btn-theme`），选择存 localStorage，未手动选择时监听系统亮暗变化。已在运行中的本机实例浏览器实测：1280px/390px 视口下亮暗两套主题的条目/订阅渲染、添加订阅弹窗、搜索空状态、刷新持久化（刷新后首帧即恢复所选主题）均正常；纯静态文件改动，未触及 Go 代码。
 - 封面识别（2026-09-06 深夜新增）：新增 `meta.go`，`anime_meta` 表缓存标题→封面；同步完成与启动时把缺元数据的识别标题放入队列，单 worker 每 0.5 秒一次查询 Bangumi 旧版搜索（`type=2&format=json`，已用真实接口确认返回结构与 lain.bgm.tv 图片链），封面下载到本地后条目 API 输出 `/api/covers/{hash}`；`main()` 同时新增 `PORT` 环境变量（默认 8000）用于多实例/测试。已通过 `gofmt`/`go vet`/`go build` 与 `go test ./... -count=1`（新增 `meta_test.go`：查询词拆分、匹配启发式、缓存与复用、负缓存、失败不落记录、`/api/covers` 路径安全、同步触发入队）；并用本地 RSS + 真实 Bangumi 在 8010 端口隔离实例浏览器实测：芙莉莲两集自动获得同一封面并本地缓存（216KB JPEG），“完全架空的动画作品XYZ”显示占位图，亮暗主题与手机 390px 视口渲染正常，`/api/covers/..%2f` 路径穿越返回 404，应用日志无异常。
 - 本轮已执行并通过 `go vet ./...`、`go test ./... -count=1 -timeout=120s`、`go build ./...`；`docker compose config` 尚未在本轮重跑。
+- 修复编辑订阅会悄悄停用的问题（2026-09-07）：此前编辑弹窗的 `PUT /api/feeds/{id}` 请求不携带 `enabled`，后端按零值把启用中的订阅写成暂停。`FeedInput.Enabled` 改为 `*bool`，未携带时用 `COALESCE(?, enabled)` 保留数据库原值；前端编辑弹窗保存时显式携带打开弹窗时的启用状态，暂停/启用开关的显式切换路径不变。新增 `TestUpdateFeedPreservesEnabledWhenOmitted`（临时数据库 + 直接调用 handler）：不带字段保持启用、不带字段保持暂停、显式携带生效三条路径。
+- 2026-09-07 修复后已执行并通过 `gofmt`、`go vet ./...`、`go build ./...`、`go test ./... -count=1 -timeout=120s`；未做浏览器端到端复测（纯字段传递修复，界面操作路径与 2026-09-06 实测一致）。
+- 账户登录（2026-09-07 新增）：新增 `auth.go`，原 Basic Auth 中间件升级为"会话 Cookie 为主、Basic Auth 兼容脚本"；`web_sessions` 表随 `initDB` 创建；`static/login.html` 登录页复用 `style.css` 变量（新增 `.login-*` 样式与 `input[type="password"]` 外观）；`/api/status` 新增 `auth_enabled` 字段控制侧栏"退出登录"按钮显隐；`app.js` 的 `api()` 遇 401 只跳转一次 `/login?next=`。验证：新增 `auth_test.go`（登录成功/失败、Cookie 属性、库内只存哈希、会话认证、注销后旧 Cookie 失效、过期会话拒绝并清理、清理保留有效会话、限速锁定与重置、配置不完整时接口 400、`safeNext` 防开放重定向、`/api/status` 输出），并更新 `TestWebAuth`（页面 302、API 401 无 WWW-Authenticate、Basic Auth 仍通、health 公开）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。另起 8020 端口隔离实例（`WEB_USER=admin`）浏览器实测：`/` 未登录 302 到 `/login`、错误密码提示"用户名或密码错误"、正确登录跳回首页且"退出登录"按钮出现、点击退出回登录页后再访问 `/` 重新跳转、刷新保持会话、1280px/390px 视口与亮暗主题渲染正常；另起 8021 端口未配置凭据实例确认：`/` 直接 200、`/login` 302 回首页、`/api/status` `auth_enabled:false`、`/api/login` 400。`docker compose config` 未在本轮重跑（未改容器配置）。
+- 出站代理（2026-09-07 新增）：新增 `proxy.go`，`PROXY_URL` 默认空保持显式直连；`parseProxyURL` 支持 http/https/socks5/socks5h（大小写不敏感、无前缀自动补 `http://`、凭据写 URL、`Hostname()` 校验缺失主机）；`applyProxyConfig` 重建 4 个内容客户端（httpClient、mediaClient 保留 30s ResponseHeaderTimeout、torrentClient 新增替代 downloaderClient 抓 `.torrent`、metaClient），`downloaderClient`/`qbitClient` 仍显式直连只用于下载器 RPC；`/api/status` 新增 `proxy` 字段（`redactProxy` 去除账号密码）并在运行卡片显示。验证：新增 `proxy_test.go`（解析边界、假 HTTP 代理证明 RSS 与 `.torrent` 请求以绝对 URI 经过代理、非法配置不改变原配置、脱敏）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。另起 8022 端口实例配置 `PROXY_URL=http://alice:secret@127.0.0.1:8099`（本地假代理）：应用日志与 `/api/status` 均只显示 `http://127.0.0.1:8099`，RSS 预览请求在假代理日志中留下 `GET http://target.example/rss.xml` 绝对 URI；8023 端口实例配置 `ftp://` 前缀启动即失败并输出"不支持的代理协议"；浏览器实测运行卡片显示"代理 http://127.0.0.1:8099"且亮色/暗色布局正常。`docker compose config` 未在本轮重跑（仅新增注释与空变量行，未改结构）。SOCKS5 仅通过解析与 http.Transport 原生支持验证，未起真实 SOCKS5 服务端实测。
+- 媒体库归档与自定义存储位置（2026-09-07 新增）：重写 `archive.go` 归档布局，弃用 `{番剧名}/{随机ID}/` 结构；`archiveTarget` 计算 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy`（集数 Atoi 补零，无集数放番剧根保留原始文件名），存储位置 = `anime_storage` 表自定义目录（优先）或 `DOWNLOAD_DIR/{safeComponent(番剧名)}`；提交从目录级 rename 改为 `commitLinked` 硬链接（O_EXCL 语义，冲突自动 ` (n)` 后缀，失败回退 rename），BT 多文件资源放 `SxxEyy/` 集目录、元数据写在集目录内；`info.json` 更名为 `{基准名}-info.json` 支持多集同目录。新增 `anime_storage` 表与 `PUT/GET /api/anime/{title}/storage`（`sanitizeStorageDir` 要求绝对路径、拒绝 `..`、`path.Clean` 保持 `/` 分隔符跨平台稳定），items API 输出 `file_path`，前端条目卡片新增「位置」弹窗与归档路径展示，备份升级 v2 含 `anime_storages`（restore 接受 v1/v2）。验证：新增 `archive_test.go`（Season/SXXEYY 布局、自定义目录+季号、清除恢复默认、非法路径拒绝且不落库、同集冲突 ` (2)` 后缀、BT 多文件集目录、备份往返 anime_storages），更新 `TestAutomaticDownloadAndDeduplication` 断言；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8024 端口实例 + 本地 RSS/媒体服务端到端实测：添加订阅自动下载两集落 `downloads/夏日动画   [1080p]/Season 01/夏日动画   [1080p] - S01E07.mp4`（NFO/info.json 同名），浏览器条目卡片显示归档路径与「位置」按钮，弹窗设置自定义目录+季 2 保存后删除第 8 集重新同步，新集落 `my-anime/Season 02/...S02E08.mp4`，第 7 集保持默认位置不变。未实测：Docker 容器内运行、真实 NAS 媒体服务器（Emby/Jellyfin）实际刮削效果。
+- 用户设置与首次安装引导（2026-09-07 新增）：新增 `settings.go` 与 `settings` 表（KV），`applyStoredSettings` 把库值映射到全局变量（普通字段键存在即生效——包括清空回退 env；token/密码只增不清；proxy 走 `applyProxyConfig` 热更新），`loadSettings()` 在 `main()` 中 env 代理之后调用（数据库优先）；`authEnabled`/`verifyWebCredentials` 支持哈希凭据（`webHash` 优先于 env 明文对），登录/Basic Auth/引导共用的 `setPasswordCredentials` 只存 `v1$salt$hash`；`setupRequired() = !setupDone && !authEnabled()`，中间件对未初始化实例把页面重定向 `/setup`、其它 API 返回 401（setup/status/static/health 公开），`POST /api/setup` 完成或跳过后锁定 403；`GET/PUT /api/settings` 指针字段区分"未提供/清空"，敏感字段只写不读（响应仅 `*_set` 布尔），密码至少 6 位、改用户名必须同给密码。前端：`static/setup.html` 三步引导（账户/下载方式/网络同步，按模式显隐下载器字段，完成后自动登录），主面板侧栏新增「设置」视图与 `#btn-save-settings`。验证：新增 `settings_test.go`（全新实例判定与向导流程、重启后 loadSettings 恢复、设置热生效与清空回退、非法模式/周期/代理拒绝且不改变原值、密码只存哈希、响应不含明文与哈希、setup 完成后 403、中间件未初始化重定向与跳过后开放），更新 `TestAuthRequiresCompleteConfig`（setupDone 隔离）；`gofmt`/`go vet`/`go build` 与 `go test ./... -count=1 -timeout=180s` 全部通过。8025 端口全新实例浏览器端到端：`/` 302 到 `/setup`，填管理员+aria2+socks5 代理完成引导后自动登录进面板，`/api/setup` 重放 403，设置页回填正确、改代理与同步周期保存后运行卡片立即显示"每 10 分钟同步 · 代理 http://127.0.0.1:7890"，重启实例后凭据/代理/周期全部保留且 `/setup` 跳回首页。未实测：Docker 容器内运行。
 - 测试仍使用本地 HTTP 服务及临时数据库；真实 BT 下载仅在本机 Windows 验证，NAS 挂载权限、Docker 容器内运行和国内 NAS 实机仍未验证。源码已托管在 GitHub（https://github.com/sssshj114/auto-anime，main 分支），`ani-rss-reference/`、数据库、下载文件、本地可执行文件经 `.gitignore` 排除。
 
 ### 已知缺口
 
-- **标准季目录整理未实现**：归档为 `{番剧名}/{随机ID}/{原始文件名}`，同季同集不同字幕组会落在不同番剧目录；没有 `Season 01/S01E07` 标准命名，媒体服务器刮削依赖文件名与 NFO。
+- **媒体库整理的收尾**：季号识别仍是本地启发式（一律默认 Season 01，手动改季号只影响新归档）；没有 tvshow.nfo；已归档文件不会随新配置迁移，需删除记录重新下载；同季同集不同字幕组会以 ` (n)` 后缀并存，不区分版本优先级。
 - **元数据只有封面**：Bangumi 封面已接入，但没有 TMDB、简介、评分和手动修正入口；封面匹配是本地启发式（双向包含），少量标题可能匹配到同系列错误季或误配；无法从界面重新选择正确条目。
 - **慢任务无告警**：做种少的旧种（如 8 月底发布、仅 2% 进度的任务）会长期停留在"下载中"，没有超时/卡死检测；手动重试会重复提交任务且不清理下载器中的旧任务。
 - **同步和任务可靠性还需加强**：RSS 响应大小限制未实现；任务取消与删除期间的并发行为未专项测试；下载器临时故障只在日志中体现。
@@ -50,7 +60,7 @@
 
 ### 后续开发顺序
 
-1. 标准季目录整理与重命名（`Season 01/S01E07`），合并同季不同字幕组的目录，保留原始文件备份策略。
+1. 媒体库整理收尾：季号手动修正入口、tvshow.nfo、已归档文件按新结构迁移工具。
 2. 元数据补全：Bangumi 封面已接入，剩余 TMDB 可选来源、简介/年份展示与手动修正（换封面、绑定正确条目）；来源不可达时保留基础订阅下载能力。
 3. 任务卡死检测/超时告警、重试时清理下载器旧任务、RSS 响应大小限制。
 4. 管理界面任务详情与分页。
@@ -67,6 +77,9 @@
 ## 项目布局
 
 - `main.go`：启动、HTTP API、订阅同步、解析、下载调度及数据库初始化。
+- `auth.go`：登录页、会话管理、登录限速与访问控制中间件。
+- `settings.go`：用户设置存储与应用、首次安装引导、管理员凭据哈希。
+- `proxy.go`：`PROXY_URL` 解析、统一出站传输配置与代理地址脱敏。
 - `downloader.go`：下载器任务提交、任务 ID 持久化、进度轮询、路径映射与 infohash/种子处理。
 - `meta.go`：Bangumi 封面识别、本地缓存与 `/api/covers/` 服务。
 - `archive.go`：直链与下载器文件的归档、文件名处理和本地元数据生成。
@@ -96,7 +109,7 @@
 ## 网络与外部服务
 
 - RSS、下载器、通知和可选元数据服务使用用户配置的地址；HTTP 请求设置超时，并限制响应大小和并发量。
-- 出站请求默认显式直连，不隐式读取系统代理设置；新增客户端应沿用统一的传输配置。
+- 出站请求默认显式直连，不隐式读取系统代理设置；用户可通过 `PROXY_URL` 显式配置代理（http/https/socks5/socks5h），代理仅作用于公网内容访问，下载器 RPC 保持直连；新增客户端应沿用 `proxy.go` 的统一传输配置。
 - 国内直连是设计要求，不是对第三方站点可达性的保证。RSS、元数据或下载源不可达时报告具体原因，允许更换地址或手动补充信息。
 - 元数据服务失败不得阻塞 RSS 基础订阅和下载流程；保留原始标题与识别来源，不把推测的集数当作已确认信息。
 - 管理页面的脚本、样式、字体和必要图标随应用提供，避免运行时依赖公共 CDN。

@@ -98,6 +98,58 @@ func insertItem(t *testing.T, link string) int {
 	return int(id)
 }
 
+func feedEnabled(t *testing.T, id int64) int {
+	t.Helper()
+	var enabled int
+	if err := db.QueryRow("SELECT enabled FROM feeds WHERE id=?", id).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	return enabled
+}
+
+func TestUpdateFeedPreservesEnabledWhenOmitted(t *testing.T) {
+	testDatabase(t)
+	r, err := db.Exec("INSERT INTO feeds(name,url) VALUES(?,?)", "订阅", "https://example.test/rss.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := r.LastInsertId()
+	path := fmt.Sprintf("/api/feeds/%d", id)
+
+	// 编辑弹窗请求不带 enabled，启用中的订阅必须保持启用
+	res := httptest.NewRecorder()
+	updateFeed(res, httptest.NewRequest("PUT", path, strings.NewReader(`{"name":"新名称","include_words":"1080p"}`)))
+	if res.Code != 200 {
+		t.Fatalf("update code %d: %s", res.Code, res.Body)
+	}
+	if got := feedEnabled(t, id); got != 1 {
+		t.Fatalf("enabled = %d, want 1", got)
+	}
+
+	// 已暂停的订阅编辑后同样保持暂停
+	if _, err := db.Exec("UPDATE feeds SET enabled=0 WHERE id=?", id); err != nil {
+		t.Fatal(err)
+	}
+	res = httptest.NewRecorder()
+	updateFeed(res, httptest.NewRequest("PUT", path, strings.NewReader(`{"name":"新名称"}`)))
+	if res.Code != 200 {
+		t.Fatalf("update code %d: %s", res.Code, res.Body)
+	}
+	if got := feedEnabled(t, id); got != 0 {
+		t.Fatalf("enabled = %d, want 0", got)
+	}
+
+	// 显式携带 enabled 时照常生效，暂停/启用开关依赖此路径
+	res = httptest.NewRecorder()
+	updateFeed(res, httptest.NewRequest("PUT", path, strings.NewReader(`{"name":"新名称","enabled":true}`)))
+	if res.Code != 200 {
+		t.Fatalf("update code %d: %s", res.Code, res.Body)
+	}
+	if got := feedEnabled(t, id); got != 1 {
+		t.Fatalf("enabled = %d, want 1", got)
+	}
+}
+
 func TestAriaRPCErrorMustNotBecomeSuccess(t *testing.T) {
 	testDatabase(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +203,12 @@ func TestAutomaticDownloadAndDeduplication(t *testing.T) {
 	if err != nil || string(data) != "test media" {
 		t.Fatalf("download bytes: %q %v", data, err)
 	}
-	archiveMeta, err := os.ReadFile(filepath.Join(filepath.Dir(path), "info.json"))
+	// 无识别集数的资源归档在番剧根目录，文件名保留原始标题。
+	if want := filepath.Join(downloadDir, "动画 1080p 简中", "动画 1080p 简中.mp4"); filepath.ToSlash(path) != filepath.ToSlash(want) {
+		t.Fatalf("archive layout: %s, want %s", path, want)
+	}
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	archiveMeta, err := os.ReadFile(filepath.Join(filepath.Dir(path), base+"-info.json"))
 	if err != nil || !strings.Contains(string(archiveMeta), `"episode": ""`) {
 		t.Fatalf("archive metadata: %q %v", archiveMeta, err)
 	}
@@ -361,22 +418,39 @@ func TestWebAuth(t *testing.T) {
 	webUser, webPassword = "admin", "secret"
 	defer func() { webUser, webPassword = oldUser, oldPassword }()
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })
+	handler := auth(next)
+
+	// 未登录的页面请求重定向到登录页，而不是弹出 Basic Auth。
 	request := httptest.NewRequest("GET", "/", nil)
 	recorder := httptest.NewRecorder()
-	auth(next).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated status: %d", recorder.Code)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/login" {
+		t.Fatalf("unauthenticated page: %d %s", recorder.Code, recorder.Header().Get("Location"))
 	}
+
+	// 未登录的 API 返回 401，且不触发浏览器原生 Basic Auth 对话框。
+	request = httptest.NewRequest("GET", "/api/items", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated api status: %d", recorder.Code)
+	}
+	if recorder.Header().Get("WWW-Authenticate") != "" {
+		t.Fatal("API 401 must not carry WWW-Authenticate")
+	}
+
+	// Basic Auth 仍对脚本与旧客户端有效。
 	request = httptest.NewRequest("GET", "/", nil)
 	request.SetBasicAuth("admin", "secret")
 	recorder = httptest.NewRecorder()
-	auth(next).ServeHTTP(recorder, request)
+	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("authenticated status: %d", recorder.Code)
 	}
+
 	request = httptest.NewRequest("GET", "/api/health", nil)
 	recorder = httptest.NewRecorder()
-	auth(next).ServeHTTP(recorder, request)
+	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health status: %d", recorder.Code)
 	}
@@ -384,7 +458,9 @@ func TestWebAuth(t *testing.T) {
 
 func TestAuthRequiresCompleteConfig(t *testing.T) {
 	oldUser, oldPassword := webUser, webPassword
-	defer func() { webUser, webPassword = oldUser, oldPassword }()
+	oldSetupDone := setupDone
+	setupDone = true // 引导已跳过：部分 env 配置时保持完全开放
+	defer func() { webUser, webPassword = oldUser, oldPassword; setupDone = oldSetupDone }()
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })
 	for _, tc := range []struct{ user, password string }{
 		{"", ""},

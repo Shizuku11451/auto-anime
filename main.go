@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -46,7 +47,7 @@ var webhookURL = strings.TrimSpace(env("WEBHOOK_URL", ""))
 var listenPort = env("PORT", "8000")
 var webUser = env("WEB_USER", "")
 var webPassword = env("WEB_PASSWORD", "")
-var httpClient = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{Proxy: nil}}
+var httpClient = newClient(60 * time.Second)
 var downloadSlots = make(chan struct{}, 2)
 var qualityPattern = regexp.MustCompile(`(?i)(2160p|1080p|720p|480p|4k|8k)`)
 var groupPattern = regexp.MustCompile(`^\s*[\[【（(]([^\]】）)]+)[\]】）)]\s*`)
@@ -83,7 +84,7 @@ type FeedInput struct {
 	Include string `json:"include_words"`
 	Exclude string `json:"exclude_words"`
 	Auto    bool   `json:"auto_download"`
-	Enabled bool   `json:"enabled"`
+	Enabled *bool  `json:"enabled"`
 }
 type webhookEvent struct {
 	Event    string `json:"event"`
@@ -98,14 +99,23 @@ type PreviewInput struct {
 	URL string `json:"url"`
 }
 type backupData struct {
-	Version    int              `json:"version"`
-	ExportedAt string           `json:"exported_at"`
-	Feeds      []Feed           `json:"feeds"`
-	Items      []map[string]any `json:"items"`
+	Version       int                 `json:"version"`
+	ExportedAt    string              `json:"exported_at"`
+	Feeds         []Feed              `json:"feeds"`
+	Items         []map[string]any    `json:"items"`
+	Animes        []animeRow          `json:"animes,omitempty"`
+	AnimeStorages []animeStorageEntry `json:"anime_storages,omitempty"`
+}
+type animeStorageEntry struct {
+	AnimeTitle string `json:"anime_title"`
+	StorageDir string `json:"storage_dir"`
+	Season     int    `json:"season"`
 }
 type restoreRequest struct {
-	Version *int   `json:"version"`
-	Feeds   []Feed `json:"feeds"`
+	Version       *int                `json:"version"`
+	Feeds         []Feed              `json:"feeds"`
+	Animes        []animeRow          `json:"animes"`
+	AnimeStorages []animeStorageEntry `json:"anime_storages"`
 }
 type opmlDocument struct {
 	Body struct {
@@ -152,24 +162,6 @@ func env(k, d string) string {
 func jsonOut(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(v)
-}
-func auth(next http.Handler) http.Handler {
-	// Authentication is enabled only when both variables are set, matching the
-	// documented behavior; a lone WEB_USER or WEB_PASSWORD is ignored.
-	enabled := webUser != "" && webPassword != ""
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !enabled || r.URL.Path == "/api/health" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		user, password, ok := r.BasicAuth()
-		if !ok || user != webUser || password != webPassword {
-			w.Header().Set("WWW-Authenticate", `Basic realm="auto-anime"`)
-			http.Error(w, "需要登录", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 func notify(event string, id int, status string) {
 	if webhookURL == "" {
@@ -238,7 +230,7 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS feeds(id INTEGER PRIMARY KEY,name TEXT NOT NULL,url TEXT UNIQUE NOT NULL,include_words TEXT DEFAULT '',exclude_words TEXT DEFAULT '',auto_download INTEGER DEFAULT 0,enabled INTEGER DEFAULT 1,last_sync TEXT DEFAULT '',last_error TEXT DEFAULT '',created_at TEXT);CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,feed_id INTEGER,title TEXT,link TEXT UNIQUE,published TEXT,description TEXT,status TEXT DEFAULT '待下载',file_path TEXT,created_at TEXT);CREATE TABLE IF NOT EXISTS anime_meta(anime_title TEXT PRIMARY KEY,subject_id INTEGER DEFAULT 0,name TEXT DEFAULT '',name_cn TEXT DEFAULT '',cover_url TEXT DEFAULT '',cover_file TEXT DEFAULT '',source TEXT DEFAULT '',updated_at TEXT);`)
+	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS feeds(id INTEGER PRIMARY KEY,name TEXT NOT NULL,url TEXT UNIQUE NOT NULL,include_words TEXT DEFAULT '',exclude_words TEXT DEFAULT '',auto_download INTEGER DEFAULT 0,enabled INTEGER DEFAULT 1,last_sync TEXT DEFAULT '',last_error TEXT DEFAULT '',created_at TEXT);CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,feed_id INTEGER,title TEXT,link TEXT UNIQUE,published TEXT,description TEXT,status TEXT DEFAULT '待下载',file_path TEXT,created_at TEXT);CREATE TABLE IF NOT EXISTS anime_meta(anime_title TEXT PRIMARY KEY,subject_id INTEGER DEFAULT 0,name TEXT DEFAULT '',name_cn TEXT DEFAULT '',cover_url TEXT DEFAULT '',cover_file TEXT DEFAULT '',source TEXT DEFAULT '',updated_at TEXT);CREATE TABLE IF NOT EXISTS web_sessions(token_hash TEXT PRIMARY KEY,user TEXT NOT NULL,created_at TEXT DEFAULT '',expires_at TEXT NOT NULL);CREATE TABLE IF NOT EXISTS anime_storage(anime_title TEXT PRIMARY KEY,storage_dir TEXT DEFAULT '',season INTEGER DEFAULT 1,updated_at TEXT);CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);CREATE TABLE IF NOT EXISTS animes(id INTEGER PRIMARY KEY,title TEXT UNIQUE NOT NULL,search_name TEXT DEFAULT '',bangumi_id INTEGER DEFAULT 0,season INTEGER DEFAULT 0,storage_dir TEXT DEFAULT '',include_rules TEXT DEFAULT '',exclude_rules TEXT DEFAULT '',created_at TEXT DEFAULT '',updated_at TEXT DEFAULT '');`)
 	if e != nil {
 		log.Fatal(e)
 	}
@@ -252,7 +244,7 @@ func initDB() {
 			}
 		}
 	}
-	for _, col := range []string{"anime_title TEXT DEFAULT ''", "episode TEXT DEFAULT ''", "quality TEXT DEFAULT ''", "fansub_group TEXT DEFAULT ''", "downloader TEXT DEFAULT ''", "task_id TEXT DEFAULT ''", "task_error TEXT DEFAULT ''", "progress INTEGER DEFAULT 0"} {
+	for _, col := range []string{"anime_title TEXT DEFAULT ''", "episode TEXT DEFAULT ''", "quality TEXT DEFAULT ''", "fansub_group TEXT DEFAULT ''", "downloader TEXT DEFAULT ''", "task_id TEXT DEFAULT ''", "task_error TEXT DEFAULT ''", "progress INTEGER DEFAULT 0", "anime_id INTEGER DEFAULT 0", "season INTEGER DEFAULT 0", "manual INTEGER DEFAULT 0"} {
 		name := strings.Fields(col)[0]
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('items') WHERE name=?", name).Scan(&count)
@@ -367,7 +359,16 @@ func syncFeed(id int) (int, error) {
 			continue
 		}
 		info := extractAnimeInfo(it.Title)
-		r, e := db.Exec("INSERT OR IGNORE INTO items(feed_id,title,link,published,description,anime_title,episode,quality,fansub_group,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", id, it.Title, it.Link, it.Pub, it.Description, info.Title, info.Episode, info.Quality, info.Group, time.Now().Format(time.RFC3339))
+		// 多来源归并：某部番剧的规则命中原始标题时，条目归入该番剧，
+		// 不再按本地识别标题另立门户。
+		animeID := int64(0)
+		animeTitle := info.Title
+		if id, title := matchAnimeRule(it.Title); id > 0 {
+			animeID, animeTitle = id, title
+		} else if animeTitle != "" {
+			animeID, _ = ensureAnime(animeTitle)
+		}
+		r, e := db.Exec("INSERT OR IGNORE INTO items(feed_id,title,link,published,description,anime_title,anime_id,episode,quality,fansub_group,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", id, it.Title, it.Link, it.Pub, it.Description, animeTitle, animeID, info.Episode, info.Quality, info.Group, time.Now().Format(time.RFC3339))
 		if e != nil {
 			// Keep processing the remaining entries, but make sure the
 			// failure is visible on the feed and returned to the caller.
@@ -505,6 +506,89 @@ func failDownload(id int, reason string) {
 func waitForDownloader(id int, reason string) {
 	db.Exec("UPDATE items SET status='等待下载器',task_error=?,downloader='',task_id='',progress=0 WHERE id=?", reason, id)
 }
+
+// sanitizeStorageDir validates a user-provided series folder: absolute and
+// free of ".." components in the original input; empty means "use the default
+// location".
+func sanitizeStorageDir(raw string) (string, error) {
+	d := strings.TrimSpace(raw)
+	if d == "" {
+		return "", nil
+	}
+	// "/volume1/..." is absolute inside the Linux container even though
+	// Windows builds report it as relative.
+	if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, "\\") {
+		return "", fmt.Errorf("存储位置必须是绝对路径，例如 /volume1/anime/番剧名")
+	}
+	for _, part := range strings.Split(filepath.ToSlash(d), "/") {
+		if part == ".." {
+			return "", fmt.Errorf("存储位置不能包含 ..")
+		}
+	}
+	// Keep forward slashes: the storage dir runs inside the Linux container,
+	// and path.Clean avoids the platform-dependent separator of filepath.Clean.
+	return path.Clean(filepath.ToSlash(d)), nil
+}
+
+// animeStorageAPI keeps the legacy /api/anime/{title}/storage endpoint working
+// on top of the animes table (which absorbed anime_storage at migration).
+func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
+	title := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/anime/"), "/storage"))
+	if title == "" {
+		http.NotFound(w, r)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		dir, stored := "", 0
+		db.QueryRow("SELECT COALESCE(storage_dir,''),COALESCE(season,0) FROM animes WHERE title=?", title).Scan(&dir, &stored)
+		season := stored
+		if season < 1 {
+			season = 1
+		}
+		def := filepath.Join(downloadDir, safeComponent(title))
+		effective := def
+		if clean, err := sanitizeStorageDir(dir); err == nil && clean != "" {
+			effective = clean
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		jsonOut(w, map[string]any{"anime_title": title, "storage_dir": dir, "season": season, "default_path": def, "effective_path": effective})
+	case http.MethodPut:
+		var in struct {
+			StorageDir string `json:"storage_dir"`
+			Season     int    `json:"season"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&in) != nil {
+			http.Error(w, "请求参数无效", 400)
+			return
+		}
+		if in.Season == 0 {
+			in.Season = 1
+		}
+		if in.Season < 1 || in.Season > 999 {
+			http.Error(w, "季号必须是 1-999", 400)
+			return
+		}
+		clean, err := sanitizeStorageDir(in.StorageDir)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if _, err = ensureAnime(title); err != nil {
+			http.Error(w, "保存失败", 500)
+			return
+		}
+		if _, err = db.Exec(`UPDATE animes SET storage_dir=?,season=?,updated_at=? WHERE title=?`,
+			clean, in.Season, time.Now().UTC().Format(time.RFC3339), title); err != nil {
+			http.Error(w, "保存失败", 500)
+			return
+		}
+		jsonOut(w, map[string]bool{"ok": true})
+	default:
+		http.Error(w, "方法不支持", 405)
+	}
+}
+
 func feeds(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		rows, _ := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error FROM feeds ORDER BY id DESC")
@@ -572,7 +656,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	data := backupData{Version: 1, ExportedAt: time.Now().UTC().Format(time.RFC3339), Feeds: []Feed{}, Items: []map[string]any{}}
+	data := backupData{Version: 3, ExportedAt: time.Now().UTC().Format(time.RFC3339), Feeds: []Feed{}, Items: []map[string]any{}}
 	tx, err := db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		http.Error(w, "备份失败", 500)
@@ -602,7 +686,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "备份失败", 500)
 		return
 	}
-	rows, err := tx.QueryContext(r.Context(), "SELECT id,COALESCE(feed_id,0),COALESCE(title,''),COALESCE(link,''),COALESCE(published,''),COALESCE(description,''),COALESCE(status,'待下载'),COALESCE(file_path,''),COALESCE(anime_title,''),COALESCE(episode,''),COALESCE(quality,''),COALESCE(fansub_group,''),COALESCE(created_at,'') FROM items ORDER BY id")
+	rows, err := tx.QueryContext(r.Context(), "SELECT id,COALESCE(feed_id,0),COALESCE(title,''),COALESCE(link,''),COALESCE(published,''),COALESCE(description,''),COALESCE(status,'待下载'),COALESCE(file_path,''),COALESCE(anime_title,''),COALESCE(episode,''),COALESCE(quality,''),COALESCE(fansub_group,''),COALESCE(anime_id,0),COALESCE(season,0),COALESCE(created_at,'') FROM items ORDER BY id")
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
@@ -611,14 +695,36 @@ func backup(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, feedID int
 		var title, link, published, description, status, filePath, animeTitle, episode, quality, group, created string
-		if err = rows.Scan(&id, &feedID, &title, &link, &published, &description, &status, &filePath, &animeTitle, &episode, &quality, &group, &created); err != nil {
+		var animeID int64
+		var season int
+		if err = rows.Scan(&id, &feedID, &title, &link, &published, &description, &status, &filePath, &animeTitle, &episode, &quality, &group, &animeID, &season, &created); err != nil {
 			http.Error(w, "备份失败", 500)
 			return
 		}
-		data.Items = append(data.Items, map[string]any{"id": id, "feed_id": feedID, "title": title, "link": link, "published": published, "description": description, "status": status, "file_path": filePath, "anime_title": animeTitle, "episode": episode, "quality": quality, "fansub_group": group, "created_at": created})
+		data.Items = append(data.Items, map[string]any{"id": id, "feed_id": feedID, "title": title, "link": link, "published": published, "description": description, "status": status, "file_path": filePath, "anime_title": animeTitle, "anime_id": animeID, "season": season, "episode": episode, "quality": quality, "fansub_group": group, "created_at": created})
 	}
 	err = rows.Err()
 	rows.Close()
+	if err != nil {
+		http.Error(w, "备份失败", 500)
+		return
+	}
+	animeRows, err := tx.QueryContext(r.Context(), `SELECT id,title,COALESCE(search_name,''),COALESCE(bangumi_id,0),COALESCE(season,0),COALESCE(storage_dir,''),COALESCE(include_rules,''),COALESCE(exclude_rules,''),COALESCE(updated_at,'') FROM animes ORDER BY id`)
+	if err != nil {
+		http.Error(w, "备份失败", 500)
+		return
+	}
+	for animeRows.Next() {
+		var a animeRow
+		if err = animeRows.Scan(&a.ID, &a.Title, &a.SearchName, &a.BangumiID, &a.Season, &a.StorageDir, &a.IncludeRules, &a.ExcludeRules, &a.UpdatedAt); err != nil {
+			animeRows.Close()
+			http.Error(w, "备份失败", 500)
+			return
+		}
+		data.Animes = append(data.Animes, a)
+	}
+	err = animeRows.Err()
+	animeRows.Close()
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
@@ -639,7 +745,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 	}
 	var input restoreRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 5<<20))
-	if decoder.Decode(&input) != nil || input.Feeds == nil || (input.Version != nil && *input.Version != 1) {
+	if decoder.Decode(&input) != nil || input.Feeds == nil || (input.Version != nil && *input.Version != 1 && *input.Version != 2 && *input.Version != 3) {
 		http.Error(w, "备份文件无效", 400)
 		return
 	}
@@ -676,6 +782,68 @@ func restore(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		restored++
+	}
+	// v3 backups carry the series library; titles are the merge key and the
+	// backup's row ids are ignored.
+	for _, a := range input.Animes {
+		title := strings.TrimSpace(a.Title)
+		if title == "" || len([]rune(title)) > titleMaxLength {
+			tx.Rollback()
+			http.Error(w, "备份包含无效番剧", 400)
+			return
+		}
+		season := a.Season
+		if season < 0 || season > 999 {
+			tx.Rollback()
+			http.Error(w, "备份包含无效番剧季号", 400)
+			return
+		}
+		clean, err := sanitizeStorageDir(a.StorageDir)
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "备份包含无效存储位置", 400)
+			return
+		}
+		bangumiID := a.BangumiID
+		if bangumiID < 0 {
+			bangumiID = 0
+		}
+		if _, err = tx.ExecContext(r.Context(), `INSERT INTO animes(title,search_name,bangumi_id,season,storage_dir,include_rules,exclude_rules,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(title) DO UPDATE SET search_name=excluded.search_name,
+				bangumi_id=CASE WHEN excluded.bangumi_id>0 THEN excluded.bangumi_id ELSE animes.bangumi_id END,
+				season=excluded.season,
+				storage_dir=CASE WHEN COALESCE(excluded.storage_dir,'')!='' THEN excluded.storage_dir ELSE animes.storage_dir END,
+				include_rules=excluded.include_rules,exclude_rules=excluded.exclude_rules`,
+			title, sanitizeText(a.SearchName, searchNameLimit), bangumiID, season, clean,
+			sanitizeText(a.IncludeRules, rulesMaxLength), sanitizeText(a.ExcludeRules, rulesMaxLength),
+			time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339)); err != nil {
+			tx.Rollback()
+			http.Error(w, "恢复失败", 500)
+			return
+		}
+	}
+	// v2 backups carry per-series storage overrides; merge them into animes.
+	for _, s := range input.AnimeStorages {
+		title := strings.TrimSpace(s.AnimeTitle)
+		clean, err := sanitizeStorageDir(s.StorageDir)
+		season := s.Season
+		if season == 0 {
+			season = 1
+		}
+		if title == "" || err != nil || season < 1 || season > 999 {
+			tx.Rollback()
+			http.Error(w, "备份包含无效存储位置", 400)
+			return
+		}
+		if _, err = tx.ExecContext(r.Context(), `INSERT INTO animes(title,storage_dir,season,created_at,updated_at) VALUES(?,?,?,?,?)
+			ON CONFLICT(title) DO UPDATE SET
+				storage_dir=CASE WHEN COALESCE(excluded.storage_dir,'')!='' THEN excluded.storage_dir ELSE animes.storage_dir END,
+				season=CASE WHEN excluded.season>0 THEN excluded.season ELSE animes.season END`,
+			title, clean, season, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339)); err != nil {
+			tx.Rollback()
+			http.Error(w, "恢复失败", 500)
+			return
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		http.Error(w, "恢复失败", 500)
@@ -770,7 +938,12 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "订阅参数无效", 400)
 		return
 	}
-	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=? WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), boolInt(in.Enabled), id)
+	// 编辑弹窗不含启用开关：请求未携带 enabled 时保留原值，不能按零值把订阅停用
+	var enabled any
+	if in.Enabled != nil {
+		enabled = boolInt(*in.Enabled)
+	}
+	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, id)
 	if err != nil {
 		http.Error(w, "保存失败", 500)
 		return
@@ -800,7 +973,7 @@ func items(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "items.status=?")
 		args = append(args, status)
 	}
-	query := "SELECT items.id,COALESCE(items.title,''),COALESCE(items.link,''),COALESCE(items.published,''),COALESCE(items.status,'待下载'),COALESCE(items.anime_title,''),COALESCE(items.episode,''),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),COALESCE(items.downloader,''),COALESCE(items.task_error,''),COALESCE(items.progress,0),COALESCE(anime_meta.cover_file,'') FROM items LEFT JOIN feeds ON feeds.id=items.feed_id LEFT JOIN anime_meta ON anime_meta.anime_title=items.anime_title"
+	query := "SELECT items.id,COALESCE(items.title,''),COALESCE(items.link,''),COALESCE(items.published,''),COALESCE(items.status,'待下载'),COALESCE(items.anime_title,''),COALESCE(items.episode,''),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),COALESCE(items.downloader,''),COALESCE(items.task_error,''),COALESCE(items.progress,0),COALESCE(items.file_path,''),COALESCE(items.anime_id,0),COALESCE(items.season,0),COALESCE(items.manual,0),COALESCE(anime_meta.cover_file,'') FROM items LEFT JOIN feeds ON feeds.id=items.feed_id LEFT JOIN anime_meta ON anime_meta.anime_title=items.anime_title"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -825,13 +998,19 @@ func items(w http.ResponseWriter, r *http.Request) {
 		Downloader string `json:"downloader"`
 		TaskError  string `json:"task_error"`
 		Progress   int    `json:"progress"`
+		FilePath   string `json:"file_path"`
+		AnimeID    int64  `json:"anime_id"`
+		Season     int    `json:"season"`
+		Manual     bool   `json:"manual"`
 		CoverFile  string `json:"-"`
 		Cover      string `json:"cover"`
 	}
 	out := []item{}
 	for rows.Next() {
 		var x item
-		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.CoverFile)
+		var manual int
+		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.FilePath, &x.AnimeID, &x.Season, &manual, &x.CoverFile)
+		x.Manual = manual == 1
 		if x.CoverFile != "" {
 			x.Cover = "/api/covers/" + x.CoverFile
 		}
@@ -841,8 +1020,28 @@ func items(w http.ResponseWriter, r *http.Request) {
 }
 func main() {
 	initDB()
-	if (webUser == "") != (webPassword == "") {
+	cleanupSessions()
+	// 番剧库一次性数据迁移：识别标题 → animes、旧存储位置表并入、items 回填 anime_id。
+	if err := migrateAnimeData(); err != nil {
+		log.Printf("番剧数据迁移失败（功能可能不完整）: %v", err)
+	}
+	if raw := env("PROXY_URL", ""); raw != "" {
+		if err := applyProxyConfig(raw); err != nil {
+			log.Fatalf("PROXY_URL 无效: %v", err)
+		}
+		log.Printf("出站代理已启用: %s（RSS/下载/封面走代理，下载器 RPC 始终直连）", redactProxy(proxyURL))
+	}
+	// 数据库里保存的用户设置优先于环境变量，最后加载。
+	loadSettings()
+	if authEnabled() {
+		log.Println("Web 登录已启用")
+	} else if setupDone {
+		log.Println("Web 登录未启用：已跳过首次安装引导，可在设置页配置")
+	} else if (webUser == "") != (webPassword == "") {
 		log.Println("Web 认证未启用：需要同时设置 WEB_USER 和 WEB_PASSWORD")
+	}
+	if setupRequired() {
+		log.Printf("首次安装：请访问 http://127.0.0.1:%s/setup 完成初始化", listenPort)
 	}
 	recovered, err := recoverDownloads(db)
 	if err != nil {
@@ -859,6 +1058,13 @@ func main() {
 		}
 		http.NotFound(w, r)
 	})
+	http.HandleFunc("/login", loginPage)
+	http.HandleFunc("/setup", setupPage)
+	http.HandleFunc("/api/login", handleLogin)
+	http.HandleFunc("/api/logout", handleLogout)
+	http.HandleFunc("/api/settings", settingsHandler)
+	http.HandleFunc("/api/setup", setupHandler)
+	http.HandleFunc("/api/setup/status", setupStatusHandler)
 	http.HandleFunc("/api/feeds", feeds)
 	http.HandleFunc("/api/preview", preview)
 	http.HandleFunc("/api/backup", backup)
@@ -873,10 +1079,26 @@ func main() {
 		deleteFeed(w, r)
 	})
 	http.HandleFunc("/api/items", items)
+	http.HandleFunc("/api/anime/", animeStorageAPI)
+	http.HandleFunc("/api/animes", animesAPI)
+	http.HandleFunc("/api/animes/", animeEntryAPI)
+	http.HandleFunc("/api/meta/search", metaSearchAPI)
+	http.HandleFunc("/api/discover/sources", discoverSourcesAPI)
+	http.HandleFunc("/api/discover/search", discoverSearchAPI)
 	http.HandleFunc("/api/health", healthStatus)
 	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
 	http.HandleFunc("/api/items/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			var id int64
+			n, _ := fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/api/items/"), "%d", &id)
+			if n != 1 || id <= 0 {
+				http.Error(w, "条目不存在", 404)
+				return
+			}
+			correctItem(w, r, id)
+			return
+		}
 		if r.Method == "DELETE" {
 			var id int
 			n, _ := fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/api/items/"), "%d", &id)

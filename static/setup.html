@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>初始设置 · 自动追番</title>
+<meta name="theme-color" content="#0e1216">
+<script>
+/* 主题初始化：与管理面板一致，手动选择优先，否则跟随系统偏好 */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  document.documentElement.dataset.theme = t;
+})();
+</script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card setup-card">
+    <div class="brand login-brand">
+      <div class="name">自动追番</div>
+      <div class="sub">首次安装 · 完成基本设置即可开始使用</div>
+    </div>
+
+    <section class="setup-section">
+      <h2>1 · 管理员账户</h2>
+      <p class="setup-hint">设置后访问面板需要登录；留空则暂不启用登录（之后可在设置页开启）。</p>
+      <div class="field">
+        <label for="su-user">用户名</label>
+        <input type="text" id="su-user" autocomplete="username">
+      </div>
+      <div class="field row2">
+        <div>
+          <label for="su-pass">密码（至少 6 位）</label>
+          <input type="password" id="su-pass" autocomplete="new-password">
+        </div>
+        <div>
+          <label for="su-pass2">确认密码</label>
+          <input type="password" id="su-pass2" autocomplete="new-password">
+        </div>
+      </div>
+    </section>
+
+    <section class="setup-section">
+      <h2>2 · 下载方式</h2>
+      <p class="setup-hint">不配置则使用本地直链下载；也可之后在设置页修改。</p>
+      <div class="field">
+        <label for="su-mode">下载模式</label>
+        <select id="su-mode">
+          <option value="direct">本地直链（HTTP/HTTPS 直接下载）</option>
+          <option value="aria2">Aria2（RPC）</option>
+          <option value="qbittorrent">qBittorrent（WebUI）</option>
+          <option value="transmission">Transmission（RPC）</option>
+        </select>
+      </div>
+      <div class="setup-downloader" id="dl-aria2" hidden>
+        <div class="field">
+          <label for="su-aria2-url">Aria2 RPC 地址（如 http://NAS地址:6800/jsonrpc）</label>
+          <input type="text" id="su-aria2-url" placeholder="http://127.0.0.1:6800/jsonrpc" spellcheck="false">
+        </div>
+        <div class="field row2">
+          <div>
+            <label for="su-aria2-token">RPC 密钥（可选）</label>
+            <input type="password" id="su-aria2-token" autocomplete="off">
+          </div>
+          <div>
+            <label for="su-aria2-dir">Aria2 下载目录（Aria2 容器内路径）</label>
+            <input type="text" id="su-aria2-dir" placeholder="/downloads" spellcheck="false">
+          </div>
+        </div>
+        <div class="field">
+          <label for="su-aria2-local">同一目录映射到本程序的路径（两侧相同时可留空）</label>
+          <input type="text" id="su-aria2-local" placeholder="/downloads" spellcheck="false">
+        </div>
+      </div>
+      <div class="setup-downloader" id="dl-qbit" hidden>
+        <div class="field">
+          <label for="su-qbit-url">qBittorrent WebUI 地址</label>
+          <input type="text" id="su-qbit-url" placeholder="http://127.0.0.1:8080" spellcheck="false">
+        </div>
+        <div class="field row2">
+          <div>
+            <label for="su-qbit-user">用户名</label>
+            <input type="text" id="su-qbit-user" autocomplete="off">
+          </div>
+          <div>
+            <label for="su-qbit-pass">密码</label>
+            <input type="password" id="su-qbit-pass" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="field row2">
+          <div>
+            <label for="su-qbit-save">保存目录（qBittorrent 内路径）</label>
+            <input type="text" id="su-qbit-save" spellcheck="false">
+          </div>
+          <div>
+            <label for="su-qbit-local">映射到本程序的路径</label>
+            <input type="text" id="su-qbit-local" spellcheck="false">
+          </div>
+        </div>
+      </div>
+      <div class="setup-downloader" id="dl-tr" hidden>
+        <div class="field">
+          <label for="su-tr-url">Transmission RPC 地址</label>
+          <input type="text" id="su-tr-url" placeholder="http://127.0.0.1:9091" spellcheck="false">
+        </div>
+        <div class="field row2">
+          <div>
+            <label for="su-tr-user">用户名</label>
+            <input type="text" id="su-tr-user" autocomplete="off">
+          </div>
+          <div>
+            <label for="su-tr-pass">密码</label>
+            <input type="password" id="su-tr-pass" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="field row2">
+          <div>
+            <label for="su-tr-dir">下载目录（Transmission 内路径）</label>
+            <input type="text" id="su-tr-dir" spellcheck="false">
+          </div>
+          <div>
+            <label for="su-tr-local">映射到本程序的路径</label>
+            <input type="text" id="su-tr-local" spellcheck="false">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="setup-section">
+      <h2>3 · 网络与同步</h2>
+      <div class="field">
+        <label for="su-proxy">出站代理（可选，RSS / 下载 / 封面走代理；支持 http、socks5）</label>
+        <input type="text" id="su-proxy" placeholder="例如 http://192.168.1.10:7890 或 socks5://…（留空直连）" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="su-poll">RSS 同步周期（分钟，最小 5）</label>
+        <input type="number" id="su-poll" min="5" max="1440" value="30">
+      </div>
+    </section>
+
+    <p class="form-msg" id="su-msg" role="alert"></p>
+    <div class="setup-actions">
+      <button id="su-skip" type="button">跳过，稍后设置</button>
+      <button class="primary" id="su-save" type="button">完成设置，开始使用</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const su$ = (id) => document.getElementById(id);
+
+function suCollect() {
+  const mode = su$("su-mode").value;
+  const body = {
+    download_mode: mode,
+    proxy_url: su$("su-proxy").value.trim(),
+    poll_minutes: parseInt(su$("su-poll").value, 10) || 30,
+  };
+  const user = su$("su-user").value.trim();
+  const pass = su$("su-pass").value;
+  if (user || pass) {
+    body.web_user = user;
+    body.web_password = pass;
+  }
+  if (mode === "aria2") {
+    body.aria2_url = su$("su-aria2-url").value.trim();
+    body.aria2_token = su$("su-aria2-token").value;
+    body.aria2_dir = su$("su-aria2-dir").value.trim();
+    body.aria2_local_dir = su$("su-aria2-local").value.trim();
+  } else if (mode === "qbittorrent") {
+    body.qbit_url = su$("su-qbit-url").value.trim();
+    body.qbit_user = su$("su-qbit-user").value.trim();
+    body.qbit_password = su$("su-qbit-pass").value;
+  } else if (mode === "transmission") {
+    body.transmission_url = su$("su-tr-url").value.trim();
+    body.transmission_user = su$("su-tr-user").value.trim();
+    body.transmission_password = su$("su-tr-pass").value;
+  }
+  return body;
+}
+
+function suFinish(body) {
+  fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (res) => {
+      if (!res.ok) {
+        su$("su-msg").textContent = (await res.text()) || "保存失败";
+        return;
+      }
+      if (body.web_user && body.web_password) {
+        await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: body.web_user, password: body.web_password }) });
+      }
+      location.replace("/");
+    })
+    .catch(() => { su$("su-msg").textContent = "网络错误，请稍后重试"; });
+}
+
+su$("su-mode").addEventListener("change", () => {
+  for (const id of ["dl-aria2", "dl-qbit", "dl-tr"]) su$(id).hidden = true;
+  const map = { aria2: "dl-aria2", qbittorrent: "dl-qbit", transmission: "dl-tr" };
+  if (map[su$("su-mode").value]) su$(map[su$("su-mode").value]).hidden = false;
+});
+
+su$("su-save").addEventListener("click", () => {
+  su$("su-msg").textContent = "";
+  const body = suCollect();
+  if ((body.web_user || body.web_password) && (!body.web_user || !body.web_password)) {
+    su$("su-msg").textContent = "用户名和密码需要一起填写，或都留空跳过";
+    return;
+  }
+  if (body.web_password && body.web_password !== su$("su-pass2").value) {
+    su$("su-msg").textContent = "两次输入的密码不一致";
+    return;
+  }
+  if (body.web_password && body.web_password.length < 6) {
+    su$("su-msg").textContent = "密码至少 6 位";
+    return;
+  }
+  if ((body.aria2_url || body.qbit_url || body.transmission_url) && !body.web_user) {
+    // 配置了下载器但没设置登录：确认一次，避免面板裸奔
+    if (!confirm("尚未设置管理员账户，面板任何人都可访问。仍要继续吗？")) return;
+  }
+  suFinish(body);
+});
+
+su$("su-skip").addEventListener("click", () => suFinish({}));
+
+fetch("/api/setup/status").then((r) => r.json()).then((s) => {
+  if (!s.required) location.replace("/");
+}).catch(() => {});
+</script>
+</body>
+</html>

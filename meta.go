@@ -21,7 +21,7 @@ import (
 var bangumiAPI = strings.TrimRight(env("BANGUMI_API", "https://api.bgm.tv"), "/")
 var bangumiEnabled = env("BANGUMI_ENABLED", "true") == "true"
 var coversDir = env("COVERS_DIR", "/data/covers")
-var metaClient = &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
+var metaClient = newClient(15 * time.Second)
 var metaQueue = make(chan string, 256)
 
 const metaUserAgent = "auto-anime/1.0 (https://github.com/sssshj114/auto-anime)"
@@ -102,10 +102,30 @@ func enqueueMissingMeta() {
 
 func lookupAndCacheMeta(animeTitle string) {
 	var source string
-	if err := db.QueryRow("SELECT COALESCE(source,'') FROM anime_meta WHERE anime_title=?", animeTitle).Scan(&source); err == nil && source == "bangumi" {
+	if err := db.QueryRow("SELECT COALESCE(source,'') FROM anime_meta WHERE anime_title=?", animeTitle).Scan(&source); err == nil && (source == "bangumi" || source == "manual") {
 		return
 	}
-	for _, q := range metaQueryTitles(animeTitle) {
+	// 手动绑定优先：番剧绑定了 Bangumi 条目就按 ID 直接取，不再猜。
+	var searchName string
+	var bangumiID int64
+	db.QueryRow(`SELECT COALESCE(search_name,''),COALESCE(bangumi_id,0) FROM animes WHERE title=?`, animeTitle).Scan(&searchName, &bangumiID)
+	if bangumiID > 0 {
+		subject, err := fetchBangumiSubject(bangumiID)
+		if err != nil {
+			// Network/API trouble: record nothing so the next sync retries.
+			log.Printf("封面查询失败 %q: %v", animeTitle, err)
+			return
+		}
+		if err := storeMetaSubject(animeTitle, subject, "manual"); err != nil {
+			log.Printf("封面元数据保存失败 %q: %v", animeTitle, err)
+		}
+		return
+	}
+	queries := metaQueryTitles(animeTitle)
+	if custom := strings.TrimSpace(searchName); custom != "" {
+		queries = append([]string{custom}, queries...)
+	}
+	for _, q := range queries {
 		subject, err := searchBangumi(q)
 		if err != nil {
 			// Network/API trouble: record nothing so the next sync retries.
@@ -115,19 +135,7 @@ func lookupAndCacheMeta(animeTitle string) {
 		if subject == nil {
 			continue
 		}
-		coverURL := preferredCoverURL(subject)
-		if coverURL == "" {
-			continue
-		}
-		coverFile, err := cacheCover(coverURL)
-		if err != nil {
-			log.Printf("封面下载失败 %q: %v", coverURL, err)
-			return
-		}
-		_, err = db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at) VALUES(?,?,?,?,?,?,?,?)
-			ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at`,
-			animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, "bangumi", time.Now().UTC().Format(time.RFC3339))
-		if err != nil {
+		if err := storeMetaSubject(animeTitle, subject, "bangumi"); err != nil {
 			log.Printf("封面元数据保存失败 %q: %v", animeTitle, err)
 		}
 		return
@@ -135,6 +143,23 @@ func lookupAndCacheMeta(animeTitle string) {
 	// Search worked but nothing matched: remember it so we stop asking for a week.
 	db.Exec(`INSERT INTO anime_meta(anime_title,source,updated_at) VALUES(?,'none',?) ON CONFLICT(anime_title) DO NOTHING`,
 		animeTitle, time.Now().UTC().Format(time.RFC3339))
+}
+
+// storeMetaSubject caches the cover of a resolved subject and records the
+// metadata row; source is "bangumi" (auto) or "manual" (user binding).
+func storeMetaSubject(animeTitle string, subject *bangumiSubject, source string) error {
+	coverURL := preferredCoverURL(subject)
+	if coverURL == "" {
+		return fmt.Errorf("条目没有可用封面")
+	}
+	coverFile, err := cacheCover(coverURL)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at) VALUES(?,?,?,?,?,?,?,?)
+		ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at`,
+		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339))
+	return err
 }
 
 // metaQueryTitles turns a recognized title into search keywords. Bracket tags
@@ -187,8 +212,10 @@ func normalizeMetaText(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), ""))
 }
 
-func searchBangumi(query string) (*bangumiSubject, error) {
-	u := fmt.Sprintf("%s/search/subject/%s?type=2&responseGroup=small&max_results=5&format=json", bangumiAPI, url.PathEscape(query))
+// searchBangumiList queries Bangumi and returns the raw candidate list for
+// the binding UI (no heuristic filtering).
+func searchBangumiList(query string) ([]bangumiSubject, error) {
+	u := fmt.Sprintf("%s/search/subject/%s?type=2&responseGroup=small&max_results=8&format=json", bangumiAPI, url.PathEscape(query))
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return nil, err
@@ -211,12 +238,53 @@ func searchBangumi(query string) (*bangumiSubject, error) {
 	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&out); err != nil {
 		return nil, err
 	}
-	for i := range out.List {
-		if metaAccept(query, out.List[i].Name, out.List[i].NameCN) {
-			return &out.List[i], nil
+	if len(out.List) > 8 {
+		out.List = out.List[:8]
+	}
+	return out.List, nil
+}
+
+func searchBangumi(query string) (*bangumiSubject, error) {
+	list, err := searchBangumiList(query)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if metaAccept(query, list[i].Name, list[i].NameCN) {
+			return &list[i], nil
 		}
 	}
 	return nil, nil
+}
+
+// fetchBangumiSubject reads one subject by ID through the v0 API; used when a
+// series has a manual metadata binding.
+func fetchBangumiSubject(id int64) (*bangumiSubject, error) {
+	u := fmt.Sprintf("%s/v0/subjects/%d", bangumiAPI, id)
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", metaUserAgent)
+	res, err := metaClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("Bangumi 条目 %d 不存在", id)
+	}
+	if res.StatusCode >= 400 {
+		return nil, fmt.Errorf("Bangumi 返回 HTTP %d", res.StatusCode)
+	}
+	var subject bangumiSubject
+	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&subject); err != nil {
+		return nil, err
+	}
+	if subject.ID == 0 {
+		subject.ID = int(id)
+	}
+	return &subject, nil
 }
 
 func preferredCoverURL(subject *bangumiSubject) string {
