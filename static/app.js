@@ -5,12 +5,15 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const state = {
-  view: "items",
+  view: "animes",
   statusFilter: "全部",
   search: "",
   feeds: [],
   items: [],
+  animes: [],
+  animeDetail: null,
   editingFeedId: null,
+  editingFeedEnabled: true,
 };
 
 const MODE_LABEL = { direct: "本地直链", aria2: "Aria2", qbittorrent: "qBittorrent", transmission: "Transmission" };
@@ -52,8 +55,16 @@ function toast(message, isError = false) {
   setTimeout(() => el.remove(), 4200);
 }
 
+/* 会话失效时只跳转一次，避免 5 秒轮询反复触发 */
+let redirectingToLogin = false;
+
 async function api(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401 && !redirectingToLogin) {
+    redirectingToLogin = true;
+    location.href = "/login?next=" + encodeURIComponent(location.pathname);
+    throw new Error("登录已过期，正在跳转到登录页");
+  }
   if (!res.ok) {
     let detail = await res.text();
     try { detail = (await res.clone().json()).detail || detail; } catch {}
@@ -110,12 +121,20 @@ if (themeMedia?.addEventListener) {
 }
 syncThemeButton();
 
+/* ---- 退出登录 ---- */
+$("#btn-logout").onclick = async () => {
+  try { await api("/api/logout", { method: "POST" }); } catch {}
+  location.href = "/login";
+};
+
 /* ---- 视图切换 ---- */
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.onclick = () => {
     state.view = btn.dataset.view;
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b === btn));
     document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + state.view));
+    if (state.view === "settings") loadSettingsForm();
+    if (state.view === "discover") initDiscoverView();
   };
 });
 
@@ -162,6 +181,7 @@ function renderItems() {
             <span>${esc(formatTime(x.published))}</span>
           </div>
           <div class="original">${esc(x.title)}</div>
+          ${badge.cls === "saved" && x.file_path ? `<div class="original" title="归档位置">${esc(x.file_path)}</div>` : ""}
           ${x.task_error ? `<div class="error-line">${esc(x.task_error)}</div>` : ""}
           ${downloading ? `<div class="progress"><div class="bar" style="width:${progress}%"></div></div>` : ""}
         </div>
@@ -170,6 +190,8 @@ function renderItems() {
         <span class="badge ${badge.cls}">${esc(badge.text)}${downloading && progress > 0 ? " " + progress + "%" : ""}</span>
         <div class="item-actions">
           ${retryable ? `<button class="small" data-download="${x.id}">${x.status === "待下载" ? "下载" : "重试"}</button>` : ""}
+          ${x.anime_title ? `<button class="small" data-storage="${x.id}">位置</button>` : ""}
+          <button class="small" data-correct="${x.id}">纠错</button>
           <button class="small danger" data-remove="${x.id}">移除</button>
         </div>
       </div>
@@ -190,6 +212,18 @@ function renderItems() {
       try { await api(`/api/items/${btn.dataset.download}/download`, { method: "POST" }); toast("已加入下载队列"); }
       catch (e) { toast(e.message, true); }
       await load();
+    };
+  });
+  box.querySelectorAll("[data-storage]").forEach((btn) => {
+    btn.onclick = () => {
+      const it = state.items.find((x) => x.id === Number(btn.dataset.storage));
+      if (it) openStorageDialog(it.anime_title || it.title);
+    };
+  });
+  box.querySelectorAll("[data-correct]").forEach((btn) => {
+    btn.onclick = () => {
+      const it = state.items.find((x) => x.id === Number(btn.dataset.correct));
+      if (it) openCorrectDialog(it);
     };
   });
   box.querySelectorAll("[data-remove]").forEach((btn) => {
@@ -270,6 +304,7 @@ function renderFeeds() {
 /* ---- 订阅弹窗 ---- */
 function openFeedDialog(feed) {
   state.editingFeedId = feed ? feed.id : null;
+  state.editingFeedEnabled = feed ? !!feed.enabled : true;
   $("#feed-dialog-title").textContent = feed ? "编辑订阅" : "添加订阅";
   $("#f-name").value = feed ? feed.name : "";
   $("#f-url").value = feed ? feed.url : "";
@@ -297,7 +332,578 @@ document.addEventListener("keydown", (e) => {
   closeFeedDialog();
   $("#confirm-dialog").classList.remove("open");
   confirmResolve?.(false);
+  closeStorageDialog();
+  closeAnimeDetail();
+  $("#anime-edit-dialog").classList.remove("open");
+  $("#bind-dialog").classList.remove("open");
+  $("#correct-dialog").classList.remove("open");
 });
+
+/* ---- 存储位置弹窗 ---- */
+let storageAnimeTitle = "";
+async function openStorageDialog(title) {
+  storageAnimeTitle = title;
+  $("#s-anime").textContent = title;
+  $("#s-msg").textContent = "";
+  $("#s-dir").value = "";
+  $("#s-season").value = 1;
+  $("#s-default").textContent = "";
+  $("#storage-dialog").classList.add("open");
+  try {
+    const s = await api("/api/anime/" + encodeURIComponent(title) + "/storage");
+    $("#s-dir").value = s.storage_dir || "";
+    $("#s-season").value = s.season || 1;
+    $("#s-default").textContent = "默认位置：" + s.default_path;
+  } catch (e) {
+    $("#s-msg").textContent = "读取失败：" + e.message;
+  }
+}
+function closeStorageDialog() { $("#storage-dialog").classList.remove("open"); }
+$("#s-cancel").onclick = closeStorageDialog;
+$("#storage-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeStorageDialog(); });
+$("#s-save").onclick = async () => {
+  const msg = $("#s-msg");
+  msg.textContent = "";
+  const season = Number($("#s-season").value);
+  const saveBtn = $("#s-save");
+  saveBtn.disabled = true;
+  try {
+    await api("/api/anime/" + encodeURIComponent(storageAnimeTitle) + "/storage", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storage_dir: $("#s-dir").value.trim(), season: Number.isInteger(season) ? season : 1 }),
+    });
+    toast("存储位置已保存，之后归档的集数使用新位置");
+    closeStorageDialog();
+  } catch (e) { msg.textContent = e.message; }
+  saveBtn.disabled = false;
+};
+
+/* ---- 番剧库 ---- */
+async function renderAnimes() {
+  const box = $("#animes");
+  if (!state.animes.length) {
+    box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">◈</div>番剧库还是空的<br><small>添加订阅并同步后，识别出的番剧会出现在这里</small></div>`;
+    return;
+  }
+  box.innerHTML = state.animes.map((a) => {
+    const cover = a.cover
+      ? `<img class="anime-card-cover" src="${esc(a.cover)}" alt="" loading="lazy">`
+      : `<div class="anime-card-cover ph" aria-hidden="true">◈</div>`;
+    const tags = [];
+    if (a.bangumi_id) tags.push(`<span class="tag group">已绑定</span>`);
+    else if (a.include_rules) tags.push(`<span class="tag">多来源规则</span>`);
+    if (a.season > 1) tags.push(`<span class="tag">默认第 ${a.season} 季</span>`);
+    return `<article class="anime-card" data-anime="${a.id}" tabindex="0" role="button" aria-label="打开 ${esc(a.title)}">
+      ${cover}
+      <div class="anime-card-body">
+        <div class="anime-card-title">${esc(a.meta_name_cn || a.title)}</div>
+        <div class="anime-card-sub" title="${esc(a.title)}">${esc(a.title)}</div>
+        <div class="anime-card-stats">
+          <span>${a.item_count} 条资源</span>
+          <span>已保存 ${a.saved_count}</span>
+          ${a.episode_count ? `<span>${a.episode_count} 集</span>` : ""}
+        </div>
+        ${tags.length ? `<div class="tags">${tags.join("")}</div>` : ""}
+      </div>
+    </article>`;
+  }).join("");
+  box.querySelectorAll("[data-anime]").forEach((card) => {
+    const open = () => openAnimeDetail(Number(card.dataset.anime));
+    card.onclick = open;
+    card.onkeydown = (e) => { if (e.key === "Enter") open(); };
+  });
+  box.querySelectorAll("img.anime-card-cover").forEach((img) => {
+    img.onerror = () => {
+      const ph = document.createElement("div");
+      ph.className = "anime-card-cover ph";
+      ph.textContent = "◈";
+      ph.setAttribute("aria-hidden", "true");
+      img.replaceWith(ph);
+    };
+  });
+}
+
+/* ---- 番剧详情 ---- */
+let detailAnimeId = null;
+
+function detailItemRow(it) {
+  const badge = badgeInfo(it.status || "待下载");
+  const retryable = ["待下载", "下载失败", "等待下载器"].includes(it.status);
+  return `<div class="res-row" data-item="${it.id}">
+    <span class="badge ${badge.cls}">${esc(badge.text)}</span>
+    <div class="res-info">
+      <div class="res-title" title="${esc(it.title)}">${esc(it.title)}</div>
+      <div class="res-meta">${esc(it.fansub_group || "未知字幕组")} · ${esc(it.quality || "未知清晰度")}${it.feed_name ? " · 来源 " + esc(it.feed_name) : ""}${it.manual ? " · 已纠错" : ""}</div>
+      ${it.file_path ? `<div class="res-path" title="${esc(it.file_path)}">${esc(it.file_path)}</div>` : ""}
+    </div>
+    <div class="res-actions">
+      ${retryable ? `<button class="small" data-act="download" data-id="${it.id}">${it.status === "待下载" ? "下载" : "重试"}</button>` : ""}
+      <button class="small" data-act="correct" data-id="${it.id}">纠错</button>
+      <button class="small danger" data-act="remove" data-id="${it.id}">移除</button>
+    </div>
+  </div>`;
+}
+
+async function openAnimeDetail(id) {
+  detailAnimeId = id;
+  $("#ad-msg").textContent = "";
+  $("#ad-body").innerHTML = `<div class="empty" style="padding:26px 16px">正在加载…</div>`;
+  $("#anime-detail").classList.add("open");
+  try {
+    const d = await api("/api/animes/" + id);
+    state.animeDetail = d;
+    renderAnimeDetail(d);
+  } catch (e) {
+    $("#ad-body").innerHTML = "";
+    $("#ad-msg").textContent = "加载失败：" + e.message;
+  }
+}
+
+function closeAnimeDetail() { $("#anime-detail").classList.remove("open"); }
+$("#ad-close").onclick = closeAnimeDetail;
+$("#anime-detail").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeAnimeDetail(); });
+
+function renderAnimeDetail(d) {
+  $("#ad-title").textContent = d.meta_name_cn || d.title;
+  const cover = $("#ad-cover");
+  if (d.cover) { cover.src = d.cover; cover.hidden = false; cover.onerror = () => { cover.hidden = true; }; }
+  else cover.hidden = true;
+  const bits = [`识别名 ${esc(d.title)}`];
+  if (d.meta_name && d.meta_name !== d.meta_name_cn) bits.push(esc(d.meta_name));
+  if (d.season > 0) bits.push(`默认第 ${d.season} 季`);
+  if (d.bangumi_id) bits.push(`Bangumi #${d.bangumi_id}`);
+  bits.push(`${d.item_count} 条资源 · ${d.saved_count} 已保存`);
+  if (d.sources && d.sources.length) bits.push(`来源 ${d.sources.map(esc).join("、")}`);
+  $("#ad-meta").innerHTML = bits.map((b) => `<span>${b}</span>`).join('<span class="dot">·</span>');
+  $("#ad-desc").textContent = d.include_rules
+    ? `多来源规则：包含 ${d.include_rules}${d.exclude_rules ? " · 排除 " + d.exclude_rules : ""}`
+    : "未设置多来源规则，仅按识别标题归并";
+  const body = $("#ad-body");
+  if (!d.seasons || !d.seasons.length) {
+    body.innerHTML = `<div class="empty" style="padding:26px 16px"><div class="big">📭</div>该番剧下暂无资源</div>`;
+    return;
+  }
+  body.innerHTML = d.seasons.map((s) => {
+    const eps = s.episodes.map((ep) => {
+      const rows = ep.items.map(detailItemRow).join("");
+      const multi = ep.items.length > 1 ? `<span class="tag group">${ep.items.length} 个版本</span>` : "";
+      return `<div class="ep-block">
+        <div class="ep-title">第 ${esc(ep.episode)} 集 ${multi}</div>
+        ${rows}
+      </div>`;
+    }).join("");
+    const loose = s.loose.length
+      ? `<div class="ep-block"><div class="ep-title">未识别集数</div>${s.loose.map(detailItemRow).join("")}</div>`
+      : "";
+    return `<div class="season-block">
+      <div class="season-title">Season ${String(s.season).padStart(2, "0")}</div>
+      ${eps}${loose}
+    </div>`;
+  }).join("");
+}
+
+/* 详情内资源操作（事件委托，弹窗内动态渲染） */
+$("#ad-body").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  const act = btn.dataset.act;
+  const d = state.animeDetail;
+  if (!d) return;
+  let item = null;
+  for (const s of d.seasons) {
+    for (const ep of s.episodes) {
+      const hit = ep.items.find((x) => x.id === id);
+      if (hit) item = hit;
+    }
+    const hit = s.loose.find((x) => x.id === id);
+    if (hit) item = hit;
+  }
+  if (!item) return;
+  if (act === "correct") { openCorrectDialog(item, d); return; }
+  if (act === "download") {
+    btn.disabled = true;
+    try { await api(`/api/items/${id}/download`, { method: "POST" }); toast("已加入下载队列"); }
+    catch (err) { toast(err.message, true); }
+    await openAnimeDetail(detailAnimeId);
+    await load();
+    return;
+  }
+  if (act === "remove") {
+    if (!(await confirmDialog("移除记录", "只删除这条资源记录，不会删除 NAS 上已保存的文件。"))) return;
+    try { await api(`/api/items/${id}`, { method: "DELETE" }); toast("已移除记录"); }
+    catch (err) { toast(err.message, true); }
+    await openAnimeDetail(detailAnimeId);
+    await load();
+  }
+});
+
+/* ---- 番剧编辑 ---- */
+let editingAnimeId = null;
+function openAnimeEdit(a) {
+  editingAnimeId = a.id;
+  $("#ae-anime").textContent = a.title;
+  $("#ae-name").value = a.title;
+  $("#ae-search").value = a.search_name || "";
+  $("#ae-season").value = a.season > 0 ? a.season : 1;
+  $("#ae-dir").value = a.storage_dir || "";
+  $("#ae-include").value = a.include_rules || "";
+  $("#ae-exclude").value = a.exclude_rules || "";
+  $("#ae-msg").textContent = "";
+  $("#anime-edit-dialog").classList.add("open");
+}
+$("#ad-edit").onclick = () => {
+  if (state.animeDetail) openAnimeEdit(state.animeDetail);
+};
+function closeAnimeEdit() { $("#anime-edit-dialog").classList.remove("open"); }
+$("#ae-cancel").onclick = closeAnimeEdit;
+$("#anime-edit-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeAnimeEdit(); });
+
+$("#ae-save").onclick = async () => {
+  const msg = $("#ae-msg");
+  msg.textContent = "";
+  if (!$("#ae-name").value.trim()) { msg.textContent = "请填写番剧名称"; return; }
+  const body = {
+    title: $("#ae-name").value.trim(),
+    search_name: $("#ae-search").value.trim(),
+    season: parseInt($("#ae-season").value, 10) || 1,
+    storage_dir: $("#ae-dir").value.trim(),
+    include_rules: $("#ae-include").value.trim(),
+    exclude_rules: $("#ae-exclude").value.trim(),
+  };
+  const btn = $("#ae-save");
+  btn.disabled = true;
+  try {
+    await api("/api/animes/" + editingAnimeId, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast("番剧已保存");
+    closeAnimeEdit();
+    await load();
+    if (detailAnimeId) await openAnimeDetail(detailAnimeId);
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+};
+
+$("#ae-apply").onclick = async () => {
+  const msg = $("#ae-msg");
+  msg.textContent = "";
+  if (!$("#ae-include").value.trim()) { msg.textContent = "请先填写包含规则关键词"; return; }
+  // 先保存再应用，保证规则是最新值。
+  const saveBody = {
+    title: $("#ae-name").value.trim(),
+    search_name: $("#ae-search").value.trim(),
+    season: parseInt($("#ae-season").value, 10) || 1,
+    storage_dir: $("#ae-dir").value.trim(),
+    include_rules: $("#ae-include").value.trim(),
+    exclude_rules: $("#ae-exclude").value.trim(),
+  };
+  const btn = $("#ae-apply");
+  btn.disabled = true;
+  try {
+    await api("/api/animes/" + editingAnimeId, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(saveBody) });
+    const r = await api(`/api/animes/${editingAnimeId}/apply-rules`, { method: "POST" });
+    toast(`规则已应用，归并了 ${r.matched} 条现有条目`);
+    closeAnimeEdit();
+    await load();
+    if (detailAnimeId) await openAnimeDetail(detailAnimeId);
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+};
+
+/* ---- 元数据绑定 ---- */
+let bindAnime = null;
+function openBindDialog(a) {
+  bindAnime = a;
+  $("#bd-anime").textContent = a.title;
+  $("#bd-query").value = a.search_name || "";
+  $("#bd-results").innerHTML = a.bangumi_id
+    ? `<div class="bind-current">当前绑定：Bangumi #${a.bangumi_id}${a.meta_name_cn ? " · " + esc(a.meta_name_cn) : ""}</div>`
+    : `<div class="bind-current">当前未绑定，封面由自动识别获得</div>`;
+  $("#bd-msg").textContent = "";
+  $("#bind-dialog").classList.add("open");
+  if (a.search_name) searchBangumiCandidates(a.search_name);
+}
+$("#ad-bind").onclick = () => { if (state.animeDetail) openBindDialog(state.animeDetail); };
+function closeBindDialog() { $("#bind-dialog").classList.remove("open"); }
+$("#bd-cancel").onclick = closeBindDialog;
+$("#bind-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeBindDialog(); });
+
+async function searchBangumiCandidates(q) {
+  const box = $("#bd-results");
+  box.innerHTML = `<div class="bind-current">搜索中…</div>`;
+  try {
+    const data = await api("/api/meta/search?q=" + encodeURIComponent(q));
+    if (!data.items.length) {
+      box.innerHTML = `<div class="bind-current">没有找到匹配的 Bangumi 条目，换个关键词试试</div>`;
+      return;
+    }
+    box.innerHTML = data.items.map((c) => `
+      <div class="bind-item">
+        <div class="bind-names"><b>${esc(c.name_cn || c.name)}</b>${c.name_cn ? `<span>${esc(c.name)}</span>` : ""}</div>
+        <button class="small" data-bind="${c.id}">绑定</button>
+      </div>`).join("");
+    box.querySelectorAll("[data-bind]").forEach((btn) => {
+      btn.onclick = () => bindMetadata(Number(btn.dataset.bind));
+    });
+  } catch (e) {
+    box.innerHTML = "";
+    $("#bd-msg").textContent = e.message;
+  }
+}
+$("#bd-search").onclick = () => {
+  const q = $("#bd-query").value.trim();
+  if (q.length < 2) { $("#bd-msg").textContent = "请输入至少 2 个字符的关键词"; return; }
+  $("#bd-msg").textContent = "";
+  searchBangumiCandidates(q);
+};
+$("#bd-query").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#bd-search").click(); });
+
+async function bindMetadata(bangumiID) {
+  const btn = $("#bd-msg");
+  btn.textContent = "";
+  try {
+    await api(`/api/animes/${bindAnime.id}/metadata`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bangumi_id: bangumiID }) });
+    toast(bangumiID > 0 ? "元数据绑定成功，封面已更新" : "已解除绑定");
+    closeBindDialog();
+    await load();
+    if (detailAnimeId) await openAnimeDetail(detailAnimeId);
+  } catch (e) { btn.textContent = e.message; }
+}
+$("#bd-unbind").onclick = () => bindMetadata(0);
+
+/* ---- 手动纠错 ---- */
+let correctingItem = null;
+function openCorrectDialog(item, detail) {
+  correctingItem = { item, detail: detail || null };
+  $("#cd-original").textContent = item.title;
+  const sel = $("#cd-anime");
+  const options = state.animes.map((a) => `<option value="${a.id}">${esc(a.title)}</option>`).join("");
+  sel.innerHTML = (item.anime_id ? `<option value="${item.anime_id}">${esc(item.anime_title || "当前番剧")}</option>` : `<option value="">（不更改番剧）</option>`) + options;
+  if (item.anime_id) sel.value = String(item.anime_id);
+  $("#cd-anime-new").value = "";
+  $("#cd-season").value = item.season || 0;
+  $("#cd-episode").value = item.episode || "";
+  $("#cd-move").checked = false;
+  $("#cd-msg").textContent = "";
+  $("#correct-dialog").classList.add("open");
+}
+function closeCorrectDialog() { $("#correct-dialog").classList.remove("open"); }
+$("#cd-cancel").onclick = closeCorrectDialog;
+$("#correct-dialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeCorrectDialog(); });
+
+$("#cd-save").onclick = async () => {
+  const msg = $("#cd-msg");
+  msg.textContent = "";
+  if (!correctingItem) return;
+  const body = { season: parseInt($("#cd-season").value, 10) || 0, episode: $("#cd-episode").value.trim() };
+  const newTitle = $("#cd-anime-new").value.trim();
+  if (newTitle) body.anime_title = newTitle;
+  else if ($("#cd-anime").value) body.anime_id = Number($("#cd-anime").value);
+  else { msg.textContent = "请选择目标番剧或输入新番剧名"; return; }
+  body.rearchive = $("#cd-move").checked;
+  const btn = $("#cd-save");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/items/" + correctingItem.item.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast(r.moved ? "纠错已保存，媒体文件已迁移" : "纠错已保存");
+    closeCorrectDialog();
+    await load();
+    if (detailAnimeId) await openAnimeDetail(detailAnimeId);
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+};
+
+/* ---- 找番 ---- */
+const discoverState = { sources: [], loaded: false, last: null };
+
+function renderDiscoverMessage(text, icon = "🔎") {
+  $("#d-summary").hidden = true;
+  $("#d-results").innerHTML = `<div class="empty"><div class="big">${icon}</div>${esc(text)}</div>`;
+}
+
+async function initDiscoverView() {
+  if (discoverState.loaded) return;
+  discoverState.loaded = true;
+  renderDiscoverMessage("输入关键词搜索资源站，从结果里把 RSS 地址添加为订阅");
+  try {
+    const data = await api("/api/discover/sources");
+    discoverState.sources = data.sources || [];
+  } catch (e) {
+    $("#d-source").innerHTML = `<option value="">搜索源加载失败</option>`;
+    renderDiscoverMessage(`搜索源加载失败：${e.message}`, "⚠️");
+    discoverState.loaded = true;
+    return;
+  }
+  if (!discoverState.sources.length) {
+    $("#d-source").innerHTML = `<option value="">无可用搜索源</option>`;
+    renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "⚠️");
+    return;
+  }
+  $("#d-source").innerHTML = discoverState.sources.map((s) =>
+    `<option value="${esc(s.id)}" title="${esc(s.hint || s.name)}">${esc(s.name)}</option>`).join("");
+}
+
+async function runDiscoverSearch() {
+  const keyword = $("#d-keyword").value.trim();
+  const source = $("#d-source").value;
+  if (!keyword) { renderDiscoverMessage("请输入搜索关键词"); $("#d-keyword").focus(); return; }
+  if (!source) { renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "⚠️"); return; }
+  $("#d-summary").hidden = true;
+  $("#d-results").innerHTML = `<div class="empty"><div class="big">⏳</div>正在搜索「${esc(keyword)}」…</div>`;
+  $("#d-search-btn").disabled = true;
+  try {
+    const data = await api(`/api/discover/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`);
+    discoverState.last = data;
+    renderDiscoverResults(data);
+  } catch (e) {
+    renderDiscoverMessage(`搜索失败：${e.message}`, "⚠️");
+  }
+  $("#d-search-btn").disabled = false;
+}
+
+async function copyDiscoverText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("RSS 地址已复制");
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = text;
+    document.body.appendChild(input);
+    input.select();
+    try { document.execCommand("copy"); toast("RSS 地址已复制"); }
+    catch { toast("复制失败，请手动复制", true); }
+    input.remove();
+  }
+}
+
+function renderDiscoverResults(data) {
+  const summary = $("#d-summary");
+  summary.hidden = false;
+  summary.innerHTML = `
+    <b>「${esc(data.keyword)}」</b>
+    <span>${esc(data.source_name)} · ${data.count} 条结果</span>
+    <span class="discover-rss" title="${esc(data.feed_url)}">${esc(data.feed_url)}</span>
+    <button class="small" type="button" data-copy>复制 RSS 地址</button>
+    <button class="small primary" type="button" data-subscribe-feed>把结果添加为订阅</button>`;
+  summary.querySelector("[data-copy]").onclick = () => copyDiscoverText(data.feed_url);
+  summary.querySelector("[data-subscribe-feed]").onclick = () =>
+    openFeedDialog({ name: data.keyword, url: data.feed_url, include_words: data.keyword, exclude_words: "", auto_download: true, enabled: true });
+
+  const box = $("#d-results");
+  if (!data.items.length) {
+    box.innerHTML = `<div class="empty"><div class="big">🈳</div>没有找到与「${esc(data.keyword)}」匹配的资源<br><small>换个关键词，或到设置页换一个搜索源</small></div>`;
+    return;
+  }
+  box.innerHTML = data.items.map((it, i) => {
+    const pageLink = /^https?:/i.test(it.link || "");
+    return `<article class="item-row">
+      <div class="item-main">
+        <div class="info">
+          <h3>${esc(it.anime_title || it.title)}${it.episode ? `<span class="ep">第 ${esc(it.episode)} 集</span>` : ""}</h3>
+          <div class="meta-line">
+            <span>${esc(it.fansub_group || "未知字幕组")}</span>
+            ${it.quality ? `<span>${esc(it.quality)}</span>` : ""}
+            <span>${esc(formatTime(it.published))}</span>
+          </div>
+          <div class="original">${esc(it.title)}</div>
+        </div>
+      </div>
+      <div class="item-side">
+        <div class="item-actions">
+          ${pageLink ? `<button class="small" type="button" data-page="${i}">资源页</button>` : ""}
+          <button class="small primary" type="button" data-subscribe="${i}">添加订阅</button>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+  box.querySelectorAll("[data-page]").forEach((btn) => {
+    btn.onclick = () => window.open(discoverState.last.items[Number(btn.dataset.page)].link, "_blank", "noopener");
+  });
+  box.querySelectorAll("[data-subscribe]").forEach((btn) => {
+    btn.onclick = () => {
+      const it = discoverState.last.items[Number(btn.dataset.subscribe)];
+      // 订阅的是搜索结果的 RSS 地址；包含关键词预填本次搜索词，与搜索口径一致，可在弹窗里修改。
+      openFeedDialog({ name: it.anime_title || data.keyword, url: data.feed_url, include_words: data.keyword, exclude_words: "", auto_download: true, enabled: true });
+    };
+  });
+}
+
+$("#d-search-btn").onclick = runDiscoverSearch;
+$("#d-keyword").addEventListener("keydown", (e) => { if (e.key === "Enter") runDiscoverSearch(); });
+
+/* ---- 设置页 ---- */
+const SETTINGS_MODE_VIEWS = { aria2: "st-dl-aria2", qbittorrent: "st-dl-qbit", transmission: "st-dl-tr" };
+function syncSettingsMode() {
+  for (const id of Object.values(SETTINGS_MODE_VIEWS)) $("#" + id).hidden = true;
+  const view = SETTINGS_MODE_VIEWS[$("#st-mode").value];
+  if (view) $("#" + view).hidden = false;
+}
+$("#st-mode").onchange = syncSettingsMode;
+
+async function loadSettingsForm() {
+  try {
+    const s = await api("/api/settings");
+    $("#st-user").value = s.web_user || "";
+    $("#st-pass").value = "";
+    $("#st-mode").value = s.download_mode || "direct";
+    $("#st-aria2-url").value = s.aria2_url || "";
+    $("#st-aria2-dir").value = s.aria2_dir || "";
+    $("#st-aria2-local").value = s.aria2_local_dir || "";
+    $("#st-qbit-url").value = s.qbit_url || "";
+    $("#st-qbit-user").value = s.qbit_user || "";
+    $("#st-qbit-save").value = s.qbit_save_path || "";
+    $("#st-qbit-local").value = s.qbit_local_dir || "";
+    $("#st-tr-url").value = s.transmission_url || "";
+    $("#st-tr-user").value = s.transmission_user || "";
+    $("#st-tr-dir").value = s.transmission_download_dir || "";
+    $("#st-tr-local").value = s.transmission_local_dir || "";
+    $("#st-proxy").value = s.proxy_url || "";
+    $("#st-poll").value = s.poll_minutes || 30;
+    $("#st-discover").value = s.discover_search_template || "";
+    syncSettingsMode();
+    $("#st-msg").textContent = "";
+  } catch (e) {
+    $("#st-msg").textContent = "读取设置失败：" + e.message;
+  }
+}
+
+$("#btn-save-settings").onclick = async () => {
+  const msg = $("#st-msg");
+  msg.textContent = "";
+  const body = {
+    web_user: $("#st-user").value.trim(),
+    download_mode: $("#st-mode").value,
+    aria2_url: $("#st-aria2-url").value.trim(),
+    aria2_dir: $("#st-aria2-dir").value.trim(),
+    aria2_local_dir: $("#st-aria2-local").value.trim(),
+    qbit_url: $("#st-qbit-url").value.trim(),
+    qbit_user: $("#st-qbit-user").value.trim(),
+    qbit_save_path: $("#st-qbit-save").value.trim(),
+    qbit_local_dir: $("#st-qbit-local").value.trim(),
+    transmission_url: $("#st-tr-url").value.trim(),
+    transmission_user: $("#st-tr-user").value.trim(),
+    transmission_download_dir: $("#st-tr-dir").value.trim(),
+    transmission_local_dir: $("#st-tr-local").value.trim(),
+    proxy_url: $("#st-proxy").value.trim(),
+    poll_minutes: parseInt($("#st-poll").value, 10) || 30,
+    discover_search_template: $("#st-discover").value.trim(),
+  };
+  const pass = $("#st-pass").value;
+  if (pass) {
+    if (!body.web_user) { msg.textContent = "设置密码前请先填写用户名"; return; }
+    if (pass.length < 6) { msg.textContent = "密码至少 6 位"; return; }
+    body.web_password = pass;
+  }
+  const btn = $("#btn-save-settings");
+  btn.disabled = true;
+  try {
+    await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast("设置已保存并立即生效");
+    await loadSettingsForm();
+    await loadRuntime();
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+};
 
 $("#f-preview-btn").onclick = async () => {
   const box = $("#f-preview");
@@ -320,6 +926,7 @@ $("#f-save").onclick = async () => {
     include_words: $("#f-include").value.trim(),
     exclude_words: $("#f-exclude").value.trim(),
     auto_download: $("#f-auto").checked,
+    enabled: state.editingFeedEnabled,
   };
   if (!body.name) { msg.textContent = "请填写订阅名称"; return; }
   const saveBtn = $("#f-save");
@@ -380,11 +987,13 @@ $("#item-search").oninput = (e) => {
 async function load() {
   const query = state.search ? "?q=" + encodeURIComponent(state.search) : "";
   try {
-    const [feeds, items] = await Promise.all([api("/api/feeds"), api("/api/items" + query)]);
+    const [feeds, items, animes] = await Promise.all([api("/api/feeds"), api("/api/items" + query), api("/api/animes")]);
     state.feeds = feeds;
     state.items = items;
+    state.animes = animes;
     renderFeeds();
     renderItems();
+    renderAnimes();
   } catch (e) {
     $("#items").innerHTML = `<div class="empty">数据加载失败：${esc(e.message)}</div>`;
   }
@@ -395,7 +1004,9 @@ async function loadRuntime() {
   try {
     const s = await api("/api/status", { cache: "no-store" });
     globalCounts = s.counts || {};
+    $("#btn-logout").hidden = !s.auth_enabled;
     card.innerHTML = `<b>${esc(MODE_LABEL[s.download_mode] || s.download_mode)}</b> · 每 ${s.poll_minutes} 分钟同步` +
+      (s.proxy ? `<br>代理 ${esc(s.proxy)}` : "") +
       (Object.keys(globalCounts).length
         ? `<br>${Object.entries(globalCounts).map(([k, v]) => `${esc(k)} ${v}`).join(" · ")}`
         : "<br>暂无下载任务");

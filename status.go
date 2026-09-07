@@ -55,5 +55,5 @@ func runtimeStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "任务统计读取失败", 503)
 		return
 	}
-	jsonOut(w, map[string]any{"poll_minutes": pollMinutes, "download_mode": downloadMode, "counts": counts})
+	jsonOut(w, map[string]any{"poll_minutes": pollMinutes, "download_mode": downloadMode, "counts": counts, "auth_enabled": authEnabled(), "proxy": redactProxy(proxyURL)})
 }

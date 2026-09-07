@@ -224,7 +224,7 @@ func torrentLink(link string) bool {
 }
 
 func fetchTorrentBytes(link string) ([]byte, error) {
-	res, err := downloaderClient.Get(link)
+	res, err := torrentClient.Get(link)
 	if err != nil {
 		return nil, fmt.Errorf("获取种子文件失败: %w", err)
 	}
@@ -339,7 +339,13 @@ func bencodeSkip(b []byte, i *int) bool {
 
 // ---- Aria2 ----
 
+// downloaderClient only talks to the user's own downloader RPC endpoints,
+// which are usually on the LAN, so it always connects directly.
 var downloaderClient = &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}}
+
+// torrentClient fetches .torrent payloads from public RSS sites and honors
+// PROXY_URL like the other content clients.
+var torrentClient = newClient(60 * time.Second)
 
 func aria2RPC(method string, params []any, out any) error {
 	if aria2Token != "" {

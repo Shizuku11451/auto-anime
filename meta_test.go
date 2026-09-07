@@ -35,6 +35,15 @@ func startMetaTestServer(t *testing.T, knownTitle string) (*httptest.Server, *in
 		fmt.Fprintf(w, `{"results":1,"list":[{"id":4242,"name":"テストアニメ","name_cn":%q,"images":{"large":"%s/pic/cover/l/x.jpg","medium":"%s/pic/cover/m/x.jpg"}}]}`,
 			knownTitle, base, base)
 	})
+	// v0 单条目接口：手动绑定按 ID 直接拉取。
+	mux.HandleFunc("/v0/subjects/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimPrefix(r.URL.Path, "/v0/subjects/") != "4242" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		base := "http://" + r.Host
+		fmt.Fprintf(w, `{"id":4242,"name":"テストアニメ","name_cn":%q,"images":{"large":"%s/pic/cover/l/x.jpg"}}`, knownTitle, base)
+	})
 	server := httptest.NewServer(mux)
 	oldAPI, oldDir, oldEnabled, oldQueue, oldClient, oldHost := bangumiAPI, coversDir, bangumiEnabled, metaQueue, metaClient, coverHostAllowed
 	bangumiAPI = server.URL

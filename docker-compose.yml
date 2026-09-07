@@ -30,6 +30,9 @@ services:
       QBIT_LOCAL_DIR: ""
       # 下载器任务轮询间隔（秒），最小 5
       DOWNLOADER_POLL_SECONDS: "30"
+      # 可选：出站代理，RSS/直链下载/Bangumi/Webhook 走代理；下载器 RPC 始终直连
+      # 支持 http:// https:// socks5:// socks5h://，认证写法 http://用户名:密码@主机:端口
+      PROXY_URL: ""
       WEBHOOK_URL: ""
       # 可选：同时设置 WEB_USER 和 WEB_PASSWORD 后启用 Web 登录
       WEB_USER: ""
