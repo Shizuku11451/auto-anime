@@ -27,7 +27,7 @@
 | 种子语义 | 直链模式下磁力与 `.torrent` 链接标记"等待下载器"并显示原因；aria2 对 `.torrent` 链接自动改用 `addTorrent`（含 bencode infohash 计算） | `main.go`、`downloader.go` |
 | 重启恢复 | 重启后恢复符合条件的排队/自动下载条目；带任务 ID 的下载器任务继续跟踪；无任务 ID 的"下载中"改为失败待手动重试 | `recovery.go` |
 | 数据迁移 | JSON 导出订阅及条目元数据；恢复只按 URL 合并订阅；支持嵌套 OPML 导入 | `main.go`、`backup_test.go` |
-| 运行信息 | 条目搜索、API 状态筛选、全库状态统计、公开健康检查；管理面板：左侧导航、状态筛选徽章、下载进度条、失败原因展示、弹窗与通知交互、亮/暗主题切换（手动选择优先，否则跟随系统，存浏览器本地） | `status.go`、`main.go`、`static/` |
+| 运行信息 | 条目搜索、API 状态筛选、全库状态统计、公开健康检查；管理面板：统一设计语言（token 化亮暗双主题）、Lucide 图标 sprite（本地 `static/icons.svg`，禁表情符号）、左侧导航（手机端横向滑动）、状态筛选徽章、下载进度条、失败原因展示、弹窗（含右上角关闭）与通知交互、亮/暗主题切换（手动选择优先，否则跟随系统，存浏览器本地） | `status.go`、`main.go`、`static/` |
 | 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`static/login.html`、`static/` |
 | 出站代理 | `PROXY_URL`（默认空=显式直连）支持 http/https/socks5/socks5h（无前缀按 http，凭据写在 URL）；代理作用于 RSS 同步/预览、直链下载、`.torrent` 字节下载（新增 `torrentClient`）、Bangumi、Webhook；下载器 RPC（`downloaderClient`/`qbitClient`）始终直连；`newTransport()`/`newClient()` 统一传输配置，日志与 `/api/status` 只输出脱敏地址；无效配置启动即失败并给出原因 | `proxy.go`、`main.go`、`meta.go`、`archive.go`、`downloader.go` |
 | 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
@@ -41,6 +41,13 @@
 - 迁移拆入 `archive_migration.go`：保留源文件，准备目标媒体与元数据，再以原记录条件更新数据库，成功后清理原文件；元数据冲突或数据库失败回滚本次目标文件。嵌套 BT 资源按归档清单识别并迁移全部内容，重写 anime_id、文件路径及有效季号；清理失败向页面返回提示。进程崩溃仍可能留下重复目标副本，未实现持久化迁移日志与自动清理。
 - 新增 `settings_regression_test.go`、`archive_migration_test.go`、`anime_episode_test.go`，覆盖非法输入、SQL 失败事务回滚、两个旧会话失效、代理凭据往返/清除、初始化保持、迁移元数据冲突/DB 失败/嵌套目录重名/重复迁移、默认与覆盖季号、数字集数聚合且保留资源原始编号。已通过 `gofmt`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s`、`go vet ./...`、`go build`；符号链接测试因 Windows 缺少创建权限而跳过，未作真实跨设备、Docker、NAS 验证。
 - 浏览器使用 8058 端口隔离实例（独立临时数据库和目录、关闭 Bangumi）：登录、空番剧库、设置页及新增代理提示正常；未重填密码修改同步周期后提示保存成功，运行卡片立即更新且登录保留。已通过 `node --check static/app.js`；本轮未完成手机视口、亮暗主题、页面改密跳转和迁移交互的浏览器复测，对应后端行为由上述回归测试覆盖。
+
+### 界面统一设计语言（2026-09-08，`feature/ui-redesign` 分支）
+
+- 范围：仅 `static/` 与文档，Go 代码零改动。`style.css` 重写为 token 化设计系统（表面/线条/文字分层、语义色、圆角、阴影、缓动变量；暗色默认、亮色经 `html[data-theme="light"]` 覆盖），组件统一规格：按钮（primary/danger/small/icon）、输入聚焦环、状态徽章（带图标）、卡片、弹窗（毛玻璃背景 + 入场动画 + 右上角关闭）、toast（图标 + 退场动画）、进度条（渐变 + 流光）、空状态（圆形图标底）；另有 focus-visible 焦点环、细化滚动条、`prefers-reduced-motion` 降级、背景环境光渐变；运行状态卡片改为图标 + 脉冲点 + 键值行结构。
+- 图标：新增 `static/icons.svg`（由 lucide-static v0.544.0 本地生成的 48 图标 sprite，文件头注明来源与 ISC 许可）与 `static/favicon.svg`；静态页面直接 `<use>` 引用，动态渲染统一走 `app.js` 的 `icon()` 产出。界面全程不使用表情符号与 Unicode 几何符号（◈▤☰⚙☀ 等），已全量扫描 static/ 非 ASCII 字符清单确认只剩中文排版符号与密码占位 `•`；零 CDN、零新增运行时依赖。
+- 结构：侧栏导航包进 `.nav-group`（手机端横向滑动、隐藏滚动条）；各弹窗统一 `dialog-head` + 关闭按钮（确认弹窗右上角关闭等同取消）；番剧详情标题移到弹窗头；设置分组加图标头；找番关键词输入框内嵌搜索图标；登录页与 `/setup` 引导页统一品牌方块 logo、步骤编号 chip；`index.html` 增加 SVG favicon。
+- 验证：`node --check static/app.js`；全部静态文件 UTF-8 无 BOM、无 `�`；引用图标与 sprite 定义做过一致性核对。浏览器实测（8058 隔离实例 + 本地 RSS/媒体测试服务制造真实条目状态，8059 全新实例验证引导页）：亮暗两套主题下登录页、番剧库卡片与详情（Season 分组/资源行）、条目三态徽章（已保存/下载中含进度条/失败含原因）、确认弹窗、订阅卡片、找番初始/结果/失败/自定义源、设置分组、toast、1280px 与 390px 视口；过程中修复侧栏导航被按钮居中样式影响、手机端导航竖向堆叠占满屏两个问题。未实测：真实封面（本轮关闭 Bangumi）、外部下载器模式下的徽章形态、Docker 容器内运行。
 
 ### 历史完成与验证（2026-09-06 至 2026-09-07）
 
