@@ -708,7 +708,7 @@ $("#cd-save").onclick = async () => {
   btn.disabled = true;
   try {
     const r = await api("/api/items/" + correctingItem.item.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    toast(r.moved ? "纠错已保存，媒体文件已迁移" : "纠错已保存");
+    toast(r.cleanup_warning || (r.moved ? "纠错已保存，媒体文件已迁移" : "纠错已保存"));
     closeCorrectDialog();
     await load();
     if (detailAnimeId) await openAnimeDetail(detailAnimeId);
@@ -868,6 +868,10 @@ async function loadSettingsForm() {
     $("#st-tr-dir").value = s.transmission_download_dir || "";
     $("#st-tr-local").value = s.transmission_local_dir || "";
     $("#st-proxy").value = s.proxy_url || "";
+    $("#st-proxy-clear").checked = false;
+    $("#st-proxy-auth-hint").textContent = s.proxy_credentials_set
+      ? "已配置代理认证；地址不变时保存会保留，勾选上方选项可清除。"
+      : "未配置代理认证；需要时可在代理 URL 中填写账号密码。";
     $("#st-poll").value = s.poll_minutes || 30;
     $("#st-discover").value = s.discover_search_template || "";
     syncSettingsMode();
@@ -895,6 +899,7 @@ $("#btn-save-settings").onclick = async () => {
     transmission_download_dir: $("#st-tr-dir").value.trim(),
     transmission_local_dir: $("#st-tr-local").value.trim(),
     proxy_url: $("#st-proxy").value.trim(),
+    proxy_clear_credentials: $("#st-proxy-clear").checked,
     poll_minutes: parseInt($("#st-poll").value, 10) || 30,
     discover_search_template: $("#st-discover").value.trim(),
   };
@@ -907,7 +912,11 @@ $("#btn-save-settings").onclick = async () => {
   const btn = $("#btn-save-settings");
   btn.disabled = true;
   try {
-    await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (result.reauth_required) {
+      location.href = "/login";
+      return;
+    }
     toast("设置已保存并立即生效");
     await loadSettingsForm();
     await loadRuntime();
