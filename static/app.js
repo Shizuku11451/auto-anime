@@ -3,6 +3,8 @@
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/* Lucide 图标统一走本地 sprite（static/icons.svg），动态渲染的内容也用这个函数产出 */
+const icon = (name, cls = "") => `<svg class="ic${cls ? " " + cls : ""}" aria-hidden="true"><use href="/static/icons.svg#i-${name}"></use></svg>`;
 
 const state = {
   view: "animes",
@@ -30,12 +32,16 @@ const CHIP_DEFS = [
 let globalCounts = {};
 
 function badgeInfo(status) {
-  if (status === "已保存") return { cls: "saved", text: "已保存" };
-  if (status === "下载中" || status.startsWith("已发送到")) return { cls: "downloading", text: status === "下载中" ? "下载中" : status };
-  if (status === "下载失败") return { cls: "failed", text: "下载失败" };
-  if (status === "等待下载器") return { cls: "waiting", text: "等待下载器" };
-  if (status === "等待下载" || status === "待下载") return { cls: "pending", text: "待下载" };
-  return { cls: "pending", text: status };
+  if (status === "已保存") return { cls: "saved", text: "已保存", ico: "circle-check" };
+  if (status === "下载中" || status.startsWith("已发送到")) return { cls: "downloading", text: status === "下载中" ? "下载中" : status, ico: "loader-circle", spin: true };
+  if (status === "下载失败") return { cls: "failed", text: "下载失败", ico: "circle-alert" };
+  if (status === "等待下载器") return { cls: "waiting", text: "等待下载器", ico: "hourglass" };
+  if (status === "等待下载" || status === "待下载") return { cls: "pending", text: "待下载", ico: "clock" };
+  return { cls: "pending", text: status, ico: "circle-dashed" };
+}
+
+function badgeHTML(badge, suffix = "") {
+  return `<span class="badge ${badge.cls}">${icon(badge.ico, "ic-sm" + (badge.spin ? " spin" : ""))}<span>${esc(badge.text)}${suffix}</span></span>`;
 }
 
 function formatTime(raw) {
@@ -50,9 +56,15 @@ function formatTime(raw) {
 function toast(message, isError = false) {
   const el = document.createElement("div");
   el.className = "toast" + (isError ? " error" : "");
-  el.textContent = message;
+  el.innerHTML = icon(isError ? "triangle-alert" : "circle-check", "ic-md");
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(text);
   $("#toasts").appendChild(el);
-  setTimeout(() => el.remove(), 4200);
+  setTimeout(() => {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 240);
+  }, 4200);
 }
 
 /* 会话失效时只跳转一次，避免 5 秒轮询反复触发 */
@@ -85,6 +97,15 @@ function confirmDialog(title, text) {
 $("#confirm-ok").onclick = () => { $("#confirm-dialog").classList.remove("open"); confirmResolve?.(true); };
 $("#confirm-cancel").onclick = () => { $("#confirm-dialog").classList.remove("open"); confirmResolve?.(false); };
 
+/* 各弹窗右上角关闭按钮；确认弹窗关闭视为取消 */
+document.querySelectorAll(".dialog-x").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const overlay = btn.closest(".overlay");
+    overlay.classList.remove("open");
+    if (overlay.id === "confirm-dialog") confirmResolve?.(false);
+  });
+});
+
 /* ---- 主题切换 ---- */
 const THEME_KEY = "theme";
 const themeMedia = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
@@ -96,12 +117,12 @@ function isLightTheme() { return document.documentElement.dataset.theme === "lig
 function syncThemeButton() {
   const btn = $("#btn-theme");
   const light = isLightTheme();
-  btn.textContent = light ? "☾" : "☀";
+  btn.innerHTML = icon(light ? "moon" : "sun");
   const label = light ? "切换到暗色主题" : "切换到亮色主题";
   btn.title = label;
   btn.setAttribute("aria-label", label);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = light ? "#f4f6f8" : "#0e1216";
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = light ? "#f2f4f7" : "#0a0d12";
 }
 $("#btn-theme").onclick = () => {
   const next = isLightTheme() ? "dark" : "light";
@@ -157,8 +178,8 @@ function renderItems() {
   const box = $("#items");
   if (!list.length) {
     box.innerHTML = state.items.length
-      ? `<div class="empty"><div class="big">🔍</div>当前筛选下没有条目</div>`
-      : `<div class="empty"><div class="big">📺</div>暂无条目<br><small>左侧添加 RSS 订阅后，新番会出现在这里</small></div>`;
+      ? `<div class="empty"><div class="e-ico">${icon("filter-x", "ic-lg")}</div><p>当前筛选下没有条目</p><small>换个状态筛选，或清除搜索关键词</small></div>`
+      : `<div class="empty"><div class="e-ico">${icon("tv", "ic-lg")}</div><p>暂无条目</p><small>添加 RSS 订阅并同步后，新番会出现在这里</small></div>`;
     return;
   }
   box.innerHTML = list.map((x) => {
@@ -168,7 +189,7 @@ function renderItems() {
     const retryable = ["待下载", "下载失败", "等待下载器"].includes(x.status);
     const cover = x.cover
       ? `<img class="cover" src="${esc(x.cover)}" alt="" loading="lazy">`
-      : `<div class="cover ph" aria-hidden="true">📺</div>`;
+      : `<div class="cover ph" aria-hidden="true">${icon("tv")}</div>`;
     return `<article class="item-row">
       <div class="item-main">
         ${cover}
@@ -187,12 +208,12 @@ function renderItems() {
         </div>
       </div>
       <div class="item-side">
-        <span class="badge ${badge.cls}">${esc(badge.text)}${downloading && progress > 0 ? " " + progress + "%" : ""}</span>
+        ${badgeHTML(badge, downloading && progress > 0 ? " " + progress + "%" : "")}
         <div class="item-actions">
-          ${retryable ? `<button class="small" data-download="${x.id}">${x.status === "待下载" ? "下载" : "重试"}</button>` : ""}
-          ${x.anime_title ? `<button class="small" data-storage="${x.id}">位置</button>` : ""}
-          <button class="small" data-correct="${x.id}">纠错</button>
-          <button class="small danger" data-remove="${x.id}">移除</button>
+          ${retryable ? `<button class="small" data-download="${x.id}">${icon(x.status === "待下载" ? "download" : "rotate-cw", "ic-sm")}${x.status === "待下载" ? "下载" : "重试"}</button>` : ""}
+          ${x.anime_title ? `<button class="small" data-storage="${x.id}">${icon("folder-open", "ic-sm")}位置</button>` : ""}
+          <button class="small" data-correct="${x.id}">${icon("pen-line", "ic-sm")}纠错</button>
+          <button class="small danger" data-remove="${x.id}">${icon("trash-2", "ic-sm")}移除</button>
         </div>
       </div>
     </article>`;
@@ -201,7 +222,7 @@ function renderItems() {
     img.onerror = () => {
       const ph = document.createElement("div");
       ph.className = "cover ph";
-      ph.textContent = "📺";
+      ph.innerHTML = icon("tv");
       ph.setAttribute("aria-hidden", "true");
       img.replaceWith(ph);
     };
@@ -240,7 +261,7 @@ function renderItems() {
 function renderFeeds() {
   const box = $("#feeds");
   if (!state.feeds.length) {
-    box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🛰️</div>还没有订阅<br><small>点击右上角“添加订阅”，粘贴一个 RSS 地址开始</small></div>`;
+    box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="e-ico">${icon("satellite-dish", "ic-lg")}</div><p>还没有订阅</p><small>点击右上角「添加订阅」，粘贴一个 RSS 地址开始</small></div>`;
     return;
   }
   box.innerHTML = state.feeds.map((f) => {
@@ -262,10 +283,10 @@ function renderFeeds() {
       </div>
       ${stateLine}
       <div class="actions">
-        <button class="small" data-sync="${f.id}">立即同步</button>
-        <button class="small" data-edit="${f.id}">编辑</button>
-        <button class="small" data-toggle="${f.id}">${f.enabled === false ? "启用" : "暂停"}</button>
-        <button class="small danger" data-del="${f.id}">删除</button>
+        <button class="small" data-sync="${f.id}">${icon("refresh-cw", "ic-sm")}立即同步</button>
+        <button class="small" data-edit="${f.id}">${icon("pencil", "ic-sm")}编辑</button>
+        <button class="small" data-toggle="${f.id}">${icon(f.enabled === false ? "play" : "pause", "ic-sm")}${f.enabled === false ? "启用" : "暂停"}</button>
+        <button class="small danger" data-del="${f.id}">${icon("trash-2", "ic-sm")}删除</button>
       </div>
     </div>`;
   }).join("");
@@ -385,13 +406,13 @@ $("#s-save").onclick = async () => {
 async function renderAnimes() {
   const box = $("#animes");
   if (!state.animes.length) {
-    box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">◈</div>番剧库还是空的<br><small>添加订阅并同步后，识别出的番剧会出现在这里</small></div>`;
+    box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="e-ico">${icon("clapperboard", "ic-lg")}</div><p>番剧库还是空的</p><small>添加订阅并同步后，识别出的番剧会出现在这里</small></div>`;
     return;
   }
   box.innerHTML = state.animes.map((a) => {
     const cover = a.cover
       ? `<img class="anime-card-cover" src="${esc(a.cover)}" alt="" loading="lazy">`
-      : `<div class="anime-card-cover ph" aria-hidden="true">◈</div>`;
+      : `<div class="anime-card-cover ph" aria-hidden="true">${icon("film")}</div>`;
     const tags = [];
     if (a.bangumi_id) tags.push(`<span class="tag group">已绑定</span>`);
     else if (a.include_rules) tags.push(`<span class="tag">多来源规则</span>`);
@@ -402,9 +423,9 @@ async function renderAnimes() {
         <div class="anime-card-title">${esc(a.meta_name_cn || a.title)}</div>
         <div class="anime-card-sub" title="${esc(a.title)}">${esc(a.title)}</div>
         <div class="anime-card-stats">
-          <span>${a.item_count} 条资源</span>
-          <span>已保存 ${a.saved_count}</span>
-          ${a.episode_count ? `<span>${a.episode_count} 集</span>` : ""}
+          <span>${icon("film", "ic-xs")}${a.item_count} 条资源</span>
+          <span>${icon("circle-check", "ic-xs")}已保存 ${a.saved_count}</span>
+          ${a.episode_count ? `<span>${icon("tv", "ic-xs")}${a.episode_count} 集</span>` : ""}
         </div>
         ${tags.length ? `<div class="tags">${tags.join("")}</div>` : ""}
       </div>
@@ -419,7 +440,7 @@ async function renderAnimes() {
     img.onerror = () => {
       const ph = document.createElement("div");
       ph.className = "anime-card-cover ph";
-      ph.textContent = "◈";
+      ph.innerHTML = icon("film");
       ph.setAttribute("aria-hidden", "true");
       img.replaceWith(ph);
     };
@@ -433,16 +454,16 @@ function detailItemRow(it) {
   const badge = badgeInfo(it.status || "待下载");
   const retryable = ["待下载", "下载失败", "等待下载器"].includes(it.status);
   return `<div class="res-row" data-item="${it.id}">
-    <span class="badge ${badge.cls}">${esc(badge.text)}</span>
+    ${badgeHTML(badge)}
     <div class="res-info">
       <div class="res-title" title="${esc(it.title)}">${esc(it.title)}</div>
       <div class="res-meta">${esc(it.fansub_group || "未知字幕组")} · ${esc(it.quality || "未知清晰度")}${it.feed_name ? " · 来源 " + esc(it.feed_name) : ""}${it.manual ? " · 已纠错" : ""}</div>
       ${it.file_path ? `<div class="res-path" title="${esc(it.file_path)}">${esc(it.file_path)}</div>` : ""}
     </div>
     <div class="res-actions">
-      ${retryable ? `<button class="small" data-act="download" data-id="${it.id}">${it.status === "待下载" ? "下载" : "重试"}</button>` : ""}
-      <button class="small" data-act="correct" data-id="${it.id}">纠错</button>
-      <button class="small danger" data-act="remove" data-id="${it.id}">移除</button>
+      ${retryable ? `<button class="small" data-act="download" data-id="${it.id}">${icon(it.status === "待下载" ? "download" : "rotate-cw", "ic-sm")}${it.status === "待下载" ? "下载" : "重试"}</button>` : ""}
+      <button class="small" data-act="correct" data-id="${it.id}">${icon("pen-line", "ic-sm")}纠错</button>
+      <button class="small danger" data-act="remove" data-id="${it.id}">${icon("trash-2", "ic-sm")}移除</button>
     </div>
   </div>`;
 }
@@ -450,7 +471,7 @@ function detailItemRow(it) {
 async function openAnimeDetail(id) {
   detailAnimeId = id;
   $("#ad-msg").textContent = "";
-  $("#ad-body").innerHTML = `<div class="empty" style="padding:26px 16px">正在加载…</div>`;
+  $("#ad-body").innerHTML = `<div class="empty" style="padding:34px"><p>正在加载…</p></div>`;
   $("#anime-detail").classList.add("open");
   try {
     const d = await api("/api/animes/" + id);
@@ -483,7 +504,7 @@ function renderAnimeDetail(d) {
     : "未设置多来源规则，仅按识别标题归并";
   const body = $("#ad-body");
   if (!d.seasons || !d.seasons.length) {
-    body.innerHTML = `<div class="empty" style="padding:26px 16px"><div class="big">📭</div>该番剧下暂无资源</div>`;
+    body.innerHTML = `<div class="empty" style="padding:34px"><div class="e-ico">${icon("inbox", "ic-lg")}</div><p>该番剧下暂无资源</p></div>`;
     return;
   }
   body.innerHTML = d.seasons.map((s) => {
@@ -642,7 +663,7 @@ async function searchBangumiCandidates(q) {
     box.innerHTML = data.items.map((c) => `
       <div class="bind-item">
         <div class="bind-names"><b>${esc(c.name_cn || c.name)}</b>${c.name_cn ? `<span>${esc(c.name)}</span>` : ""}</div>
-        <button class="small" data-bind="${c.id}">绑定</button>
+        <button class="small" data-bind="${c.id}">${icon("link", "ic-sm")}绑定</button>
       </div>`).join("");
     box.querySelectorAll("[data-bind]").forEach((btn) => {
       btn.onclick = () => bindMetadata(Number(btn.dataset.bind));
@@ -708,7 +729,7 @@ $("#cd-save").onclick = async () => {
   btn.disabled = true;
   try {
     const r = await api("/api/items/" + correctingItem.item.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    toast(r.moved ? "纠错已保存，媒体文件已迁移" : "纠错已保存");
+    toast(r.cleanup_warning || (r.moved ? "纠错已保存，媒体文件已迁移" : "纠错已保存"));
     closeCorrectDialog();
     await load();
     if (detailAnimeId) await openAnimeDetail(detailAnimeId);
@@ -719,9 +740,9 @@ $("#cd-save").onclick = async () => {
 /* ---- 找番 ---- */
 const discoverState = { sources: [], last: null };
 
-function renderDiscoverMessage(text, icon = "🔎") {
+function renderDiscoverMessage(text, ico = "compass") {
   $("#d-summary").hidden = true;
-  $("#d-results").innerHTML = `<div class="empty"><div class="big">${icon}</div>${esc(text)}</div>`;
+  $("#d-results").innerHTML = `<div class="empty"><div class="e-ico">${icon(ico, "ic-lg")}</div><p>${esc(text)}</p></div>`;
 }
 
 let discoverInitialHintDone = false;
@@ -742,7 +763,7 @@ async function initDiscoverView() {
   }
   if (!discoverState.sources.length) {
     $("#d-source").innerHTML = `<option value="">无可用搜索源</option>`;
-    if (!discoverState.last) renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "⚠️");
+    if (!discoverState.last) renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "triangle-alert");
     return;
   }
   $("#d-source").innerHTML = discoverState.sources.map((s) =>
@@ -757,16 +778,16 @@ async function runDiscoverSearch() {
   const keyword = $("#d-keyword").value.trim();
   const source = $("#d-source").value;
   if (!keyword) { renderDiscoverMessage("请输入搜索关键词"); $("#d-keyword").focus(); return; }
-  if (!source) { renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "⚠️"); return; }
+  if (!source) { renderDiscoverMessage("没有可用搜索源，请到设置页配置自定义 RSS 搜索模板", "triangle-alert"); return; }
   $("#d-summary").hidden = true;
-  $("#d-results").innerHTML = `<div class="empty"><div class="big">⏳</div>正在搜索「${esc(keyword)}」…</div>`;
+  $("#d-results").innerHTML = `<div class="empty"><div class="e-ico">${icon("loader-circle", "ic-lg spin")}</div><p>正在搜索「${esc(keyword)}」…</p></div>`;
   $("#d-search-btn").disabled = true;
   try {
     const data = await api(`/api/discover/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`);
     discoverState.last = data;
     renderDiscoverResults(data);
   } catch (e) {
-    renderDiscoverMessage(`搜索失败：${e.message}`, "⚠️");
+    renderDiscoverMessage(`搜索失败：${e.message}`, "cloud-off");
   }
   $("#d-search-btn").disabled = false;
 }
@@ -793,15 +814,15 @@ function renderDiscoverResults(data) {
     <b>「${esc(data.keyword)}」</b>
     <span>${esc(data.source_name)} · ${data.count} 条结果</span>
     <span class="discover-rss" title="${esc(data.feed_url)}">${esc(data.feed_url)}</span>
-    <button class="small" type="button" data-copy>复制 RSS 地址</button>
-    <button class="small primary" type="button" data-subscribe-feed>把结果添加为订阅</button>`;
+    <button class="small" type="button" data-copy>${icon("copy", "ic-sm")}复制 RSS 地址</button>
+    <button class="small primary" type="button" data-subscribe-feed>${icon("plus", "ic-sm")}把结果添加为订阅</button>`;
   summary.querySelector("[data-copy]").onclick = () => copyDiscoverText(data.feed_url);
   summary.querySelector("[data-subscribe-feed]").onclick = () =>
     openFeedDialog({ name: data.keyword, url: data.feed_url, include_words: data.keyword, exclude_words: "", auto_download: true, enabled: true });
 
   const box = $("#d-results");
   if (!data.items.length) {
-    box.innerHTML = `<div class="empty"><div class="big">🈳</div>没有找到与「${esc(data.keyword)}」匹配的资源<br><small>换个关键词，或到设置页换一个搜索源</small></div>`;
+    box.innerHTML = `<div class="empty"><div class="e-ico">${icon("search-x", "ic-lg")}</div><p>没有找到与「${esc(data.keyword)}」匹配的资源</p><small>换个关键词，或到设置页换一个搜索源</small></div>`;
     return;
   }
   box.innerHTML = data.items.map((it, i) => {
@@ -820,8 +841,8 @@ function renderDiscoverResults(data) {
       </div>
       <div class="item-side">
         <div class="item-actions">
-          ${pageLink ? `<button class="small" type="button" data-page="${i}">资源页</button>` : ""}
-          <button class="small primary" type="button" data-subscribe="${i}">添加订阅</button>
+          ${pageLink ? `<button class="small" type="button" data-page="${i}">${icon("external-link", "ic-sm")}资源页</button>` : ""}
+          <button class="small primary" type="button" data-subscribe="${i}">${icon("plus", "ic-sm")}添加订阅</button>
         </div>
       </div>
     </article>`;
@@ -868,6 +889,10 @@ async function loadSettingsForm() {
     $("#st-tr-dir").value = s.transmission_download_dir || "";
     $("#st-tr-local").value = s.transmission_local_dir || "";
     $("#st-proxy").value = s.proxy_url || "";
+    $("#st-proxy-clear").checked = false;
+    $("#st-proxy-auth-hint").textContent = s.proxy_credentials_set
+      ? "已配置代理认证；地址不变时保存会保留，勾选上方选项可清除。"
+      : "未配置代理认证；需要时可在代理 URL 中填写账号密码。";
     $("#st-poll").value = s.poll_minutes || 30;
     $("#st-discover").value = s.discover_search_template || "";
     syncSettingsMode();
@@ -895,6 +920,7 @@ $("#btn-save-settings").onclick = async () => {
     transmission_download_dir: $("#st-tr-dir").value.trim(),
     transmission_local_dir: $("#st-tr-local").value.trim(),
     proxy_url: $("#st-proxy").value.trim(),
+    proxy_clear_credentials: $("#st-proxy-clear").checked,
     poll_minutes: parseInt($("#st-poll").value, 10) || 30,
     discover_search_template: $("#st-discover").value.trim(),
   };
@@ -907,7 +933,11 @@ $("#btn-save-settings").onclick = async () => {
   const btn = $("#btn-save-settings");
   btn.disabled = true;
   try {
-    await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (result.reauth_required) {
+      location.href = "/login";
+      return;
+    }
     toast("设置已保存并立即生效");
     await loadSettingsForm();
     await loadRuntime();
@@ -1005,7 +1035,7 @@ async function load() {
     renderItems();
     renderAnimes();
   } catch (e) {
-    $("#items").innerHTML = `<div class="empty">数据加载失败：${esc(e.message)}</div>`;
+    $("#items").innerHTML = `<div class="empty"><div class="e-ico">${icon("server-off", "ic-lg")}</div><p>数据加载失败</p><small>${esc(e.message)}</small></div>`;
   }
 }
 
@@ -1015,11 +1045,16 @@ async function loadRuntime() {
     const s = await api("/api/status", { cache: "no-store" });
     globalCounts = s.counts || {};
     $("#btn-logout").hidden = !s.auth_enabled;
-    card.innerHTML = `<b>${esc(MODE_LABEL[s.download_mode] || s.download_mode)}</b> · 每 ${s.poll_minutes} 分钟同步` +
-      (s.proxy ? `<br>代理 ${esc(s.proxy)}` : "") +
-      (Object.keys(globalCounts).length
-        ? `<br>${Object.entries(globalCounts).map(([k, v]) => `${esc(k)} ${v}`).join(" · ")}`
-        : "<br>暂无下载任务");
+    const countRows = Object.keys(globalCounts).length
+      ? Object.entries(globalCounts).map(([k, v]) => `<div class="run-row"><span>${esc(k)}</span><b>${v}</b></div>`).join("")
+      : `<div class="run-row"><span>下载任务</span><b>暂无</b></div>`;
+    card.innerHTML = `<div class="run-head">${icon("activity")}<span>运行状态</span><i class="run-dot" aria-hidden="true"></i></div>` +
+      `<div class="run-rows">` +
+      `<div class="run-row"><span>下载模式</span><b>${esc(MODE_LABEL[s.download_mode] || s.download_mode)}</b></div>` +
+      `<div class="run-row"><span>同步周期</span><b>每 ${s.poll_minutes} 分钟</b></div>` +
+      (s.proxy ? `<div class="run-row"><span>出站代理</span><b title="${esc(s.proxy)}">${esc(s.proxy)}</b></div>` : "") +
+      countRows +
+      `</div>`;
     renderChips();
   } catch (e) {
     card.textContent = "运行状态不可用";
