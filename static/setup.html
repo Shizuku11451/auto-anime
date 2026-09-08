@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>初始设置 · 自动追番</title>
-<meta name="theme-color" content="#0e1216">
+<meta name="theme-color" content="#0a0d12">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <script>
 /* 主题初始化：与管理面板一致，手动选择优先，否则跟随系统偏好 */
 (function () {
@@ -22,12 +23,15 @@
 <div class="login-wrap">
   <div class="login-card setup-card">
     <div class="brand login-brand">
-      <div class="name">自动追番</div>
-      <div class="sub">首次安装 · 完成基本设置即可开始使用</div>
+      <div class="brand-logo"><svg class="ic ic-fill" aria-hidden="true"><use href="/static/icons.svg#i-play"></use></svg></div>
+      <div>
+        <div class="name">自动追番</div>
+        <div class="sub">首次安装 · 完成基本设置即可开始使用</div>
+      </div>
     </div>
 
     <section class="setup-section">
-      <h2>1 · 管理员账户</h2>
+      <h2><span class="step-n">1</span>管理员账户</h2>
       <p class="setup-hint">设置后访问面板需要登录；留空则暂不启用登录（之后可在设置页开启）。</p>
       <div class="field">
         <label for="su-user">用户名</label>
@@ -46,7 +50,7 @@
     </section>
 
     <section class="setup-section">
-      <h2>2 · 下载方式</h2>
+      <h2><span class="step-n">2</span>下载方式</h2>
       <p class="setup-hint">不配置则使用本地直链下载；也可之后在设置页修改。</p>
       <div class="field">
         <label for="su-mode">下载模式</label>
@@ -132,7 +136,7 @@
     </section>
 
     <section class="setup-section">
-      <h2>3 · 网络与同步</h2>
+      <h2><span class="step-n">3</span>网络与同步</h2>
       <div class="field">
         <label for="su-proxy">出站代理（可选，RSS / 下载 / 封面走代理；支持 http、socks5）</label>
         <input type="text" id="su-proxy" placeholder="例如 http://192.168.1.10:7890 或 socks5://…（留空直连）" spellcheck="false">
