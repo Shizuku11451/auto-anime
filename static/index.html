@@ -115,7 +115,7 @@
             <input type="password" id="st-pass" autocomplete="new-password" placeholder="••••••">
           </div>
         </div>
-        <p class="settings-hint">修改后立即生效；已登录的当前会话不受影响。设置过账户后无法在页面撤销登录（继续用密码登录即可）。</p>
+        <p class="settings-hint">普通设置无需重填密码；修改账户或密码后，所有会话退出，需要重新登录。设置过账户后无法在页面撤销登录。</p>
       </div>
 
       <div class="settings-group">
@@ -211,6 +211,8 @@
           <div class="field">
             <label for="st-proxy">出站代理（留空直连；支持 http、https、socks5）</label>
             <input type="text" id="st-proxy" spellcheck="false" placeholder="http://192.168.1.10:7890">
+            <label><input type="checkbox" id="st-proxy-clear"> 清除代理账号密码</label>
+            <small id="st-proxy-auth-hint">代理认证信息不会回显；地址不变时保存会保留。</small>
           </div>
           <div class="field">
             <label for="st-poll">RSS 同步周期（分钟）</label>

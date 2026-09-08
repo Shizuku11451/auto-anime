@@ -148,13 +148,17 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", http.StatusMethodNotAllowed)
 		return
 	}
-	if !authEnabled() {
-		http.Error(w, "未启用登录：需要同时设置 WEB_USER 和 WEB_PASSWORD", http.StatusBadRequest)
-		return
-	}
 	var in loginInput
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in) != nil || in.Username == "" || in.Password == "" {
 		http.Error(w, "请输入用户名和密码", http.StatusBadRequest)
+		return
+	}
+	// Decode before taking the lock so a slow request body cannot block saves.
+	// Do not issue a session against credentials being replaced by settings.
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	if !authEnabled() {
+		http.Error(w, "未启用登录：需要同时设置 WEB_USER 和 WEB_PASSWORD", http.StatusBadRequest)
 		return
 	}
 	ip := clientIP(r)

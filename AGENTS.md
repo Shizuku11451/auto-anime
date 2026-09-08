@@ -7,7 +7,7 @@
 - 面向中国大陆网络，默认直接连接，不依赖代理、境外 CDN 或必须访问境外服务才能完成的初始化。
 - 除“开发进度快照”外，本文件描述后续开发约束，不代表其中提及的功能已经实现；实际能力以代码和验证结果为准。
 
-## 开发进度快照（2026-09-07）
+## 开发进度快照（2026-09-08）
 
 当前阶段：外部下载器任务跟踪闭环已打通，并用真实 RSS（anibt.net）+ 本机 Aria2 完成端到端实测（识别 → BT 下载 → 归档 → 可播放 → 集数正确）。以下记录来自当前源码及本轮实际验证，后续完成相关工作时应更新本节，不要直接将规划项标记完成。
 
@@ -22,7 +22,7 @@
 | 封面识别 | 后台 worker 按识别标题查询 Bangumi（名称双向包含 + 长度下限的启发式匹配，先剥离 `[标签]`、拆分 `中文名 / Romaji`）；封面下载到 `COVERS_DIR`（内容寻址文件名、10MB 上限、仅 bgm.tv 域名），浏览器只加载本地副本 `/api/covers/{hash}`；无匹配记负缓存一周后重试，网络失败不写记录下次重试；查询间隔 0.5 秒，失败不阻塞同步下载 | `meta.go`、`main.go`、`static/` |
 | 直链下载 | 自动或手动下载 HTTP/HTTPS 资源，限制两个同时下载；临时目录写入后提交归档；`.torrent`/磁力不再被误存为视频 | `main.go`、`archive.go` |
 | 媒体库归档 | 一部番一个文件夹：识别到集数的资源按 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy.ext` 归档（集数补零、同名 `.nfo` 与 `-info.json`、番剧根目录 `tvshow.nfo`），无集数资源放番剧根目录保留原始文件名，BT 多文件资源放 `SxxEyy/` 集文件夹；同番不同字幕组落到同一目录，重名冲突自动加 ` (n)`；存储目录与季号存在 `animes` 行上（旧 `anime_storage` 启动时迁入并清空），条目级季号覆盖番剧默认值；旧接口 `/api/anime/{title}/storage` 兼容读写 animes；配置随 v3 备份导出/恢复 | `archive.go`、`anime.go`、`main.go`、`static/` |
-| 番剧库 | `animes` 一等实体统一番剧/季/集/资源：识别标题自动入库、items 以 `anime_id` 关联；番剧库列表（封面、资源/集数统计）与详情（按季分组、同集聚合多来源版本、来源订阅列表、缺号排序）；编辑支持改名（级联 items 与 `anime_meta`）、默认季号、存储位置；多来源包含/排除规则：同步时按原始标题归并、`/apply-rules` 回溯收编现有条目（`manual=1` 的纠错条目不动）；元数据绑定：`/api/meta/search` 搜 Bangumi 候选、`PUT /api/animes/{id}/metadata` 按 ID 直连 v0 接口绑定/解绑（source=manual，自动查找不覆盖），`tvshow.nfo` 写入 `<uniqueid type="bangumi">`；条目纠错 `PATCH /api/items/{id}` 改判番剧（可新建）/季/集并置 `manual=1`，`rearchive` 把已保存文件（单文件或多文件集目录）迁移到新位置（rename 跨设备回退复制、清理空目录、重写 NFO/info.json）；备份 v3 含 `animes`，恢复兼容 v1/v2/v3 | `anime.go`、`archive.go`、`meta.go`、`main.go`、`static/` |
+| 番剧库 | `animes` 一等实体统一番剧/季/集/资源：识别标题自动入库、items 以 `anime_id` 关联；番剧库列表（封面、资源/集数统计）与详情（按季分组、同集聚合多来源版本、来源订阅列表、缺号排序）；编辑支持改名（级联 items 与 `anime_meta`）、默认季号、存储位置；多来源包含/排除规则：同步时按原始标题归并、`/apply-rules` 回溯收编现有条目（`manual=1` 的纠错条目不动）；元数据绑定：`/api/meta/search` 搜 Bangumi 候选、`PUT /api/animes/{id}/metadata` 按 ID 直连 v0 接口绑定/解绑（source=manual，自动查找不覆盖），`tvshow.nfo` 写入 `<uniqueid type="bangumi">`；条目纠错 `PATCH /api/items/{id}` 改判番剧（可新建）/季/集并置 `manual=1`，`rearchive` 把已保存文件（单文件或多文件集目录）迁移到新位置（先准备目标文件与 NFO/JSON、条件更新记录后清理旧文件，失败保留源文件）；备份 v3 含 `animes`，恢复兼容 v1/v2/v3 | `anime.go`、`archive.go`、`meta.go`、`main.go`、`static/` |
 | 外部下载器跟踪 | Aria2/qBittorrent/Transmission 提交并持久化任务 ID（aria2 GID、qbit infohash+标签发现、Transmission ID）；轮询进度与错误；`*_DIR`→`*_LOCAL_DIR` 路径映射；完成后复制归档（不影响做种，aria2 做种中即归档）；任务被删/报错标记失败并显示原因 | `downloader.go`、`main.go` |
 | 种子语义 | 直链模式下磁力与 `.torrent` 链接标记"等待下载器"并显示原因；aria2 对 `.torrent` 链接自动改用 `addTorrent`（含 bencode infohash 计算） | `main.go`、`downloader.go` |
 | 重启恢复 | 重启后恢复符合条件的排队/自动下载条目；带任务 ID 的下载器任务继续跟踪；无任务 ID 的"下载中"改为失败待手动重试 | `recovery.go` |
@@ -34,7 +34,15 @@
 | 找番搜索 | 侧栏「找番」：`GET /api/discover/sources` 列出内置与自定义搜索源；`GET /api/discover/search` 按关键词拉取资源站搜索 RSS（20 秒超时、8MB 响应上限、最多 60 条、资源页与种子链接分开保留、相对链接补全），逐条复用标题识别（番剧名/字幕组/集数/清晰度）；内置 ACG.RIP（2026-09-07 实测可国内直连匿名搜索；蜜柑计划/动漫花园的匿名搜索当时不可用，未内置）；设置页可配自定义 RSS 搜索模板（`{keyword}`/`{关键词}` 占位符、http(s) 与主机校验，存 settings 表热生效、清空即回退）；前端结果列表一键预填订阅弹窗（名称=识别番剧名、包含=搜索词），摘要条展示并复制本次搜索的 RSS 地址；搜索走统一出站代理配置 | `discover.go`、`settings.go`、`main.go`、`static/` |
 | 基础运维 | Webhook 事件、Dockerfile（已复制 go.sum）、Compose、健康检查及 `/data` 持久化 | `main.go`、部署文件 |
 
-### 最近完成与验证（2026-09-06 本轮）
+### 修复与验证（2026-09-08）
+
+- 修复七类问题：迁移中途失败导致记录指向已移走文件；设置页未改用户名仍要求密码及失败部分生效；保存脱敏代理地址丢失认证；普通保存重开已跳过的安装引导；改密未注销旧会话；`7/07/007` 同集拆组；NFO/JSON 未采用番剧默认季号。
+- 设置先完整校验，再事务写入配置与会话撤销，提交后热更新；用户名不变可空密码保存，更改密码会要求重新登录。`setup_done` 只在明确提供时更新。代理地址未变时保留凭据，新增显式清除选项，换地址不继承旧凭据。
+- 迁移拆入 `archive_migration.go`：保留源文件，准备目标媒体与元数据，再以原记录条件更新数据库，成功后清理原文件；元数据冲突或数据库失败回滚本次目标文件。嵌套 BT 资源按归档清单识别并迁移全部内容，重写 anime_id、文件路径及有效季号；清理失败向页面返回提示。进程崩溃仍可能留下重复目标副本，未实现持久化迁移日志与自动清理。
+- 新增 `settings_regression_test.go`、`archive_migration_test.go`、`anime_episode_test.go`，覆盖非法输入、SQL 失败事务回滚、两个旧会话失效、代理凭据往返/清除、初始化保持、迁移元数据冲突/DB 失败/嵌套目录重名/重复迁移、默认与覆盖季号、数字集数聚合且保留资源原始编号。已通过 `gofmt`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s`、`go vet ./...`、`go build`；符号链接测试因 Windows 缺少创建权限而跳过，未作真实跨设备、Docker、NAS 验证。
+- 浏览器使用 8058 端口隔离实例（独立临时数据库和目录、关闭 Bangumi）：登录、空番剧库、设置页及新增代理提示正常；未重填密码修改同步周期后提示保存成功，运行卡片立即更新且登录保留。已通过 `node --check static/app.js`；本轮未完成手机视口、亮暗主题、页面改密跳转和迁移交互的浏览器复测，对应后端行为由上述回归测试覆盖。
+
+### 历史完成与验证（2026-09-06 至 2026-09-07）
 
 - 外部下载器闭环：`items` 表新增 `downloader/task_id/task_error/progress`；提交捕获任务 ID；每 30 秒（`DOWNLOADER_POLL_SECONDS` 可调）轮询；完成后从映射路径复制进归档目录并生成 `info.json`+NFO；归档失败保留进度与原因，下轮自动重试。
 - 端到端实测（Windows 本机，Aria2 1.37.0 RPC + anibt.net 真实 RSS 订阅）：订阅"绿茶字幕组 与你相恋到生命尽头"过滤出 4 条（07/08/08v2/09），全部正确识别集数并提交 aria2 BT 下载；09、08 两集已完成并自动归档，文件与 RSS enclosure 声明大小完全一致（399331889/391943072 字节），MP4 box 链（ftyp>mdat>moov）与 MKV EBML+Segment 结构均校验为完整可播放；`info.json`/NFO 集数字段与 RSS 描述互证。
@@ -92,6 +100,7 @@
 - `downloader.go`：下载器任务提交、任务 ID 持久化、进度轮询、路径映射与 infohash/种子处理。
 - `meta.go`：Bangumi 封面识别、本地缓存与 `/api/covers/` 服务。
 - `archive.go`：直链与下载器文件的归档、文件名处理和本地元数据生成。
+- `archive_migration.go`：纠错迁移、源文件保护、目标准备与失败回滚、提交后旧文件清理。
 - `recovery.go`：下载任务恢复及下载器配置校验。
 - `status.go`：健康检查和运行状态。
 - `*_test.go`：Go 测试；`static/`：管理界面。

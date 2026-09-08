@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -145,7 +146,10 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		COALESCE(anime_meta.cover_file,''),COALESCE(anime_meta.name,''),COALESCE(anime_meta.name_cn,''),
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id),
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id AND items.status='已保存'),
-		(SELECT COUNT(DISTINCT items.episode) FROM items WHERE items.anime_id=animes.id AND COALESCE(items.episode,'')!='')
+		(SELECT COUNT(DISTINCT
+			CAST(CASE WHEN items.season>0 THEN items.season WHEN animes.season>0 THEN animes.season ELSE 1 END AS TEXT) || ':' ||
+			CASE WHEN trim(items.episode) NOT GLOB '*[^0-9]*' THEN COALESCE(NULLIF(ltrim(trim(items.episode),'0'),''),'0') ELSE trim(items.episode) END)
+		 FROM items WHERE items.anime_id=animes.id AND trim(COALESCE(items.episode,''))!='')
 		FROM animes LEFT JOIN anime_meta ON anime_meta.anime_title=animes.title
 		ORDER BY COALESCE((SELECT MAX(items.id) FROM items WHERE items.anime_id=animes.id),0) DESC, animes.id DESC`)
 	if err != nil {
@@ -325,12 +329,13 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		merged := map[string]*episodeGroup{}
 		order := []string{}
 		for _, ep := range group.Episodes {
-			if got, ok := merged[ep.Episode]; ok {
+			key := episodeKey(ep.Episode)
+			if got, ok := merged[key]; ok {
 				got.Items = append(got.Items, ep.Items...)
 				continue
 			}
-			merged[ep.Episode] = &episodeGroup{Episode: ep.Episode, Items: ep.Items}
-			order = append(order, ep.Episode)
+			merged[key] = &episodeGroup{Episode: ep.Episode, Items: ep.Items}
+			order = append(order, key)
 		}
 		sortEpisodes(order)
 		sorted := make([]episodeGroup, 0, len(order))
@@ -354,6 +359,25 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		"item_count": total, "saved_count": saved, "sources": feeds,
 		"seasons": seasonList,
 	})
+}
+
+// Only normalize decimal integer identity. Keep original release numbering on
+// each resource, and do not guess how specials or revision strings map to it.
+func episodeKey(episode string) string {
+	ep := strings.TrimSpace(episode)
+	if ep == "" {
+		return ""
+	}
+	for _, r := range ep {
+		if r < '0' || r > '9' {
+			return ep
+		}
+	}
+	key := strings.TrimLeft(ep, "0")
+	if key == "" {
+		return "0"
+	}
+	return key
 }
 
 // sortEpisodes orders "2","10","07v2" numerically when possible so episode 10
@@ -668,9 +692,10 @@ func correctItem(w http.ResponseWriter, r *http.Request, id int64) {
 		return
 	}
 	var curAnimeID int64
+	var curSeason int
 	var curTitle, curEpisode, status, filePath string
-	if err := db.QueryRow(`SELECT COALESCE(anime_id,0),COALESCE(anime_title,''),COALESCE(episode,''),COALESCE(status,''),COALESCE(file_path,'')
-		FROM items WHERE id=?`, id).Scan(&curAnimeID, &curTitle, &curEpisode, &status, &filePath); err != nil {
+	if err := db.QueryRow(`SELECT COALESCE(anime_id,0),COALESCE(anime_title,''),COALESCE(episode,''),COALESCE(status,''),COALESCE(file_path,''),COALESCE(season,0)
+		FROM items WHERE id=?`, id).Scan(&curAnimeID, &curTitle, &curEpisode, &status, &filePath, &curSeason); err != nil {
 		http.Error(w, "条目不存在", 404)
 		return
 	}
@@ -699,12 +724,25 @@ func correctItem(w http.ResponseWriter, r *http.Request, id int64) {
 	if in.Episode != nil {
 		newEpisode = sanitizeText(*in.Episode, 64)
 	}
-	if newAnimeID == curAnimeID && newTitle == curTitle && in.Season == 0 && newEpisode == curEpisode {
+	if newAnimeID == curAnimeID && newTitle == curTitle && in.Season == curSeason && newEpisode == curEpisode && !in.Rearchive {
 		http.Error(w, "没有需要修改的内容", 400)
 		return
 	}
-	// 已保存文件迁移：先搬文件再改记录，失败时数据库保持原状。
-	var newPath any
+	// Guard against a concurrent correction or deletion while files are staged.
+	persist := func(newPath string) error {
+		result, err := db.Exec(`UPDATE items SET anime_id=?,anime_title=?,season=?,episode=?,manual=1,file_path=?
+			WHERE id=? AND COALESCE(anime_id,0)=? AND COALESCE(anime_title,'')=? AND COALESCE(season,0)=?
+			AND COALESCE(episode,'')=? AND COALESCE(status,'')=? AND COALESCE(file_path,'')=?`,
+			newAnimeID, newTitle, in.Season, newEpisode, newPath, id, curAnimeID, curTitle, curSeason, curEpisode, status, filePath)
+		if err != nil {
+			return err
+		}
+		if n, err := result.RowsAffected(); err != nil || n != 1 {
+			return fmt.Errorf("条目已被其他操作修改，请刷新后重试")
+		}
+		return nil
+	}
+	cleanupWarning := ""
 	if in.Rearchive {
 		if status != "已保存" || filePath == "" {
 			http.Error(w, "只有已保存的条目才能迁移文件", 400)
@@ -714,19 +752,17 @@ func correctItem(w http.ResponseWriter, r *http.Request, id int64) {
 			http.Error(w, "已保存的文件不存在，无法迁移", 400)
 			return
 		}
-		path, err := rearchiveSavedItem(id, newTitle, newEpisode, in.Season)
+		warning, err := rearchiveSavedItem(id, filePath, newAnimeID, newTitle, newEpisode, in.Season, persist)
 		if err != nil {
 			http.Error(w, "文件迁移失败："+err.Error(), 500)
 			return
 		}
-		newPath = path
-	}
-	if _, err := db.Exec(`UPDATE items SET anime_id=?,anime_title=?,season=?,episode=?,manual=1,file_path=COALESCE(?,file_path) WHERE id=?`,
-		newAnimeID, newTitle, in.Season, newEpisode, newPath, id); err != nil {
+		cleanupWarning = warning
+	} else if err := persist(filePath); err != nil {
 		http.Error(w, "保存失败", 500)
 		return
 	}
 	enqueueMissingMeta()
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, map[string]bool{"ok": true, "moved": newPath != nil})
+	jsonOut(w, map[string]any{"ok": true, "moved": in.Rearchive, "cleanup_warning": cleanupWarning})
 }

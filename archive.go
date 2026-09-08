@@ -309,6 +309,7 @@ func writeTvshowNFO(a *animeRow) {
 // written into a staging directory. Existing archive files are linked into
 // place under a unique name, never overwritten.
 func saveArchive(m archiveMetadata, res *http.Response) (string, error) {
+	m.Season = resolveSeason(m.AnimeTitle, m.Season)
 	if res.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("资源返回 HTTP %d", res.StatusCode)
 	}
@@ -428,6 +429,7 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	m.Season = resolveSeason(m.AnimeTitle, m.Season)
 	for _, f := range files {
 		if safeRelPath(f.Rel) == "" {
 			return "", fmt.Errorf("文件名无效：%s", f.Rel)
@@ -482,114 +484,6 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 	}
 	writeTvshowNFO(&animeRow{Title: m.AnimeTitle})
 	return filepath.Join(finalDir, name, m.File), nil
-}
-
-// ---- 手动纠错后的文件迁移 ----
-
-// rearchiveSavedItem moves an already-saved resource (single file or a
-// multi-file episode folder) to the location implied by corrected metadata.
-// The move happens before the item row is updated, so a failure leaves the
-// database untouched.
-func rearchiveSavedItem(id int64, newTitle, newEpisode string, newSeason int) (string, error) {
-	var oldPath string
-	if err := db.QueryRow("SELECT COALESCE(file_path,'') FROM items WHERE id=?", id).Scan(&oldPath); err != nil {
-		return "", err
-	}
-	m, err := archiveInfo(int(id))
-	if err != nil {
-		return "", err
-	}
-	// 元数据按纠错后的值重写；原始标题等字段保持不变。
-	m.AnimeTitle, m.Episode, m.Season = newTitle, newEpisode, resolveSeason(newTitle, newSeason)
-	m.SavedAt = time.Now().UTC().Format(time.RFC3339)
-	seriesRoot, seasonDir, base := archiveTarget(newTitle, newEpisode, m.Title, newSeason)
-	oldParent := filepath.Dir(oldPath)
-	oldBase := strings.TrimSuffix(filepath.Base(oldPath), filepath.Ext(oldPath))
-	// 多文件资源落在与集数同名的文件夹里，文件夹内包含 base.nfo。
-	isFolder := false
-	if info, err := os.Stat(filepath.Join(oldParent, filepath.Base(oldParent)+".nfo")); err == nil && !info.IsDir() {
-		isFolder = true
-	}
-	if err := os.MkdirAll(filepath.Join(seriesRoot, seasonDir), 0755); err != nil {
-		return "", err
-	}
-	if isFolder {
-		newName := uniqueChildName(filepath.Join(seriesRoot, seasonDir), base)
-		dst := filepath.Join(seriesRoot, seasonDir, newName)
-		if err := moveTree(oldParent, dst); err != nil {
-			return "", err
-		}
-		if oldBase != base {
-			os.Remove(filepath.Join(dst, oldBase+".nfo"))
-			os.Remove(filepath.Join(dst, oldBase+"-info.json"))
-		}
-		if err := writeArchiveMeta(dst, m, base); err != nil {
-			return "", err
-		}
-		cleanupEmptyDirs(filepath.Dir(oldParent), seriesRoot)
-		writeTvshowNFO(&animeRow{Title: newTitle})
-		return filepath.Join(dst, filepath.Base(oldPath)), nil
-	}
-	final := base
-	for i := 2; ; i++ {
-		if _, err := os.Lstat(filepath.Join(seriesRoot, seasonDir, final+filepath.Ext(oldPath))); os.IsNotExist(err) {
-			break
-		}
-		final = fmt.Sprintf("%s (%d)", base, i)
-	}
-	dst := filepath.Join(seriesRoot, seasonDir, final+filepath.Ext(oldPath))
-	if err := movePath(oldPath, dst); err != nil {
-		return "", err
-	}
-	os.Remove(filepath.Join(oldParent, oldBase+".nfo"))
-	os.Remove(filepath.Join(oldParent, oldBase+"-info.json"))
-	if err := writeArchiveMeta(filepath.Join(seriesRoot, seasonDir), m, final); err != nil {
-		return "", err
-	}
-	cleanupEmptyDirs(oldParent, seriesRoot)
-	writeTvshowNFO(&animeRow{Title: newTitle})
-	return dst, nil
-}
-
-// movePath renames a file, falling back to copy+delete across devices.
-func movePath(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	if _, err := copyArchiveFile(dst, src); err != nil {
-		os.Remove(dst)
-		return err
-	}
-	return os.Remove(src)
-}
-
-// moveTree copies a directory tree, then removes the source. Used when the
-// old and the corrected series root live on different volumes.
-func moveTree(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		s := filepath.Join(src, entry.Name())
-		d := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := moveTree(s, d); err != nil {
-				return err
-			}
-			continue
-		}
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("不支持的文件类型：%s", entry.Name())
-		}
-		if err := movePath(s, d); err != nil {
-			return err
-		}
-	}
-	return os.Remove(src)
 }
 
 // cleanupEmptyDirs removes the empty directories left behind by a move, but
