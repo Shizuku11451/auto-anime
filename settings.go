@@ -9,15 +9,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // 用户自定义设置：settings 表为 KV 存储；数据库值优先，环境变量回退。
 // 保存后立即更新对应的全局变量（热生效，无需重启容器）。
 
 var setupDone bool
-var webHash string // "v1$salt$hash"；非空时优先于 WEB_USER/WEB_PASSWORD 环境变量
+var webHash string        // "v1$salt$hash"；非空时优先于 WEB_USER/WEB_PASSWORD 环境变量
+var settingsMu sync.Mutex // Serialize settings writes and login session issuance.
 
 func getSetting(key string) string {
 	var value string
@@ -45,6 +48,7 @@ func loadSettings() {
 		}
 	}
 	rows.Close()
+	setupDone = stored["setup_done"] == "1"
 	applyStoredSettings(stored)
 }
 
@@ -117,7 +121,9 @@ func applyStoredSettings(stored map[string]string) {
 			webUser, webHash = v, hash
 		}
 	}
-	setupDone = stored["setup_done"] == "1"
+	if v, ok := stored["setup_done"]; ok {
+		setupDone = v == "1"
+	}
 }
 
 // setupRequired reports whether the first-run wizard should run: the service
@@ -162,17 +168,42 @@ func verifyWebCredentials(user, password string) bool {
 // setPasswordCredentials stores new admin credentials (hashed) and switches
 // the live globals over immediately.
 func setPasswordCredentials(user, password string) error {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
 	hash, err := newPasswordHash(password)
 	if err != nil {
 		return err
 	}
-	if err := setSetting("web_user", user); err != nil {
+	return persistSettings(map[string]string{"web_user": user, "web_hash": hash}, true)
+}
+
+// Commit the entire configuration and session revocation before publishing it.
+// A validation or SQL failure must leave both persisted and live settings intact.
+func persistSettings(values map[string]string, revokeSessions bool) error {
+	tx, err := db.Begin()
+	if err != nil {
 		return err
 	}
-	if err := setSetting("web_hash", hash); err != nil {
+	defer tx.Rollback()
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, err := tx.Exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, values[key]); err != nil {
+			return err
+		}
+	}
+	if revokeSessions {
+		if _, err := tx.Exec("DELETE FROM web_sessions"); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
-	webUser, webHash = user, hash
+	applyStoredSettings(values)
 	return nil
 }
 
@@ -200,6 +231,7 @@ type settingsInput struct {
 	TransmissionDownloadDir *string `json:"transmission_download_dir"`
 	TransmissionLocalDir    *string `json:"transmission_local_dir"`
 	ProxyURL                *string `json:"proxy_url"`
+	ProxyClearCredentials   bool    `json:"proxy_clear_credentials"`
 	PollMinutes             *int    `json:"poll_minutes"`
 	DiscoverSearchTemplate  *string `json:"discover_search_template"`
 }
@@ -215,6 +247,21 @@ func decodeSettings(w http.ResponseWriter, r *http.Request) (*settingsInput, boo
 
 // validateSettings checks mode, poll interval and proxy before anything is saved.
 func validateSettings(in *settingsInput) error {
+	user := webUser
+	if in.WebUser != nil && strings.TrimSpace(*in.WebUser) != "" {
+		user = strings.TrimSpace(*in.WebUser)
+	}
+	if user != webUser && (in.WebPassword == nil || *in.WebPassword == "") {
+		return fmt.Errorf("修改用户名时必须同时填写新密码")
+	}
+	if in.WebPassword != nil && *in.WebPassword != "" {
+		if user == "" {
+			return fmt.Errorf("设置密码前请先填写用户名")
+		}
+		if len([]rune(*in.WebPassword)) < 6 {
+			return fmt.Errorf("密码至少 6 位")
+		}
+	}
 	if in.DownloadMode != nil {
 		switch *in.DownloadMode {
 		case "direct", "aria2", "qbittorrent", "transmission":
@@ -240,14 +287,19 @@ func validateSettings(in *settingsInput) error {
 
 // applySettings persists the provided fields and updates the live globals.
 func applySettings(in *settingsInput) error {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	return saveSettings(in, false)
+}
+
+// settingsMu must be held, including when called by the setup handler.
+func saveSettings(in *settingsInput, finishSetup bool) error {
 	if err := validateSettings(in); err != nil {
 		return err
 	}
+	values := map[string]string{}
 	apply := func(key, value string) error {
-		if err := setSetting(key, value); err != nil {
-			return err
-		}
-		applyStoredSettings(map[string]string{key: value})
+		values[key] = value
 		return nil
 	}
 	setTrimmed := func(field *string, key string) error {
@@ -307,8 +359,26 @@ func applySettings(in *settingsInput) error {
 	if err := setTrimmed(in.TransmissionLocalDir, "transmission_local_dir"); err != nil {
 		return err
 	}
-	if err := setTrimmed(in.ProxyURL, "proxy_url"); err != nil {
-		return err
+	if in.ProxyURL != nil || in.ProxyClearCredentials {
+		raw := redactProxy(proxyURL)
+		if in.ProxyURL != nil {
+			raw = strings.TrimSpace(*in.ProxyURL)
+		}
+		u, err := parseProxyURL(raw)
+		if err != nil {
+			return err
+		}
+		if u != nil {
+			if in.ProxyClearCredentials {
+				u.User = nil
+			} else if u.User == nil && proxyURL != nil && redactProxy(u) == redactProxy(proxyURL) {
+				// An unchanged, redacted form value is not a credential reset.
+				u.User = proxyURL.User
+			}
+			values["proxy_url"] = u.String()
+		} else {
+			values["proxy_url"] = ""
+		}
 	}
 	if in.PollMinutes != nil {
 		if err := apply("poll_minutes", strconv.Itoa(*in.PollMinutes)); err != nil {
@@ -318,24 +388,23 @@ func applySettings(in *settingsInput) error {
 	if err := setTrimmed(in.DiscoverSearchTemplate, "discover_search_template"); err != nil {
 		return err
 	}
-	if in.WebUser != nil && strings.TrimSpace(*in.WebUser) != "" {
-		if in.WebPassword == nil || *in.WebPassword == "" {
-			return fmt.Errorf("修改用户名时必须同时填写新密码")
-		}
-	}
+	revokeSessions := false
 	if in.WebPassword != nil && *in.WebPassword != "" {
 		user := webUser
 		if in.WebUser != nil && strings.TrimSpace(*in.WebUser) != "" {
 			user = strings.TrimSpace(*in.WebUser)
 		}
-		if len(*in.WebPassword) < 6 {
-			return fmt.Errorf("密码至少 6 位")
-		}
-		if err := setPasswordCredentials(user, *in.WebPassword); err != nil {
+		hash, err := newPasswordHash(*in.WebPassword)
+		if err != nil {
 			return err
 		}
+		values["web_user"], values["web_hash"] = user, hash
+		revokeSessions = true
 	}
-	return nil
+	if finishSetup {
+		values["setup_done"] = "1"
+	}
+	return persistSettings(values, revokeSessions)
 }
 
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +421,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			"transmission_url": transmissionURL, "transmission_user": transmissionUser, "transmission_password_set": transmissionPassword != "",
 			"transmission_download_dir": transmissionDownloadDir, "transmission_local_dir": transmissionLocalDir,
 			"proxy_url":                redactProxy(proxyURL),
+			"proxy_credentials_set":    proxyURL != nil && proxyURL.User != nil,
 			"poll_minutes":             pollMinutes,
 			"discover_search_template": discoverSearchTemplate,
 			"setup_done":               setupDone,
@@ -365,7 +435,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		jsonOut(w, map[string]bool{"ok": true})
+		jsonOut(w, map[string]bool{"ok": true, "reauth_required": in.WebPassword != nil && *in.WebPassword != ""})
 	default:
 		http.Error(w, "方法不支持", 405)
 	}
@@ -384,6 +454,8 @@ func setupStatusHandler(w http.ResponseWriter, r *http.Request) {
 // credentials only while the instance is uninitialized; afterwards the normal
 // login is required and this endpoint refuses to run again.
 func setupHandler(w http.ResponseWriter, r *http.Request) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
 	if r.Method != http.MethodPost {
 		http.Error(w, "方法不支持", 405)
 		return
@@ -396,15 +468,10 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := applySettings(in); err != nil {
+	if err := saveSettings(in, true); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if err := setSetting("setup_done", "1"); err != nil {
-		http.Error(w, "保存失败", 500)
-		return
-	}
-	setupDone = true
 	log.Println("首次安装引导已完成")
 	jsonOut(w, map[string]bool{"ok": true})
 }
