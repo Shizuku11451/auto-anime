@@ -7,7 +7,7 @@
 - 面向中国大陆网络，默认直接连接，不依赖代理、境外 CDN 或必须访问境外服务才能完成的初始化。
 - 除“开发进度快照”外，本文件描述后续开发约束，不代表其中提及的功能已经实现；实际能力以代码和验证结果为准。
 
-## 开发进度快照（2026-09-08）
+## 开发进度快照（2026-09-09）
 
 当前阶段：外部下载器任务跟踪闭环已打通，并用真实 RSS（anibt.net）+ 本机 Aria2 完成端到端实测（识别 → BT 下载 → 归档 → 可播放 → 集数正确）。以下记录来自当前源码及本轮实际验证，后续完成相关工作时应更新本节，不要直接将规划项标记完成。
 
@@ -19,9 +19,9 @@
 | RSS 解析 | RSS、RSS 1.0/RDF、Atom；优先 enclosure，支持相对资源链接 | `main.go` |
 | 过滤去重 | 包含关键词全部匹配、排除关键词任一匹配；按资源 URL 去重 | `main.go` |
 | 番剧识别 | 从标题提取字幕组、集数和清晰度：支持 `[07]`、`S01E09`、`- 09`、`第08话`、`[09v2]`；季标记（第三季/S01/3期）不误判为集数；已用 anibt RSS 50 条真实标题验证 | `main.go` |
-| 封面识别 | 后台 worker 按识别标题查询 Bangumi（名称双向包含 + 长度下限的启发式匹配，先剥离 `[标签]`、拆分 `中文名 / Romaji`）；封面下载到 `COVERS_DIR`（内容寻址文件名、10MB 上限、仅 bgm.tv 域名），浏览器只加载本地副本 `/api/covers/{hash}`；无匹配记负缓存一周后重试，网络失败不写记录下次重试；查询间隔 0.5 秒，失败不阻塞同步下载 | `meta.go`、`main.go`、`static/` |
+| 封面识别 | 后台 worker 按识别标题查询 Bangumi（名称双向包含 + 长度下限的启发式匹配，先剥离 `[标签]`、拆分 `中文名 / Romaji`）；封面下载到 `COVERS_DIR`（内容寻址文件名、10MB 上限、仅 bgm.tv 域名），浏览器只加载本地副本 `/api/covers/{hash}`，并镜像为番剧根目录 `poster.jpg`（扩展名随封面格式，覆盖元数据/解绑后同步更新或清除，失败只记日志）；无匹配记负缓存一周后重试，网络失败不写记录下次重试；查询间隔 0.5 秒，失败不阻塞同步下载 | `meta.go`、`archive.go`、`main.go`、`static/` |
 | 直链下载 | 自动或手动下载 HTTP/HTTPS 资源，限制两个同时下载；临时目录写入后提交归档；`.torrent`/磁力不再被误存为视频 | `main.go`、`archive.go` |
-| 媒体库归档 | 一部番一个文件夹：识别到集数的资源按 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy.ext` 归档（集数补零、同名 `.nfo` 与 `-info.json`、番剧根目录 `tvshow.nfo`），无集数资源放番剧根目录保留原始文件名，BT 多文件资源放 `SxxEyy/` 集文件夹；同番不同字幕组落到同一目录，重名冲突自动加 ` (n)`；存储目录与季号存在 `animes` 行上（旧 `anime_storage` 启动时迁入并清空），条目级季号覆盖番剧默认值；旧接口 `/api/anime/{title}/storage` 兼容读写 animes；配置随 v3 备份导出/恢复 | `archive.go`、`anime.go`、`main.go`、`static/` |
+| 媒体库归档 | 一部番一个文件夹：识别到集数的资源按 `{存储位置}/{番剧名}/Season NN/{番剧名} - SxxEyy.ext` 归档（集数补零、同名 `.nfo` 与 `-info.json`、番剧根目录 `tvshow.nfo`），无集数资源放番剧根目录保留原始文件名，BT 多文件资源放 `番剧名 - SxxEyy/` 集文件夹且最大的视频文件原位重命名为 `番剧名 - SxxEyy`（飞牛影视等按文件名识别集数；纠错迁移时集文件夹与主视频同步改名），字幕等附属文件保留原名；同番不同字幕组落到同一目录，重名冲突自动加 ` (n)`；归档根目录优先级 = 番剧 `storage_dir` > 媒体库目录 `library_dir`（settings 键/env `LIBRARY_DIR`）> `DOWNLOAD_DIR`；存储目录与季号存在 `animes` 行上（旧 `anime_storage` 启动时迁入并清空），条目级季号覆盖番剧默认值；旧接口 `/api/anime/{title}/storage` 兼容读写 animes；配置随 v3 备份导出/恢复 | `archive.go`、`anime.go`、`main.go`、`static/` |
 | 番剧库 | `animes` 一等实体统一番剧/季/集/资源：识别标题自动入库、items 以 `anime_id` 关联；番剧库列表（封面、资源/集数统计）与详情（按季分组、同集聚合多来源版本、来源订阅列表、缺号排序）；编辑支持改名（级联 items 与 `anime_meta`）、默认季号、存储位置；多来源包含/排除规则：同步时按原始标题归并、`/apply-rules` 回溯收编现有条目（`manual=1` 的纠错条目不动）；元数据绑定：`/api/meta/search` 搜 Bangumi 候选、`PUT /api/animes/{id}/metadata` 按 ID 直连 v0 接口绑定/解绑（source=manual，自动查找不覆盖），`tvshow.nfo` 写入 `<uniqueid type="bangumi">`；条目纠错 `PATCH /api/items/{id}` 改判番剧（可新建）/季/集并置 `manual=1`，`rearchive` 把已保存文件（单文件或多文件集目录）迁移到新位置（先准备目标文件与 NFO/JSON、条件更新记录后清理旧文件，失败保留源文件）；备份 v3 含 `animes`，恢复兼容 v1/v2/v3 | `anime.go`、`archive.go`、`meta.go`、`main.go`、`static/` |
 | 外部下载器跟踪 | Aria2/qBittorrent/Transmission 提交并持久化任务 ID（aria2 GID、qbit infohash+标签发现、Transmission ID）；轮询进度与错误；`*_DIR`→`*_LOCAL_DIR` 路径映射；完成后复制归档（不影响做种，aria2 做种中即归档）；任务被删/报错标记失败并显示原因 | `downloader.go`、`main.go` |
 | 种子语义 | 直链模式下磁力与 `.torrent` 链接标记"等待下载器"并显示原因；aria2 对 `.torrent` 链接自动改用 `addTorrent`（含 bencode infohash 计算） | `main.go`、`downloader.go` |
@@ -30,7 +30,7 @@
 | 运行信息 | 条目搜索、API 状态筛选、全库状态统计、公开健康检查；管理面板：统一设计语言（token 化亮暗双主题）、Lucide 图标 sprite（本地 `static/icons.svg`，禁表情符号）、左侧导航（手机端横向滑动）、状态筛选徽章、下载进度条、失败原因展示、弹窗（含右上角关闭）与通知交互、亮/暗主题切换（手动选择优先，否则跟随系统，存浏览器本地） | `status.go`、`main.go`、`static/` |
 | 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`static/login.html`、`static/` |
 | 出站代理 | `PROXY_URL`（默认空=显式直连）支持 http/https/socks5/socks5h（无前缀按 http，凭据写在 URL）；代理作用于 RSS 同步/预览、直链下载、`.torrent` 字节下载（新增 `torrentClient`）、Bangumi、Webhook；下载器 RPC（`downloaderClient`/`qbitClient`）始终直连；`newTransport()`/`newClient()` 统一传输配置，日志与 `/api/status` 只输出脱敏地址；无效配置启动即失败并给出原因 | `proxy.go`、`main.go`、`meta.go`、`archive.go`、`downloader.go` |
-| 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
+| 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期、媒体库目录 `library_dir`（绝对路径校验，清空回退 `DOWNLOAD_DIR`）；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
 | 找番搜索 | 侧栏「找番」：`GET /api/discover/sources` 列出内置与自定义搜索源；`GET /api/discover/search` 按关键词拉取资源站搜索 RSS（20 秒超时、8MB 响应上限、最多 60 条、资源页与种子链接分开保留、相对链接补全），逐条复用标题识别（番剧名/字幕组/集数/清晰度）；内置 ACG.RIP（2026-09-07 实测可国内直连匿名搜索；蜜柑计划/动漫花园的匿名搜索当时不可用，未内置）；设置页可配自定义 RSS 搜索模板（`{keyword}`/`{关键词}` 占位符、http(s) 与主机校验，存 settings 表热生效、清空即回退）；前端结果列表一键预填订阅弹窗（名称=识别番剧名、包含=搜索词），摘要条展示并复制本次搜索的 RSS 地址；搜索走统一出站代理配置 | `discover.go`、`settings.go`、`main.go`、`static/` |
 | 基础运维 | Webhook 事件、Dockerfile（已复制 go.sum）、Compose、健康检查及 `/data` 持久化 | `main.go`、部署文件 |
 
@@ -41,6 +41,14 @@
 - 迁移拆入 `archive_migration.go`：保留源文件，准备目标媒体与元数据，再以原记录条件更新数据库，成功后清理原文件；元数据冲突或数据库失败回滚本次目标文件。嵌套 BT 资源按归档清单识别并迁移全部内容，重写 anime_id、文件路径及有效季号；清理失败向页面返回提示。进程崩溃仍可能留下重复目标副本，未实现持久化迁移日志与自动清理。
 - 新增 `settings_regression_test.go`、`archive_migration_test.go`、`anime_episode_test.go`，覆盖非法输入、SQL 失败事务回滚、两个旧会话失效、代理凭据往返/清除、初始化保持、迁移元数据冲突/DB 失败/嵌套目录重名/重复迁移、默认与覆盖季号、数字集数聚合且保留资源原始编号。已通过 `gofmt`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s`、`go vet ./...`、`go build`；符号链接测试因 Windows 缺少创建权限而跳过，未作真实跨设备、Docker、NAS 验证。
 - 浏览器使用 8058 端口隔离实例（独立临时数据库和目录、关闭 Bangumi）：登录、空番剧库、设置页及新增代理提示正常；未重填密码修改同步周期后提示保存成功，运行卡片立即更新且登录保留。已通过 `node --check static/app.js`；本轮未完成手机视口、亮暗主题、页面改密跳转和迁移交互的浏览器复测，对应后端行为由上述回归测试覆盖。
+
+### 飞牛影视（fnOS）识别支持（2026-09-09）
+
+- 调研结论（公开资料：飞牛官方帮助 `help.fnnas.com` 影视篇、官方论坛 `club.fnnas.com`、知乎《飞牛影视刮削的文件命名技巧V2》）：飞牛影视刮削匹配**只依据文件名**，与文件夹名和目录层级无关；推荐结构 `剧名/Season 01/剧名.S01E01.mkv`，季文件夹须全称 `Season 01`（不可缩写 S01），OVA/特别篇放 `Season 00`；媒体库只能建在一个根文件夹上；支持「优先读取本地 NFO 和图片」（「其他视频」类型只读本地 NFO 不联网刮削），本地图片按 Kodi 惯例读番剧根 `poster.jpg`。
+- 据此四项改动：① 新增全局「媒体库目录」：settings 键 `library_dir`、env `LIBRARY_DIR` 回退、设置页「下载方式」分组底部字段、`/api/settings` 读写、`/api/status` 与运行卡片显示；归档根优先级 = 番剧 `storage_dir` > `library_dir` > `DOWNLOAD_DIR`，校验复用 `sanitizeStorageDir`（绝对路径、拒绝 `..`，错误文案改写为「媒体库目录…」）。② BT 多文件资源归档时把最大的视频文件在种子目录内原位重命名为 `番剧名 - SxxEyy`（`pickMainVideo` 按扩展名+大小选取，字幕等附属文件保留原名、保持与主视频同目录相邻），`items.file_path` 与 `info.json` 的 `file` 记录改名后的相对路径；纠错迁移（`rearchiveSavedItem` 多文件分支）同步把主视频改名为目标 `finalBase`，迁移识别按清单匹配不受影响。③ 番剧根目录自动镜像封面为 `poster.jpg`（扩展名随封面格式 png/webp/gif）：`refreshSeriesPoster` 挂在 `writeTvshowNFO` 尾部（归档/改名/纠错迁移/绑定/解绑均触发）并在 `storeMetaSubject` 成功后调用；无封面或解绑后移除全部 `poster.*`；跨设备回退复制，失败只记日志。④ README 新增「飞牛影视（fnOS）接入步骤」与媒体库结构说明，docker-compose.yml 增加 `LIBRARY_DIR: ""`。
+- 验证：`gofmt` 等价校验（仓库为 CRLF 检出，用「去 CR 后 gofmt 比对」方式验证改动文件，未跑 `gofmt -w` 以避免整文件行尾重写）、`go vet ./...`、`go build`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s` 全部通过；新增 `TestArchiveTargetUsesLibraryDir`（优先级/覆盖/回退）、`TestSeriesPosterMirrorsCover`（镜像与过期清除）、`TestLibraryDirSetting`（保存/非法拒绝/清空回退/重启恢复/GET 回显），并按新布局更新 `TestMultiFileResourceLandsInEpisodeFolder`（断言主视频改名 + 迁移识别）与 `TestNestedMigrationRetainsAllFilesAcrossConflicts`（内容级保留 + 改名断言，兼容冲突后缀 ` (2)`）。`node --check static/app.js` 通过；`docker compose config` 未重跑（本机无 docker，仅向 compose 增加一个空环境变量行）。
+- 浏览器端到端（8068 隔离实例 + 本地 RSS/媒体/假 Bangumi 服务，真实 lain.bgm.tv 封面）：登录→设置页「媒体库目录」回填与「当前下载目录」提示；保存后运行卡片立即更新；相对路径保存被拒并提示「媒体库目录必须是绝对路径」；第 07 话归档到默认 `downloads/番名/Season 01/番名 - S01E07.mp4`，封面识别成功后番剧根出现 216KB `poster.jpg` 与含译名的 `tvshow.nfo`；改媒体库目录后同步的第 08/09 话落到新根目录（`番名/Season 01/番名 - S01E0x.mp4` + NFO/JSON + poster），旧根目录已有文件保持不动；实例重启后 `library_dir` 从数据库恢复。过程中发现并修复：媒体库目录字段最初被误放进 Transmission 专属显隐区块（非 transmission 模式下不可见），已移到分组底部并验证切换下载模式时始终可见。测试坑：Git Bash 控制台 GBK 编码会污染 curl `-d` 中的中文（落库成替换符），中文路径验证需经浏览器 UI 或 UTF-8 文件提交。
+- 未验证：真实飞牛 NAS 实例上创建媒体库并确认识别/刮削效果（本机无 fnOS）；BT 多文件归档的浏览器端到端（仅 Go 测试覆盖）；Docker 容器内运行；亮色主题与手机视口本轮未复测（沿用既有 token 化组件，无新增样式类）。
 
 ### 界面统一设计语言（2026-09-08，`feature/ui-redesign` 分支）
 

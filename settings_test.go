@@ -57,6 +57,49 @@ func TestSetupRequiredAndWizardFlow(t *testing.T) {
 	}
 }
 
+func TestLibraryDirSetting(t *testing.T) {
+	testDatabase(t)
+	setWebAuth(t, "", "")
+	setupDone = true
+	old := libraryDir
+	t.Cleanup(func() { setupDone = false; webHash = ""; libraryDir = old })
+	if rec := settingsPUT(t, `{"library_dir":"/vol1/1000/番剧"}`); rec.Code != 200 {
+		t.Fatalf("put library dir: %d %s", rec.Code, rec.Body.String())
+	}
+	if libraryDir != "/vol1/1000/番剧" {
+		t.Fatalf("library dir not applied: %q", libraryDir)
+	}
+	// 非法值整体拒绝，不改变原值。
+	for _, body := range []string{`{"library_dir":"relative/dir"}`, `{"library_dir":"/a/../b"}`} {
+		if rec := settingsPUT(t, body); rec.Code != 400 {
+			t.Fatalf("invalid library dir accepted: %d %s", rec.Code, body)
+		}
+	}
+	if libraryDir != "/vol1/1000/番剧" {
+		t.Fatalf("failed save changed library dir: %q", libraryDir)
+	}
+	// 清空即回退下载目录，重新保存后重启（loadSettings）仍恢复。
+	if rec := settingsPUT(t, `{"library_dir":""}`); rec.Code != 200 {
+		t.Fatalf("clear library dir: %d %s", rec.Code, rec.Body.String())
+	}
+	if libraryDir != "" {
+		t.Fatalf("library dir not cleared: %q", libraryDir)
+	}
+	if rec := settingsPUT(t, `{"library_dir":"/vol1/1000/番剧"}`); rec.Code != 200 {
+		t.Fatalf("re-put library dir: %d", rec.Code)
+	}
+	libraryDir = ""
+	loadSettings()
+	if libraryDir != "/vol1/1000/番剧" {
+		t.Fatalf("library dir lost after reload: %q", libraryDir)
+	}
+	rec := httptest.NewRecorder()
+	settingsHandler(rec, httptest.NewRequest("GET", "/api/settings", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"library_dir":"/vol1/1000/番剧"`) {
+		t.Fatalf("get settings: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func storedSettings() map[string]string {
 	out := map[string]string{}
 	rows, err := db.Query("SELECT key,value FROM settings")

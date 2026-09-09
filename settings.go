@@ -116,6 +116,12 @@ func applyStoredSettings(stored map[string]string) {
 	if v, ok := stored["discover_search_template"]; ok {
 		discoverSearchTemplate = v
 	}
+	// 媒体库目录：键存在即生效（含清空回退 env），非法历史值忽略。
+	if v, ok := stored["library_dir"]; ok {
+		if clean, err := sanitizeStorageDir(v); err == nil {
+			libraryDir = clean
+		}
+	}
 	if v := stored["web_user"]; v != "" {
 		if hash := stored["web_hash"]; hash != "" {
 			webUser, webHash = v, hash
@@ -234,6 +240,7 @@ type settingsInput struct {
 	ProxyClearCredentials   bool    `json:"proxy_clear_credentials"`
 	PollMinutes             *int    `json:"poll_minutes"`
 	DiscoverSearchTemplate  *string `json:"discover_search_template"`
+	LibraryDir              *string `json:"library_dir"`
 }
 
 func decodeSettings(w http.ResponseWriter, r *http.Request) (*settingsInput, bool) {
@@ -282,7 +289,22 @@ func validateSettings(in *settingsInput) error {
 			return err
 		}
 	}
+	if in.LibraryDir != nil {
+		if _, err := validateLibraryDir(*in.LibraryDir); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// validateLibraryDir checks the media library root with the same rules as a
+// per-series storage dir; empty means "fall back to DOWNLOAD_DIR".
+func validateLibraryDir(raw string) (string, error) {
+	clean, err := sanitizeStorageDir(raw)
+	if err != nil {
+		return "", fmt.Errorf("媒体库目录%s", strings.TrimPrefix(err.Error(), "存储位置"))
+	}
+	return clean, nil
 }
 
 // applySettings persists the provided fields and updates the live globals.
@@ -388,6 +410,9 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 	if err := setTrimmed(in.DiscoverSearchTemplate, "discover_search_template"); err != nil {
 		return err
 	}
+	if err := setTrimmed(in.LibraryDir, "library_dir"); err != nil {
+		return err
+	}
 	revokeSessions := false
 	if in.WebPassword != nil && *in.WebPassword != "" {
 		user := webUser
@@ -424,6 +449,8 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			"proxy_credentials_set":    proxyURL != nil && proxyURL.User != nil,
 			"poll_minutes":             pollMinutes,
 			"discover_search_template": discoverSearchTemplate,
+			"library_dir":              libraryDir,
+			"download_dir":             downloadDir,
 			"setup_done":               setupDone,
 		})
 	case http.MethodPut:

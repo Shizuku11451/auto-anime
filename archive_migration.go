@@ -93,6 +93,10 @@ func rearchiveSavedItem(id int64, oldPath string, animeID int64, title, episode 
 			}
 		}
 		m.Size = 0
+		// The main video is renamed along with the folder so archived episodes
+		// keep the media-library file name media servers match on.
+		oldMainPath := filepath.Join(source, rel)
+		renamedMain := false
 		err = filepath.WalkDir(source, func(p string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
@@ -122,7 +126,12 @@ func rearchiveSavedItem(id int64, oldPath string, animeID int64, title, episode 
 					return nil // Generate corrected sidecars, never reuse old metadata.
 				}
 			}
-			dst := filepath.Join(metaDir, relative)
+			name := entry.Name()
+			if p == oldMainPath {
+				name = finalBase + filepath.Ext(name)
+				renamedMain = true
+			}
+			dst := filepath.Join(metaDir, filepath.Join(filepath.Dir(relative), name))
 			if err := publishMigrationFile(p, dst); err != nil {
 				return err
 			}
@@ -136,6 +145,9 @@ func rearchiveSavedItem(id int64, oldPath string, animeID int64, title, episode 
 		})
 		if err != nil {
 			return "", err
+		}
+		if renamedMain {
+			rel = filepath.ToSlash(filepath.Join(filepath.Dir(rel), finalBase+filepath.Ext(rel)))
 		}
 		m.File, newPath = filepath.ToSlash(rel), filepath.Join(metaDir, rel)
 	}

@@ -895,6 +895,8 @@ async function loadSettingsForm() {
       : "未配置代理认证；需要时可在代理 URL 中填写账号密码。";
     $("#st-poll").value = s.poll_minutes || 30;
     $("#st-discover").value = s.discover_search_template || "";
+    $("#st-library").value = s.library_dir || "";
+    $("#st-download-dir-hint").textContent = s.download_dir || "";
     syncSettingsMode();
     $("#st-msg").textContent = "";
   } catch (e) {
@@ -923,6 +925,7 @@ $("#btn-save-settings").onclick = async () => {
     proxy_clear_credentials: $("#st-proxy-clear").checked,
     poll_minutes: parseInt($("#st-poll").value, 10) || 30,
     discover_search_template: $("#st-discover").value.trim(),
+    library_dir: $("#st-library").value.trim(),
   };
   const pass = $("#st-pass").value;
   if (pass) {
@@ -1052,6 +1055,7 @@ async function loadRuntime() {
       `<div class="run-rows">` +
       `<div class="run-row"><span>下载模式</span><b>${esc(MODE_LABEL[s.download_mode] || s.download_mode)}</b></div>` +
       `<div class="run-row"><span>同步周期</span><b>每 ${s.poll_minutes} 分钟</b></div>` +
+      `<div class="run-row"><span>媒体库目录</span><b title="${esc(s.library_dir || s.download_dir || "")}">${esc(s.library_dir || (s.download_dir ? s.download_dir + "（下载目录）" : "默认"))}</b></div>` +
       (s.proxy ? `<div class="run-row"><span>出站代理</span><b title="${esc(s.proxy)}">${esc(s.proxy)}</b></div>` : "") +
       countRows +
       `</div>`;

@@ -218,6 +218,11 @@
             <input type="text" id="st-tr-local" spellcheck="false">
           </div>
         </div>
+        <div class="field">
+          <label for="st-library">媒体库目录（番剧文件夹的根目录；留空使用下载目录）</label>
+          <input type="text" id="st-library" spellcheck="false" placeholder="例如 /vol1/1000/番剧">
+          <small class="settings-hint">一部番一个文件夹，按 Season 01/番名 - S01E07 组织，适配飞牛影视、Emby、Jellyfin；媒体服务器扫描该目录即可。当前下载目录：<span id="st-download-dir-hint"></span></small>
+        </div>
       </div>
 
       <div class="settings-group">

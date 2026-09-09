@@ -23,6 +23,7 @@ import (
 
 var db *sql.DB
 var downloadDir = env("DOWNLOAD_DIR", "/data/downloads")
+var libraryDir = env("LIBRARY_DIR", "")
 var pollMinutes = 30
 var downloadMode = env("DOWNLOAD_MODE", "direct")
 var aria2URL = env("ARIA2_URL", "")
@@ -546,7 +547,7 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 		if season < 1 {
 			season = 1
 		}
-		def := filepath.Join(downloadDir, safeComponent(title))
+		def := filepath.Join(archiveBaseRoot(), safeComponent(title))
 		effective := def
 		if clean, err := sanitizeStorageDir(dir); err == nil && clean != "" {
 			effective = clean

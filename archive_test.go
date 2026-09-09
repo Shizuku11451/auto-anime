@@ -155,16 +155,81 @@ func TestMultiFileResourceLandsInEpisodeFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 多文件资源的 file_path 指向集目录内下载器的顶层主目录。
+	// 主视频在集目录内按媒体库名重命名，字幕等附属文件保留原名。
 	rel := strings.TrimPrefix(filepath.ToSlash(path), filepath.ToSlash(downloadDir)+"/")
-	if rel != "夏日动画/Season 01/夏日动画 - S01E07/EP07" {
+	if rel != "夏日动画/Season 01/夏日动画 - S01E07/EP07/夏日动画 - S01E07.mp4" {
 		t.Fatalf("multi-file layout: %s", rel)
 	}
 	folder := filepath.Join(downloadDir, "夏日动画", "Season 01", "夏日动画 - S01E07")
-	for _, name := range []string{"夏日动画 - S01E07.nfo", "夏日动画 - S01E07-info.json"} {
+	for _, name := range []string{
+		filepath.Join("EP07", "夏日动画 - S01E07.mp4"),
+		filepath.Join("EP07", "Subs", "chs.ass"),
+		"夏日动画 - S01E07.nfo",
+		"夏日动画 - S01E07-info.json",
+	} {
 		if _, err := os.Stat(filepath.Join(folder, name)); err != nil {
 			t.Fatalf("missing %s: %v", name, err)
 		}
+	}
+	// 迁移识别必须能按清单找回改名后的主视频。
+	if _, videoRel, _, err := migrationSource(path, id); err != nil || filepath.ToSlash(videoRel) != "EP07/夏日动画 - S01E07.mp4" {
+		t.Fatalf("renamed main video not recognized: %q %v", videoRel, err)
+	}
+}
+
+func TestArchiveTargetUsesLibraryDir(t *testing.T) {
+	testDatabase(t)
+	old := libraryDir
+	t.Cleanup(func() { libraryDir = old })
+	libraryDir = filepath.Join(t.TempDir(), "番剧")
+
+	root, seasonDir, base := archiveTarget("夏日动画", "7", "[组] 夏日动画 [07]", 0)
+	if seasonDir != "Season 01" || base != "夏日动画 - S01E07" {
+		t.Fatalf("target names: %q %q", seasonDir, base)
+	}
+	if !strings.HasPrefix(filepath.ToSlash(root), filepath.ToSlash(libraryDir)+"/") {
+		t.Fatalf("library root ignored: %s", root)
+	}
+
+	// 番剧自定义存储位置优先于媒体库目录。
+	custom := filepath.Join(t.TempDir(), "custom")
+	if rec := putSeriesStorage(t, "夏日动画", custom, 2); rec.Code != 200 {
+		t.Fatalf("put storage: %d %s", rec.Code, rec.Body.String())
+	}
+	if root, _, _ = archiveTarget("夏日动画", "7", "x", 0); filepath.ToSlash(root) != filepath.ToSlash(custom) {
+		t.Fatalf("override ignored: %s", root)
+	}
+
+	// 清空媒体库目录后回退 DOWNLOAD_DIR（用没有自定义位置的番剧验证）。
+	libraryDir = ""
+	if root, _, _ = archiveTarget("其他故事", "7", "x", 0); !strings.HasPrefix(filepath.ToSlash(root), filepath.ToSlash(downloadDir)+"/") {
+		t.Fatalf("fallback to downloadDir failed: %s", root)
+	}
+}
+
+func TestSeriesPosterMirrorsCover(t *testing.T) {
+	testDatabase(t)
+	oldDir := coversDir
+	coversDir = t.TempDir()
+	t.Cleanup(func() { coversDir = oldDir })
+	if err := os.WriteFile(filepath.Join(coversDir, "0123456789abcdef.jpg"), []byte("cover-bytes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO anime_meta(anime_title,cover_file,source,updated_at) VALUES('夏日动画','0123456789abcdef.jpg','bangumi','2026-09-09T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	writeTvshowNFO(&animeRow{Title: "夏日动画"})
+	poster := filepath.Join(downloadDir, "夏日动画", "poster.jpg")
+	if data, err := os.ReadFile(poster); err != nil || string(data) != "cover-bytes" {
+		t.Fatalf("poster not mirrored: %v", err)
+	}
+	// 封面缓存清空（如解绑元数据）后，过期海报一并移除。
+	if _, err := db.Exec("DELETE FROM anime_meta WHERE anime_title='夏日动画'"); err != nil {
+		t.Fatal(err)
+	}
+	writeTvshowNFO(&animeRow{Title: "夏日动画"})
+	if _, err := os.Stat(poster); !os.IsNotExist(err) {
+		t.Fatal("stale poster must be removed")
 	}
 }
 

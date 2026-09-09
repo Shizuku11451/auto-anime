@@ -149,23 +149,40 @@ func resolveSeason(animeTitle string, override int) int {
 	return 1
 }
 
+// archiveBaseRoot is the default parent folder of all series folders: the
+// configured media library directory (媒体库目录, for fnOS/Emby/Jellyfin to
+// scan) when set, otherwise DOWNLOAD_DIR.
+func archiveBaseRoot() string {
+	if d := strings.TrimSpace(libraryDir); d != "" {
+		return path.Clean(filepath.ToSlash(d))
+	}
+	return downloadDir
+}
+
+// archiveRootFor resolves where a series folder lives: a saved per-series
+// override wins, then the media library directory, then DOWNLOAD_DIR.
+func archiveRootFor(series string) string {
+	root := filepath.Join(archiveBaseRoot(), safeComponent(series))
+	if dir, _, ok := queryAnimeStorage(series); ok {
+		if d := strings.TrimSpace(dir); d != "" {
+			root = path.Clean(filepath.ToSlash(d))
+		}
+	}
+	return root
+}
+
 // archiveTarget computes where a resource belongs: the series folder (a saved
-// override wins over DOWNLOAD_DIR), the Season NN subfolder for episodes, and
-// the media-library main name "番剧名 - S01E07". Resources without a
-// recognized episode stay in the series root under their original name so
-// media servers do not mistake them for specials.
+// override wins over the media library directory), the Season NN subfolder for
+// episodes, and the media-library main name "番剧名 - S01E07". Resources
+// without a recognized episode stay in the series root under their original
+// name so media servers do not mistake them for specials.
 func archiveTarget(animeTitle, episode, rawTitle string, seasonOverride int) (seriesRoot, seasonDir, base string) {
 	series := strings.TrimSpace(animeTitle)
 	if series == "" {
 		series = "未分类番剧"
 	}
 	season := resolveSeason(series, seasonOverride)
-	seriesRoot = filepath.Join(downloadDir, safeComponent(series))
-	if dir, _, ok := queryAnimeStorage(series); ok {
-		if d := strings.TrimSpace(dir); d != "" {
-			seriesRoot = path.Clean(filepath.ToSlash(d))
-		}
-	}
+	seriesRoot = archiveRootFor(series)
 	ep := strings.TrimSpace(episode)
 	if ep == "" {
 		base = safeComponent(rawTitle)
@@ -303,6 +320,45 @@ func writeTvshowNFO(a *animeRow) {
 	if err := os.WriteFile(filepath.Join(seriesRoot, "tvshow.nfo"), append([]byte(xml.Header), append(data, '\n')...), 0644); err != nil {
 		log.Printf("tvshow.nfo 写入失败 %q: %v", seriesRoot, err)
 	}
+	refreshSeriesPoster(a.Title)
+}
+
+// refreshSeriesPoster mirrors the cached Bangumi cover into the series root as
+// poster.jpg/poster.png so fnOS, Kodi and friends show artwork from local
+// files instead of scraping. A series without a cover gets its poster removed.
+// Failures are logged and never fail the caller.
+func refreshSeriesPoster(animeTitle string) {
+	if strings.TrimSpace(animeTitle) == "" {
+		return
+	}
+	seriesRoot, _, _ := archiveTarget(animeTitle, "", "", 0)
+	var coverFile string
+	db.QueryRow(`SELECT COALESCE(cover_file,'') FROM anime_meta WHERE anime_title=?`, animeTitle).Scan(&coverFile)
+	coverFile = strings.TrimSpace(coverFile)
+	for _, ext := range []string{".jpg", ".png", ".webp", ".gif"} {
+		stale := filepath.Join(seriesRoot, "poster"+ext)
+		if coverFile == "" || !coverFilePattern.MatchString(coverFile) || ext != strings.ToLower(filepath.Ext(coverFile)) {
+			os.Remove(stale)
+		}
+	}
+	if coverFile == "" || !coverFilePattern.MatchString(coverFile) {
+		return
+	}
+	src := filepath.Join(coversDir, coverFile)
+	if _, err := os.Stat(src); err != nil {
+		return
+	}
+	if err := os.MkdirAll(seriesRoot, 0755); err != nil {
+		log.Printf("poster 写入失败 %q: %v", seriesRoot, err)
+		return
+	}
+	dst := filepath.Join(seriesRoot, "poster"+filepath.Ext(coverFile))
+	os.Remove(dst)
+	if err := os.Link(src, dst); err != nil {
+		if _, copyErr := copyArchiveFile(dst, src); copyErr != nil && !os.IsExist(copyErr) {
+			log.Printf("poster 写入失败 %q: %v", seriesRoot, copyErr)
+		}
+	}
 }
 
 // Commit an entire resource only after the media and metadata have been fully
@@ -417,10 +473,32 @@ func copyArchiveFile(dst, src string) (int64, error) {
 	return size, err
 }
 
+// videoExtensions lists the container names media servers recognize; subtitles
+// and extras keep their original names.
+var videoExtensions = map[string]bool{".mp4": true, ".mkv": true, ".webm": true, ".avi": true, ".mov": true, ".m4v": true, ".ts": true}
+
+// pickMainVideo returns the index of the largest video file in a torrent so its
+// archived copy can carry the media-library name; -1 when there is no video.
+func pickMainVideo(files []archiveFile) int {
+	best, bestSize := -1, int64(-1)
+	for i, f := range files {
+		if !videoExtensions[strings.ToLower(filepath.Ext(f.Src))] {
+			continue
+		}
+		info, err := os.Stat(f.Src)
+		if err != nil || info.Size() <= bestSize {
+			continue
+		}
+		best, bestSize = i, info.Size()
+	}
+	return best
+}
+
 // archiveFromFiles copies files that a BT downloader has already completed into
 // the same archive layout as direct downloads. The downloader keeps its own
 // copy for seeding. Multi-file resources land in a per-episode folder named
-// like the media files, so media servers still match them.
+// like the media files, and the largest video is renamed to the media-library
+// name: fnOS and friends match episodes by file name only, never by folders.
 func archiveFromFiles(id int, files []archiveFile) (string, error) {
 	if len(files) == 0 {
 		return "", fmt.Errorf("下载器未返回文件列表")
@@ -454,11 +532,22 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return "", err
 	}
+	// The main video keeps its place in the torrent layout but takes the
+	// "番剧名 - SxxEyy" name, so the episode is recognizable by file name.
+	mainRel := ""
+	if seasonDir != "" {
+		if idx := pickMainVideo(files); idx >= 0 {
+			mainRel = safeRelPath(files[idx].Rel)
+		}
+	}
 	for _, f := range files {
 		rel := safeRelPath(f.Rel)
 		dst := filepath.Join(workDir, filepath.FromSlash(rel))
 		if !strings.HasPrefix(dst, workDir+string(os.PathSeparator)) {
 			return "", fmt.Errorf("文件路径越界：%s", f.Rel)
+		}
+		if rel == mainRel {
+			dst = filepath.Join(filepath.Dir(dst), base+filepath.Ext(dst))
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return "", err
@@ -469,7 +558,11 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 			return "", err
 		}
 	}
-	m.File = archiveMainName(files)
+	if mainRel != "" {
+		m.File = filepath.ToSlash(filepath.Join(filepath.Dir(mainRel), base+filepath.Ext(mainRel)))
+	} else {
+		m.File = archiveMainName(files)
+	}
 	m.SavedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := writeArchiveMeta(workDir, m, base); err != nil {
 		return "", err
