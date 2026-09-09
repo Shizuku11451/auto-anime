@@ -165,12 +165,27 @@ func TestNestedMigrationRetainsAllFilesAcrossConflicts(t *testing.T) {
 			t.Fatal("existing archive overwritten")
 		}
 		newFiles := snapshotFiles(t, newRoot)
+		newContents := map[string]int{}
+		for _, content := range newFiles {
+			newContents[content]++
+		}
 		for name, content := range oldFiles {
-			if strings.HasSuffix(name, ".mp4") || strings.HasSuffix(name, ".ass") {
+			if strings.HasSuffix(name, ".ass") {
 				if newFiles[name] != content {
 					t.Fatalf("lost nested file %s", name)
 				}
 			}
+			if strings.HasSuffix(name, ".mp4") {
+				// 主视频随番剧/季纠错改名，但内容必须仍在。
+				if newContents[content] == 0 {
+					t.Fatalf("lost video content from %s", name)
+				}
+			}
+		}
+		// 集文件夹名与主视频文件名一致（含冲突后缀），始终跟随媒体库命名。
+		renamed := filepath.Join("Pack", "Video", filepath.Base(newRoot)+".mp4")
+		if _, ok := newFiles[renamed]; !ok {
+			t.Fatalf("main video not renamed to media-library name: %v", newFiles)
 		}
 		assertArchiveMetadata(t, newRoot, filepath.Base(newRoot), id, target, s, filepath.ToSlash(rel))
 		oldPath = saved

@@ -159,6 +159,9 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source string)
 	_, err = db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at) VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at`,
 		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339))
+	if err == nil {
+		refreshSeriesPoster(animeTitle)
+	}
 	return err
 }
 

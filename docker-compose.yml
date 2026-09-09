@@ -13,6 +13,9 @@ services:
       - "8000:8000"
     environment:
       DOWNLOAD_DIR: /data/downloads
+      # 可选：媒体库目录（番剧文件夹的根目录），供飞牛影视/Emby/Jellyfin 扫描；
+      # 留空时番剧归档到 DOWNLOAD_DIR。登录后也可在设置页修改
+      LIBRARY_DIR: ""
       POLL_MINUTES: "30"
       # 如使用 Aria2，将 DOWNLOAD_MODE 改为 aria2，并填写 NAS 内网地址
       DOWNLOAD_MODE: direct
