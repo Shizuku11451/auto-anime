@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>登录 · 自动追番</title>
-<meta name="theme-color" content="#0a0d12">
+<meta name="theme-color" content="#0b0d12">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <script>
 /* 主题初始化：与管理面板一致，手动选择优先，否则跟随系统偏好 */
@@ -15,64 +15,18 @@
     t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   }
   document.documentElement.dataset.theme = t;
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.content = t === "light" ? "#f4f5f8" : "#0b0d12";
 })();
 </script>
-<link rel="stylesheet" href="/static/style.css">
+  <script type="module" crossorigin src="/static/assets/login-DcriiCbb.js"></script>
+  <link rel="modulepreload" crossorigin href="/static/assets/components-hYL-25qF.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/AuthShell-COvv7lH3.js">
+  <link rel="stylesheet" crossorigin href="/static/assets/components-CtmOKCWG.css">
+  <link rel="stylesheet" crossorigin href="/static/assets/AuthShell-NR83njfr.css">
+  <link rel="stylesheet" crossorigin href="/static/assets/login-BDUCtmTS.css">
 </head>
 <body>
-<div class="login-wrap">
-  <div class="login-card">
-    <div class="brand login-brand">
-      <div class="brand-logo"><svg class="ic ic-fill" aria-hidden="true"><use href="/static/icons.svg#i-play"></use></svg></div>
-      <div>
-        <div class="name">自动追番</div>
-        <div class="sub">RSS · NAS MEDIA LIBRARY</div>
-      </div>
-    </div>
-    <form id="login-form">
-      <div class="field">
-        <label for="l-user">用户名</label>
-        <input type="text" id="l-user" autocomplete="username" autofocus>
-      </div>
-      <div class="field">
-        <label for="l-pass">密码</label>
-        <input type="password" id="l-pass" autocomplete="current-password">
-      </div>
-      <p class="form-msg" id="l-msg" role="alert"></p>
-      <button class="primary login-btn" id="l-submit" type="submit">登 录</button>
-    </form>
-  </div>
-</div>
-
-<script>
-"use strict";
-const login$ = (id) => document.getElementById(id);
-const loginParams = new URLSearchParams(location.search);
-let loginNext = loginParams.get("next") || "/";
-if (!loginNext.startsWith("/") || loginNext.startsWith("//") || loginNext.includes("\\")) loginNext = "/";
-
-const loginMsg = login$("l-msg");
-const loginBtn = login$("l-submit");
-login$("login-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const user = login$("l-user").value.trim();
-  const pass = login$("l-pass").value;
-  if (!user || !pass) { loginMsg.textContent = "请输入用户名和密码"; return; }
-  loginMsg.textContent = "";
-  loginBtn.disabled = true;
-  try {
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user, password: pass }),
-    });
-    if (res.ok) { location.replace(loginNext); return; }
-    loginMsg.textContent = (await res.text()) || `登录失败 HTTP ${res.status}`;
-  } catch {
-    loginMsg.textContent = "网络错误，请稍后重试";
-  }
-  loginBtn.disabled = false;
-});
-</script>
+<div id="app"></div>
 </body>
 </html>

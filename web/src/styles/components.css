@@ -1,0 +1,178 @@
+/* ============================================================
+   跨组件共享的小型样式原语（卡片、标签、表单、页头）。
+   组件专属样式写在各自的 <style scoped> 里。
+   ============================================================ */
+
+/* ---- 卡片 ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- 标签 ---- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+  background: var(--surface-3);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.tag.accent {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+.tag.green {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: var(--green-border);
+}
+.tag.amber {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: var(--amber-border);
+}
+.tag.red {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: var(--red-border);
+}
+.tag.blue {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: var(--blue-border);
+}
+.tag .lucide {
+  width: 12px;
+  height: 12px;
+}
+
+/* ---- 元信息行 ---- */
+.meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.meta-line > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.meta-line .lucide {
+  width: 13px;
+  height: 13px;
+  color: var(--text-3);
+  flex: none;
+}
+
+/* ---- 表单 ---- */
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.field > label,
+.field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.field-hint {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.field-hint code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-3);
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13.5px;
+  margin: 2px 0 14px;
+}
+.form-msg {
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--red);
+  margin: 0 0 4px;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.form-msg:empty {
+  opacity: 0;
+}
+.form-msg.ok {
+  color: var(--green);
+}
+
+/* ---- 页面 ---- */
+.page {
+  max-width: var(--page-max);
+  margin: 0 auto;
+}
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0 0 10px;
+}
+
+/* ---- 预览/代码块 ---- */
+.pre-box {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* ---- 路径 ---- */
+.path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  word-break: break-all;
+}

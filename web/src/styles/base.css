@@ -1,0 +1,419 @@
+/* ============================================================
+   自动追番 · 基础样式与全局动效
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  position: relative;
+  color: var(--text);
+  background: var(--bg);
+  font: 14px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* 背景环境光：随主题变化的两团柔光 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 480px at 8% -10%, var(--accent-soft), transparent 60%),
+    radial-gradient(760px 420px at 100% -6%, rgba(94, 225, 196, 0.07), transparent 58%);
+}
+
+html[data-theme="light"] body::before {
+  background:
+    radial-gradient(900px 480px at 8% -10%, rgba(91, 78, 224, 0.09), transparent 60%),
+    radial-gradient(760px 420px at 100% -6%, rgba(47, 195, 166, 0.08), transparent 58%);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+img,
+svg {
+  display: block;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 焦点环 */
+:where(button, input, select, textarea, [tabindex], a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ---- 表单控件 ---- */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.control,
+input[type="text"],
+input[type="url"],
+input[type="search"],
+input[type="password"],
+input[type="number"],
+input[type="email"],
+select,
+textarea {
+  width: 100%;
+  min-height: 38px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+  transition:
+    border-color var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out);
+}
+html[data-theme="light"] :is(.control, input[type="text"], input[type="url"], input[type="search"], input[type="password"], input[type="number"], input[type="email"], select, textarea) {
+  background: var(--surface);
+}
+textarea {
+  padding: 10px 12px;
+  resize: vertical;
+  line-height: 1.55;
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 34px;
+  cursor: pointer;
+}
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+input:disabled,
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+::placeholder {
+  color: var(--placeholder);
+}
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ---- 通用排版工具 ---- */
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.muted {
+  color: var(--text-2);
+}
+.faint {
+  color: var(--text-3);
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.break-all {
+  word-break: break-all;
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- 关键帧 ---- */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--green-border);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes bar-flow {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* ---- Vue 过渡类 ---- */
+
+/* 纯淡入淡出 */
+.fade-enter-active {
+  transition: opacity var(--t-med) var(--ease-out);
+}
+.fade-leave-active {
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* 页面切换：轻微上浮 */
+.page-enter-active {
+  transition:
+    opacity var(--t-slow) var(--ease-out),
+    transform var(--t-slow) var(--ease-out);
+}
+.page-leave-active {
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.page-leave-to {
+  opacity: 0;
+}
+
+/* 弹出层：缩放 + 上浮，弹性收尾 */
+.pop-enter-active {
+  transition:
+    opacity var(--t-med) var(--ease-out),
+    transform 380ms var(--ease-spring);
+}
+.pop-leave-active {
+  transition:
+    opacity 160ms var(--ease-in-out),
+    transform 160ms var(--ease-in-out);
+}
+.pop-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.96);
+}
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+}
+
+/* 向上滑入（提示、摘要条） */
+.slide-up-enter-active {
+  transition:
+    opacity var(--t-med) var(--ease-out),
+    transform var(--t-med) var(--ease-out);
+}
+.slide-up-leave-active {
+  transition:
+    opacity var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* 列表：交错入场 + FLIP 位移 */
+.list-move,
+.list-enter-active {
+  transition:
+    opacity var(--t-slow) var(--ease-out),
+    transform var(--t-slow) var(--ease-out);
+  transition-delay: calc(min(var(--i, 0), 14) * 28ms);
+}
+.list-leave-active {
+  position: absolute;
+  transition:
+    opacity 160ms var(--ease-out),
+    transform 160ms var(--ease-out);
+}
+.list-enter-from {
+  opacity: 0;
+  transform: translateY(14px) scale(0.98);
+}
+.list-leave-to {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+/* 通知 */
+.toast-enter-active {
+  transition:
+    opacity var(--t-med) var(--ease-out),
+    transform 420ms var(--ease-spring);
+}
+.toast-leave-active {
+  transition:
+    opacity 180ms var(--ease-in-out),
+    transform 180ms var(--ease-in-out);
+}
+.toast-move {
+  transition: transform var(--t-med) var(--ease-out);
+}
+.toast-enter-from {
+  opacity: 0;
+  transform: translateX(28px) scale(0.96);
+}
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(16px) scale(0.96);
+}
+
+/* 主题切换的圆形揭开（View Transitions API，渐进增强） */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

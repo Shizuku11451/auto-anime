@@ -11,11 +11,33 @@
 
 当前阶段：外部下载器任务跟踪闭环已打通，并用真实 RSS（anibt.net）+ 本机 Aria2 完成端到端实测（识别 → BT 下载 → 归档 → 可播放 → 集数正确）。以下记录来自当前源码及本轮实际验证，后续完成相关工作时应更新本节，不要直接将规划项标记完成。
 
+### 番剧库管理（2026-09-09）
+
+- 提交前审查修复：番剧改名的名称、资源、元数据、订阅归属及配置更新统一事务提交，任一步失败完整回滚；`TestAnimeRenameRollsBackAllAssociations` 用订阅更新触发器复现并验证。前端操作后刷新等待旧轮询结束再重新读取，避免沿用操作前快照；Edge 延迟旧轮询响应验证新建番剧在下一次定时轮询前显示。全量 Go 测试、vet、构建、前端构建及订阅过滤测试通过。
+
+- 番剧库增加新建、卡片直接编辑/合并/删除、批量选择（含全选当前筛选结果）、范围筛选和排序；详情页同样提供合并与删除。新建复用编辑表单，默认季号为 1，避免被空番剧自动清理；同名创建返回 409，不覆盖已有配置。
+- 新增 `anime_manage.go`：`POST /api/animes` 新建，`POST /api/animes/manage` 按 `action=merge|delete` 处理最多 500 个来源 ID。整批事务提交或回滚；合并保留有效季号/集数/文件路径，资源标为手动归属，定向订阅改指目标，目标配置保持原样。来源番剧配置/元数据及旧存储记录被删除。删除含资源需显式 `delete_items=true`，并暂停、解绑定向订阅；旧 DELETE 接口仍拒绝删除有资源的番剧。
+- 管理操作不删除或迁移磁盘文件、不重写已有 NFO、不取消外部下载器任务；存在排队/下载中资源时拒绝操作。管理写锁与同步/纠错/恢复及下载入队协作，外部下载器应用轮询结果时校验活动任务，兼容 qBittorrent 首次哈希发现。普通非定向订阅仍可能重新收录被删除的资源。
+- 验证：`anime_manage_test.go` 覆盖创建校验/重名/自动清理保留、合并有效季号/手动标记/订阅与目标配置、删除媒体保留、整批 SQL 失败回滚、活动任务与非法批次拒绝、过期下载器结果；Go 全量测试、vet、构建及前端构建通过。8087 隔离数据库 + 本地 RSS/媒体 + Edge 实测新建/编辑/重复名称、两部番剧合并、取消/确认删除与批量删除，验证归档媒体内容未变、季号与订阅归属正确；1280/768/390/320 宽度亮暗主题无横向越界，手机合并/删除弹窗正常，无页面脚本错误。未修改用户运行数据库，未做 Docker/NAS 实机验证。
+
+### 找番订阅范围修复（2026-09-09）
+
+- 新增可选空番剧清理（默认关闭）：设置键 `auto_cleanup_empty_anime`，位于设置页「媒体库」，保存启用后立即清理，启动与每分钟自动检查；从数据库读取开关，无额外环境变量。`anime_cleanup.go` 事务删除无资源（同时查 ID/旧标题关联）、无订阅 target_title 关联（含暂停）、无 manual 元数据/bangumi_id/搜索名/季号/存储目录/包含排除规则/旧 anime_storage 的空记录及对应自动元数据，不操作文件。共享读写锁保护同步首集入库、纠错、番剧编辑/绑定、旧存储接口和恢复期间的多条 SQL，清理失败回滚并记录日志。设置保存返回清理数量或重试提示，前端刷新番剧库。
+- 清理验证：`anime_cleanup_test.go` 覆盖默认关闭、启停/省略/非法设置、立即清理、关联与各配置保留、重复执行、解除关联后清理、事务失败回滚、媒体不变与首资源并发保护。Go 全量测试、vet、构建和前端构建通过；隔离临时实例 + Edge 验证默认关闭、开启即清除一部空番剧、暂停订阅/季号配置保留、刷新持久化、关闭后保留新空记录及 1280/390 亮暗主题，无页面错误。未对用户当前数据库启用清理，未做 Docker/NAS 实机验证。
+
+- 后续订阅卡片布局修复：`FeedCard.vue` 内部网格明确使用 `minmax(0, 1fr)`，卡片允许收缩，状态徽章不压缩；长标题/地址/归属/错误/关键词在卡片内截断并可查看完整提示。`FeedsView.vue` 网格最小宽度受容器限制，避免窄屏横向溢出。前端构建通过；本地模拟三种订阅状态，在 Edge 的 1280/768/390/320 宽度、亮暗主题下检查长中日英标题、长 URL 和关键词均无越界，编辑弹窗保留完整名称。纯前端变更，未修改后端。
+
+- 原因：逐条「添加订阅」实际订阅同一个搜索 RSS，只预填搜索词，未限制所选字幕组和版本；标题精确建档又把不同别名/标签拆成多张卡片。
+- `web/src/utils/discover.ts` 与 `DiscoverView.vue` 按清理后的番名、字幕组、清晰度和已识别语言折叠多集；移除订阅全部结果入口，选择版本后预填过滤条件；相同 RSS 已存在时打开原订阅调整，不新增重复订阅。
+- `FeedDialog.vue` 自动预览过滤结果；修改规则后原预览失效，找番入口在预览失败或零匹配时不能保存。`/api/preview` 复用同步的包含/排除逻辑，先过滤再截取前 20 条，返回总数和匹配数。
+- `feeds.target_title` 保存显式的「归入番剧」，同步时优先于多来源规则统一后续条目归属；空值保留旧自动识别逻辑，编辑省略字段保留原值，番剧改名同步更新引用，备份 v3 增加可选字段并兼容旧备份。已存在的资源不会因调整归属额外创建空番剧。未合并或删除用户已有记录/文件，未实现同集择优下载或替换，仍按资源 URL 去重。
+- 验证：新增 `discover_subscription_test.go` 覆盖过滤先于截断、定向同步/同番别名归一/重复同步、归属备份恢复与编辑省略/清空；前端 `node --test web/src/utils/discover.test.mjs` 三项通过。`gofmt`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s`、`go vet ./...`、Go 构建与 `web/npm run build` 通过。隔离临时数据库 + 本地 RSS + Edge 浏览器实测：5 条资源显示 4 个版本，选定版本只收录 07/08 两集且只有 1 部番剧；预览失效/零匹配禁止保存、已有订阅编辑、空结果/搜索失败、1280/390 视口亮暗主题与手机弹窗均通过，无页面脚本错误。未运行真实资源站下载、Docker 或 NAS 验证。
+
 ### 已实现
 
 | 模块 | 当前能力 | 实现位置 |
 | --- | --- | --- |
-| 订阅管理 | 添加、编辑名称和关键词、暂停/启用、删除、RSS 预览、手动和定时同步；页面添加后触发首次同步；同步条目写入错误会记录到订阅错误信息 | `main.go`、`static/app.js` |
+| 订阅管理 | 添加、编辑名称和关键词、暂停/启用、删除、RSS 预览、手动和定时同步；页面添加后触发首次同步；同步条目写入错误会记录到订阅错误信息 | `main.go`、`web/src/views/FeedsView.vue`、`web/src/dialogs/FeedDialog.vue` |
 | RSS 解析 | RSS、RSS 1.0/RDF、Atom；优先 enclosure，支持相对资源链接 | `main.go` |
 | 过滤去重 | 包含关键词全部匹配、排除关键词任一匹配；按资源 URL 去重 | `main.go` |
 | 番剧识别 | 从标题提取字幕组、集数和清晰度：支持 `[07]`、`S01E09`、`- 09`、`第08话`、`[09v2]`；季标记（第三季/S01/3期）不误判为集数；已用 anibt RSS 50 条真实标题验证 | `main.go` |
@@ -27,8 +49,8 @@
 | 种子语义 | 直链模式下磁力与 `.torrent` 链接标记"等待下载器"并显示原因；aria2 对 `.torrent` 链接自动改用 `addTorrent`（含 bencode infohash 计算） | `main.go`、`downloader.go` |
 | 重启恢复 | 重启后恢复符合条件的排队/自动下载条目；带任务 ID 的下载器任务继续跟踪；无任务 ID 的"下载中"改为失败待手动重试 | `recovery.go` |
 | 数据迁移 | JSON 导出订阅及条目元数据；恢复只按 URL 合并订阅；支持嵌套 OPML 导入 | `main.go`、`backup_test.go` |
-| 运行信息 | 条目搜索、API 状态筛选、全库状态统计、公开健康检查；管理面板：统一设计语言（token 化亮暗双主题）、Lucide 图标 sprite（本地 `static/icons.svg`，禁表情符号）、左侧导航（手机端横向滑动）、状态筛选徽章、下载进度条、失败原因展示、弹窗（含右上角关闭）与通知交互、亮/暗主题切换（手动选择优先，否则跟随系统，存浏览器本地） | `status.go`、`main.go`、`static/` |
-| 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`static/login.html`、`static/` |
+| 运行信息 | 条目搜索、API 状态筛选、全库状态统计、公开健康检查；管理面板：Vue 3 单页应用（hash 路由），token 化亮暗双主题、Lucide 图标（`@lucide/vue` 组件随构建产物本地打包，禁表情符号）、左侧导航（手机端为顶栏 + 底部标签栏）、状态筛选徽章、下载进度条、失败原因展示、弹窗（含右上角关闭、Esc 只关最上层）与通知交互、页面/列表/弹窗过渡动画（`prefers-reduced-motion` 降级）、亮/暗主题切换（手动选择优先，否则跟随系统，存浏览器本地） | `status.go`、`main.go`、`web/` |
+| 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`web/src/login/`、`web/` |
 | 出站代理 | `PROXY_URL`（默认空=显式直连）支持 http/https/socks5/socks5h（无前缀按 http，凭据写在 URL）；代理作用于 RSS 同步/预览、直链下载、`.torrent` 字节下载（新增 `torrentClient`）、Bangumi、Webhook；下载器 RPC（`downloaderClient`/`qbitClient`）始终直连；`newTransport()`/`newClient()` 统一传输配置，日志与 `/api/status` 只输出脱敏地址；无效配置启动即失败并给出原因 | `proxy.go`、`main.go`、`meta.go`、`archive.go`、`downloader.go` |
 | 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期、媒体库目录 `library_dir`（绝对路径校验，清空回退 `DOWNLOAD_DIR`）；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
 | 找番搜索 | 侧栏「找番」：`GET /api/discover/sources` 列出内置与自定义搜索源；`GET /api/discover/search` 按关键词拉取资源站搜索 RSS（20 秒超时、8MB 响应上限、最多 60 条、资源页与种子链接分开保留、相对链接补全），逐条复用标题识别（番剧名/字幕组/集数/清晰度）；内置 ACG.RIP（2026-09-07 实测可国内直连匿名搜索；蜜柑计划/动漫花园的匿名搜索当时不可用，未内置）；设置页可配自定义 RSS 搜索模板（`{keyword}`/`{关键词}` 占位符、http(s) 与主机校验，存 settings 表热生效、清空即回退）；前端结果列表一键预填订阅弹窗（名称=识别番剧名、包含=搜索词），摘要条展示并复制本次搜索的 RSS 地址；搜索走统一出站代理配置 | `discover.go`、`settings.go`、`main.go`、`static/` |
@@ -50,7 +72,13 @@
 - 浏览器端到端（8068 隔离实例 + 本地 RSS/媒体/假 Bangumi 服务，真实 lain.bgm.tv 封面）：登录→设置页「媒体库目录」回填与「当前下载目录」提示；保存后运行卡片立即更新；相对路径保存被拒并提示「媒体库目录必须是绝对路径」；第 07 话归档到默认 `downloads/番名/Season 01/番名 - S01E07.mp4`，封面识别成功后番剧根出现 216KB `poster.jpg` 与含译名的 `tvshow.nfo`；改媒体库目录后同步的第 08/09 话落到新根目录（`番名/Season 01/番名 - S01E0x.mp4` + NFO/JSON + poster），旧根目录已有文件保持不动；实例重启后 `library_dir` 从数据库恢复。过程中发现并修复：媒体库目录字段最初被误放进 Transmission 专属显隐区块（非 transmission 模式下不可见），已移到分组底部并验证切换下载模式时始终可见。测试坑：Git Bash 控制台 GBK 编码会污染 curl `-d` 中的中文（落库成替换符），中文路径验证需经浏览器 UI 或 UTF-8 文件提交。
 - 未验证：真实飞牛 NAS 实例上创建媒体库并确认识别/刮削效果（本机无 fnOS）；BT 多文件归档的浏览器端到端（仅 Go 测试覆盖）；Docker 容器内运行；亮色主题与手机视口本轮未复测（沿用既有 token 化组件，无新增样式类）。
 
-### 界面统一设计语言（2026-09-08，`feature/ui-redesign` 分支）
+### 前端重构为 Vue 3 + Vite（2026-09-09）
+
+- 范围：新增 `web/` 前端工程（Vue 3.5、Vite 8、TypeScript 6、vue-router 5 hash 路由、@vueuse/core、@lucide/vue），`npm run build` 先跑 `vue-tsc` 类型检查再把三个入口（`index.html`/`login.html`/`setup.html`）与哈希命名的 `assets/` 输出到 `static/`；Go 代码、Dockerfile、docker-compose、start-dev.bat 零改动（服务端仍按 `static/index.html`、`static/login.html`、`static/setup.html` 与 `/static/` 前缀提供文件）。旧的 `static/app.js`、`style.css`、`icons.svg` 已删除，`favicon.svg` 由 `web/public/` 复制产出。构建产物随仓库提交，容器构建与 NAS 部署不需要 Node；`.dockerignore` 排除 `web/node_modules/`。
+- 结构：`src/api`（与 Go json tag 对应的类型、fetch 封装，401 只跳转一次并把 hash 路由带回登录页）、`src/stores`（全局数据 5 秒轮询且页面不可见时暂停、主题、toast、确认框、弹窗状态、找番状态）、`src/components/ui`（按钮、弹窗、徽章、空状态、封面、进度条、骨架屏、数字滚动、搜索框等）、`src/components/layout`（侧栏、运行状态卡片、备份/恢复/OPML/退出操作、手机顶栏与底部标签栏）、`src/views`（番剧库/最近条目/订阅管理/找番/设置）、`src/dialogs`（订阅、存储位置、番剧详情、编辑、元数据绑定、纠错）、`src/login`、`src/setup`（三步向导，按方向滑动切换）。设计令牌在 `src/styles/tokens.css`（紫罗兰主色，暗色默认、`html[data-theme="light"]` 覆盖），通用原语在 `components.css`，过渡类与关键帧在 `base.css`。
+- 动效：路由切换淡入上浮、列表交错入场与 FLIP 位移、弹窗弹性入场（≤640px 改为底部抽屉）、侧栏/底栏/下载模式分段控件的滑动指示器、主题切换圆形揭开（View Transitions API，不支持时直接切换）、封面淡入与悬停缩放、进度条流光、运行状态计数数字滚动、登录失败抖动；`prefers-reduced-motion` 全部降级。
+- 弹窗栈：`src/composables/dialogStack.ts` 记录打开顺序，Esc 只关闭最上层，避免详情内二级弹窗一次 Esc 全关；打开期间锁定页面滚动。
+- 已知取舍：每次构建 `assets/` 文件名哈希会变化，提交时 `static/assets` 会整体替换；这是为了让浏览器缓存自动失效。`@lucide/vue` 的函数式图标组件不能作为 `withDefaults` 默认值（会被当作工厂函数调用导致整页渲染失败），需要用 `computed` 兜底。
 
 - 范围：仅 `static/` 与文档，Go 代码零改动。`style.css` 重写为 token 化设计系统（表面/线条/文字分层、语义色、圆角、阴影、缓动变量；暗色默认、亮色经 `html[data-theme="light"]` 覆盖），组件统一规格：按钮（primary/danger/small/icon）、输入聚焦环、状态徽章（带图标）、卡片、弹窗（毛玻璃背景 + 入场动画 + 右上角关闭）、toast（图标 + 退场动画）、进度条（渐变 + 流光）、空状态（圆形图标底）；另有 focus-visible 焦点环、细化滚动条、`prefers-reduced-motion` 降级、背景环境光渐变；运行状态卡片改为图标 + 脉冲点 + 键值行结构。
 - 图标：新增 `static/icons.svg`（由 lucide-static v0.544.0 本地生成的 48 图标 sprite，文件头注明来源与 ISC 许可）与 `static/favicon.svg`；静态页面直接 `<use>` 引用，动态渲染统一走 `app.js` 的 `icon()` 产出。界面全程不使用表情符号与 Unicode 几何符号（◈▤☰⚙☀ 等），已全量扫描 static/ 非 ASCII 字符清单确认只剩中文排版符号与密码占位 `•`；零 CDN、零新增运行时依赖。
@@ -99,7 +127,7 @@
 
 - Go 1.23，使用标准库 HTTP、XML 和 SQL。
 - SQLite 使用 `modernc.org/sqlite`，关闭 CGO，适合 NAS Docker 部署。
-- Web 页面位于 `static/`，界面文案默认使用简体中文。
+- Web 页面源码位于 `web/`（Vue 3 + Vite + TypeScript），`npm run build` 输出到 `static/` 并随仓库提交；Go 服务端只读取 `static/`，运行与 Docker 构建不需要 Node。界面文案默认使用简体中文。
 - 优先沿用现有依赖和模块模式；按职责逐步拆分代码，不把无关重构混入功能修改。
 - 新依赖必须有具体用途，并提交对应的 `go.mod`、`go.sum` 变更。不要用其他语言重写后端。
 
@@ -117,7 +145,7 @@
 - `archive_migration.go`：纠错迁移、源文件保护、目标准备与失败回滚、提交后旧文件清理。
 - `recovery.go`：下载任务恢复及下载器配置校验。
 - `status.go`：健康检查和运行状态。
-- `*_test.go`：Go 测试；`static/`：管理界面。
+- `*_test.go`：Go 测试；`web/`：管理界面源码（`src/api` 类型与请求封装、`src/stores` 全局状态、`src/components` 通用与布局组件、`src/views` 五个视图、`src/dialogs` 业务弹窗、`src/login` 与 `src/setup` 独立入口）；`static/`：`web/` 的构建产物，不要手工编辑。
 - `Dockerfile`、`docker-compose.yml`：构建及 NAS 部署；`README.md`：用户配置与使用说明。
 - 目录结构调整时同步维护本节。
 
@@ -174,6 +202,7 @@
 - 触及解析、去重、重试、恢复、路径安全和事务时补充对应失败场景。共享全局数据库或配置的现有测试不能直接使用 `t.Parallel()`。
 - 修改容器配置后执行 `docker compose config`；Docker 可用且不会影响现有部署时构建并启动容器验证。无法验证时如实说明原因。
 - 修改界面时检查中文、加载、空状态、失败状态以及桌面和手机布局；使用浏览器验证实际操作流程。
+- 前端改动后在 `web/` 执行 `npm run build`（含 `vue-tsc` 类型检查），把 `static/` 产物一并提交；不要手工编辑 `static/`。
 - 只报告真正执行过的检查；编译通过不能替代下载、重启恢复或容器运行验证。
 
 ## 交付说明

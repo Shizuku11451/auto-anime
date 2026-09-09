@@ -69,23 +69,25 @@ var episodePatterns = []*regexp.Regexp{
 var seasonPattern = regexp.MustCompile(`第\s*[0-9一二三四五六七八九十]{1,3}\s*[季期]|[0-9]{1,2}\s*[季期]`)
 
 type Feed struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Include   string `json:"include_words"`
-	Exclude   string `json:"exclude_words"`
-	Auto      bool   `json:"auto_download"`
-	Enabled   bool   `json:"enabled"`
-	LastSync  string `json:"last_sync"`
-	LastError string `json:"last_error"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Include     string `json:"include_words"`
+	Exclude     string `json:"exclude_words"`
+	Auto        bool   `json:"auto_download"`
+	Enabled     bool   `json:"enabled"`
+	LastSync    string `json:"last_sync"`
+	LastError   string `json:"last_error"`
+	TargetTitle string `json:"target_title"`
 }
 type FeedInput struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Include string `json:"include_words"`
-	Exclude string `json:"exclude_words"`
-	Auto    bool   `json:"auto_download"`
-	Enabled *bool  `json:"enabled"`
+	Name        string  `json:"name"`
+	URL         string  `json:"url"`
+	Include     string  `json:"include_words"`
+	Exclude     string  `json:"exclude_words"`
+	Auto        bool    `json:"auto_download"`
+	Enabled     *bool   `json:"enabled"`
+	TargetTitle *string `json:"target_title"`
 }
 type webhookEvent struct {
 	Event    string `json:"event"`
@@ -97,7 +99,9 @@ type webhookEvent struct {
 	Time     string `json:"time"`
 }
 type PreviewInput struct {
-	URL string `json:"url"`
+	URL     string `json:"url"`
+	Include string `json:"include_words"`
+	Exclude string `json:"exclude_words"`
 }
 type backupData struct {
 	Version       int                 `json:"version"`
@@ -235,7 +239,7 @@ func initDB() {
 	if e != nil {
 		log.Fatal(e)
 	}
-	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''"} {
+	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''"} {
 		name := strings.Fields(col)[0]
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('feeds') WHERE name=?", name).Scan(&count)
@@ -341,9 +345,11 @@ func parseFeed(r io.Reader) ([]feedItem, error) {
 	return out, nil
 }
 func syncFeed(id int) (int, error) {
+	animeCleanupMu.RLock()
+	defer animeCleanupMu.RUnlock()
 	var f Feed
 	var a int
-	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a)
+	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download,COALESCE(target_title,'') FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &f.TargetTitle)
 	if e != nil {
 		return 0, e
 	}
@@ -359,12 +365,30 @@ func syncFeed(id int) (int, error) {
 		if it.Title == "" || it.Link == "" || !allowed(it.Title, f.Include, f.Exclude) {
 			continue
 		}
+		// 已收录的资源不能因更改订阅归属而额外创建空番剧。
+		if f.TargetTitle != "" {
+			var exists bool
+			if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM items WHERE link=?)", it.Link).Scan(&exists); err != nil {
+				writeErr = fmt.Errorf("条目查询失败: %w", err)
+				continue
+			}
+			if exists {
+				continue
+			}
+		}
 		info := extractAnimeInfo(it.Title)
 		// 多来源归并：某部番剧的规则命中原始标题时，条目归入该番剧，
 		// 不再按本地识别标题另立门户。
 		animeID := int64(0)
 		animeTitle := info.Title
-		if id, title := matchAnimeRule(it.Title); id > 0 {
+		if f.TargetTitle != "" {
+			animeTitle = f.TargetTitle
+			animeID, e = ensureAnime(animeTitle)
+			if e != nil {
+				writeErr = fmt.Errorf("番剧写入失败: %w", e)
+				continue
+			}
+		} else if id, title := matchAnimeRule(it.Title); id > 0 {
 			animeID, animeTitle = id, title
 		} else if animeTitle != "" {
 			animeID, _ = ensureAnime(animeTitle)
@@ -404,7 +428,9 @@ func syncFeed(id int) (int, error) {
 	return n, writeErr
 }
 func downloadItem(id int) {
+	animeCleanupMu.RLock()
 	result, err := db.Exec("UPDATE items SET status='等待下载',task_error='' WHERE id=? AND status IN ('待下载','下载失败','等待下载器')", id)
+	animeCleanupMu.RUnlock()
 	if err != nil {
 		return
 	}
@@ -534,6 +560,8 @@ func sanitizeStorageDir(raw string) (string, error) {
 // animeStorageAPI keeps the legacy /api/anime/{title}/storage endpoint working
 // on top of the animes table (which absorbed anime_storage at migration).
 func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
+	animeCleanupMu.RLock()
+	defer animeCleanupMu.RUnlock()
 	title := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/anime/"), "/storage"))
 	if title == "" {
 		http.NotFound(w, r)
@@ -592,14 +620,14 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 
 func feeds(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error FROM feeds ORDER BY id DESC")
+		rows, _ := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,'') FROM feeds ORDER BY id DESC")
 		defer rows.Close()
 		out := []Feed{}
 		for rows.Next() {
 			var f Feed
 			var a int
 			var enabled int
-			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError)
+			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle)
 			f.Auto = a == 1
 			f.Enabled = enabled == 1
 			out = append(out, f)
@@ -612,7 +640,11 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "RSS 地址无效", 400)
 		return
 	}
-	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at) VALUES(?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339))
+	target := ""
+	if in.TargetTitle != nil {
+		target = sanitizeText(*in.TargetTitle, titleMaxLength)
+	}
+	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at,target_title) VALUES(?,?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339), target)
 	if e != nil {
 		http.Error(w, "RSS 地址已经存在", 409)
 		return
@@ -636,6 +668,15 @@ func preview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "RSS 预览失败："+err.Error(), 502)
 		return
 	}
+	total := len(items)
+	filtered := make([]feedItem, 0, len(items))
+	for _, item := range items {
+		if item.Title != "" && item.Link != "" && allowed(item.Title, in.Include, in.Exclude) {
+			filtered = append(filtered, item)
+		}
+	}
+	count := len(filtered)
+	items = filtered
 	if len(items) > 20 {
 		items = items[:20]
 	}
@@ -649,7 +690,7 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		out = append(out, previewItem{item.Title, item.Link, item.Pub, item.Description})
 	}
-	jsonOut(w, map[string]any{"items": out, "count": len(out)})
+	jsonOut(w, map[string]any{"items": out, "count": count, "total": total})
 }
 
 func backup(w http.ResponseWriter, r *http.Request) {
@@ -664,7 +705,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	feedRows, err := tx.QueryContext(r.Context(), "SELECT id,name,url,COALESCE(include_words,''),COALESCE(exclude_words,''),COALESCE(auto_download,0),COALESCE(enabled,1),COALESCE(last_sync,''),COALESCE(last_error,'') FROM feeds ORDER BY id")
+	feedRows, err := tx.QueryContext(r.Context(), "SELECT id,name,url,COALESCE(include_words,''),COALESCE(exclude_words,''),COALESCE(auto_download,0),COALESCE(enabled,1),COALESCE(last_sync,''),COALESCE(last_error,''),COALESCE(target_title,'') FROM feeds ORDER BY id")
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
@@ -672,7 +713,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 	for feedRows.Next() {
 		var f Feed
 		var auto, enabled int
-		if err = feedRows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &auto, &enabled, &f.LastSync, &f.LastError); err != nil {
+		if err = feedRows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &auto, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle); err != nil {
 			feedRows.Close()
 			http.Error(w, "备份失败", 500)
 			return
@@ -740,6 +781,8 @@ func backup(w http.ResponseWriter, r *http.Request) {
 }
 
 func restore(w http.ResponseWriter, r *http.Request) {
+	animeCleanupMu.RLock()
+	defer animeCleanupMu.RUnlock()
 	if r.Method != "POST" {
 		http.Error(w, "方法不支持", 405)
 		return
@@ -776,7 +819,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "备份包含无效订阅", 400)
 			return
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339))
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength))
 		if err != nil {
 			tx.Rollback()
 			http.Error(w, "恢复失败", 500)
@@ -944,7 +987,11 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 	if in.Enabled != nil {
 		enabled = boolInt(*in.Enabled)
 	}
-	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, id)
+	var target any
+	if in.TargetTitle != nil {
+		target = sanitizeText(*in.TargetTitle, titleMaxLength)
+	}
+	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, target, id)
 	if err != nil {
 		http.Error(w, "保存失败", 500)
 		return
@@ -1052,6 +1099,7 @@ func main() {
 	startTaskPoller()
 	startMetaWorker()
 	go enqueueMissingMeta()
+	startAnimeCleanupWorker()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.ServeFile(w, r, "static/index.html")

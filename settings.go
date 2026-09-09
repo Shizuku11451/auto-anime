@@ -241,6 +241,7 @@ type settingsInput struct {
 	PollMinutes             *int    `json:"poll_minutes"`
 	DiscoverSearchTemplate  *string `json:"discover_search_template"`
 	LibraryDir              *string `json:"library_dir"`
+	AutoCleanupEmptyAnime   *bool   `json:"auto_cleanup_empty_anime"`
 }
 
 func decodeSettings(w http.ResponseWriter, r *http.Request) (*settingsInput, bool) {
@@ -413,6 +414,9 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 	if err := setTrimmed(in.LibraryDir, "library_dir"); err != nil {
 		return err
 	}
+	if in.AutoCleanupEmptyAnime != nil {
+		values["auto_cleanup_empty_anime"] = strconv.Itoa(boolInt(*in.AutoCleanupEmptyAnime))
+	}
 	revokeSessions := false
 	if in.WebPassword != nil && *in.WebPassword != "" {
 		user := webUser
@@ -450,6 +454,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			"poll_minutes":             pollMinutes,
 			"discover_search_template": discoverSearchTemplate,
 			"library_dir":              libraryDir,
+			"auto_cleanup_empty_anime": getSetting("auto_cleanup_empty_anime") == "1",
 			"download_dir":             downloadDir,
 			"setup_done":               setupDone,
 		})
@@ -462,7 +467,17 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		jsonOut(w, map[string]bool{"ok": true, "reauth_required": in.WebPassword != nil && *in.WebPassword != ""})
+		cleaned := 0
+		warning := ""
+		if in.AutoCleanupEmptyAnime != nil && *in.AutoCleanupEmptyAnime {
+			var err error
+			cleaned, err = cleanupEmptyAnime()
+			if err != nil {
+				log.Printf("设置已保存，清理空番剧失败: %v", err)
+				warning = "设置已保存，但本次清理失败，将在后台重试"
+			}
+		}
+		jsonOut(w, map[string]any{"ok": true, "reauth_required": in.WebPassword != nil && *in.WebPassword != "", "cleaned_anime": cleaned, "cleanup_warning": warning})
 	default:
 		http.Error(w, "方法不支持", 405)
 	}

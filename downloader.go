@@ -141,6 +141,13 @@ func pollDownloaderTasks() {
 }
 
 func applyTaskUpdate(t taskRef, s taskState) {
+	animeCleanupMu.RLock()
+	defer animeCleanupMu.RUnlock()
+	var active int
+	// qBittorrent discovers and persists an initially empty hash during polling.
+	if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE id=? AND COALESCE(downloader,'')=? AND (COALESCE(task_id,'')=? OR (?='qbittorrent' AND ?='')) AND status IN ("+activeTaskStatusSQL+")", t.ID, t.Downloader, t.TaskID, t.Downloader, t.TaskID).Scan(&active); err != nil || active == 0 {
+		return
+	}
 	if s.Fail != "" {
 		result, err := db.Exec("UPDATE items SET status='下载失败',task_error=? WHERE id=? AND status IN ("+activeTaskStatusSQL+")", s.Fail, t.ID)
 		if err == nil {

@@ -137,6 +137,10 @@ func coverPath(coverFile string) string {
 // ---- GET /api/animes：番剧库列表 ----
 
 func animesAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		animeCreate(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "方法不支持", 405)
 		return
@@ -189,7 +193,18 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 // ---- /api/animes/{id}[/metadata|/apply-rules] ----
 
 func animeEntryAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		animeCleanupMu.RLock()
+		defer animeCleanupMu.RUnlock()
+	} else {
+		animeCleanupMu.Lock()
+		defer animeCleanupMu.Unlock()
+	}
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/animes/"), "/")
+	if rest == "manage" {
+		animeManageAPI(w, r)
+		return
+	}
 	if rest == "" {
 		http.NotFound(w, r)
 		return
@@ -481,19 +496,44 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 	if in.ExcludeRules != nil {
 		exclude = sanitizeText(*in.ExcludeRules, rulesMaxLength)
 	}
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, "保存失败", 500)
+		return
+	}
+	defer tx.Rollback()
 	if newTitle != a.Title {
 		var taken int
-		if err := db.QueryRow("SELECT COUNT(*) FROM animes WHERE title=? AND id!=?", newTitle, id).Scan(&taken); err != nil || taken > 0 {
+		if err := tx.QueryRow("SELECT COUNT(*) FROM animes WHERE title=? AND id!=?", newTitle, id).Scan(&taken); err != nil {
+			http.Error(w, "保存失败", 500)
+			return
+		}
+		if taken > 0 {
 			http.Error(w, "已存在同名番剧", 409)
 			return
 		}
-		db.Exec("DELETE FROM anime_meta WHERE anime_title=?", newTitle)
-		db.Exec("UPDATE anime_meta SET anime_title=? WHERE anime_title=?", newTitle, a.Title)
-		db.Exec("UPDATE animes SET title=? WHERE id=?", newTitle, id)
-		db.Exec("UPDATE items SET anime_title=? WHERE anime_id=?", newTitle, id)
+		for _, update := range []struct {
+			query string
+			args  []any
+		}{
+			{"DELETE FROM anime_meta WHERE anime_title=?", []any{newTitle}},
+			{"UPDATE anime_meta SET anime_title=? WHERE anime_title=?", []any{newTitle, a.Title}},
+			{"UPDATE animes SET title=? WHERE id=?", []any{newTitle, id}},
+			{"UPDATE items SET anime_title=? WHERE anime_id=?", []any{newTitle, id}},
+			{"UPDATE feeds SET target_title=? WHERE target_title=?", []any{newTitle, a.Title}},
+		} {
+			if _, err := tx.Exec(update.query, update.args...); err != nil {
+				http.Error(w, "保存失败，操作已回滚", 500)
+				return
+			}
+		}
 	}
-	if _, err := db.Exec(`UPDATE animes SET search_name=?,season=?,storage_dir=?,include_rules=?,exclude_rules=?,updated_at=? WHERE id=?`,
+	if _, err := tx.Exec(`UPDATE animes SET search_name=?,season=?,storage_dir=?,include_rules=?,exclude_rules=?,updated_at=? WHERE id=?`,
 		searchName, season, storageDir, include, exclude, time.Now().UTC().Format(time.RFC3339), id); err != nil {
+		http.Error(w, "保存失败", 500)
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		http.Error(w, "保存失败", 500)
 		return
 	}
@@ -508,27 +548,13 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 }
 
 func animeDelete(w http.ResponseWriter, id int64) {
-	a, err := getAnime(id)
+	result, status, err := manageAnime(animeManageInput{Action: "delete", IDs: []int64{id}})
 	if err != nil {
-		http.Error(w, "番剧不存在", 404)
+		http.Error(w, err.Error(), status)
 		return
 	}
-	var items int
-	if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE anime_id=?", id).Scan(&items); err != nil {
-		http.Error(w, "删除失败", 500)
-		return
-	}
-	if items > 0 {
-		http.Error(w, "该番剧仍有条目，请先移除条目或改判到其他番剧", 409)
-		return
-	}
-	if _, err := db.Exec("DELETE FROM animes WHERE id=?", id); err != nil {
-		http.Error(w, "删除失败", 500)
-		return
-	}
-	db.Exec("DELETE FROM anime_meta WHERE anime_title=?", a.Title)
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, map[string]bool{"ok": true})
+	jsonOut(w, result)
 }
 
 // animeMetadataBind 手动绑定/解绑 Bangumi 条目。绑定立即拉取元数据并刷新封面，
@@ -672,6 +698,8 @@ func metaSearchAPI(w http.ResponseWriter, r *http.Request) {
 // ---- PATCH /api/items/{id}：手动纠错（改判番剧/季/集） ----
 
 func correctItem(w http.ResponseWriter, r *http.Request, id int64) {
+	animeCleanupMu.RLock()
+	defer animeCleanupMu.RUnlock()
 	if r.Method != http.MethodPatch {
 		http.Error(w, "方法不支持", 405)
 		return
