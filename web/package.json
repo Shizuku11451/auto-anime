@@ -1,0 +1,27 @@
+{
+  "name": "auto-anime-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "自动追番管理界面（Vue 3 + Vite），构建产物输出到 ../static",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "typecheck": "vue-tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.43.0",
+    "@vueuse/core": "^14.4.0",
+    "vue": "^3.5.41",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "@vue/tsconfig": "^0.9.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2",
+    "vue-tsc": "^3.3.11"
+  }
+}
