@@ -37,6 +37,8 @@ func discoverGet(t *testing.T, url string) *httptest.ResponseRecorder {
 func TestDiscoverSourceList(t *testing.T) {
 	oldTemplate := discoverSearchTemplate
 	t.Cleanup(func() { discoverSearchTemplate = oldTemplate })
+	discoverSearchTemplate = ""
+	builtinCount := len(discoverBuiltinSources)
 
 	rec := httptest.NewRecorder()
 	discoverSourcesAPI(rec, httptest.NewRequest("GET", "/api/discover/sources", nil))
@@ -49,7 +51,7 @@ func TestDiscoverSourceList(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Sources) != 1 || out.Sources[0].ID != "acgrip" || out.Sources[0].Custom {
+	if len(out.Sources) != builtinCount || out.Sources[0].ID != "acgrip" || out.Sources[0].Custom {
 		t.Fatalf("builtin sources: %+v", out.Sources)
 	}
 
@@ -59,14 +61,14 @@ func TestDiscoverSourceList(t *testing.T) {
 	rec = httptest.NewRecorder()
 	discoverSourcesAPI(rec, httptest.NewRequest("GET", "/api/discover/sources", nil))
 	json.Unmarshal(rec.Body.Bytes(), &out)
-	if len(out.Sources) != 2 || out.Sources[1].ID != "custom" || !out.Sources[1].Custom {
+	if len(out.Sources) != builtinCount+1 || out.Sources[builtinCount].ID != "custom" || !out.Sources[builtinCount].Custom {
 		t.Fatalf("sources with custom template: %+v", out.Sources)
 	}
 	discoverSearchTemplate = "https://example.test/rss?kw=missing"
 	rec = httptest.NewRecorder()
 	discoverSourcesAPI(rec, httptest.NewRequest("GET", "/api/discover/sources", nil))
 	json.Unmarshal(rec.Body.Bytes(), &out)
-	if len(out.Sources) != 1 {
+	if len(out.Sources) != builtinCount {
 		t.Fatalf("invalid template must not appear: %+v", out.Sources)
 	}
 }
@@ -239,7 +241,7 @@ func TestDiscoverCustomTemplateSetting(t *testing.T) {
 		Sources []discoverSource `json:"sources"`
 	}
 	json.Unmarshal(discoverSourcesRecorder(t).Body.Bytes(), &out)
-	if len(out.Sources) != 2 || out.Sources[1].ID != "custom" {
+	if len(out.Sources) != len(discoverBuiltinSources)+1 || out.Sources[len(discoverBuiltinSources)].ID != "custom" {
 		t.Fatalf("custom source missing: %+v", out.Sources)
 	}
 

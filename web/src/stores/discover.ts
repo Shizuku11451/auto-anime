@@ -41,12 +41,14 @@ async function loadSources() {
 
 async function search() {
   const keyword = state.keyword.trim()
-  if (!keyword || !state.source) return
+  if (!keyword || !state.source || state.searching) return
+  const source = state.source
   state.searching = true
   state.error = ''
+  state.result = null
   try {
     state.result = await http.get<DiscoverResult>(
-      `/api/discover/search?source=${encodeURIComponent(state.source)}&keyword=${encodeURIComponent(keyword)}`,
+      `/api/discover/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`,
     )
   } catch (e) {
     state.error = errorMessage(e)

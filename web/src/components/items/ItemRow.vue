@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Download, FolderOpen, PenLine, RotateCw, Trash2, Tv } from '@lucide/vue'
+import { Download, FolderOpen, PenLine, Play, RotateCw, Trash2, Tv } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ProgressBar from '@/components/ui/ProgressBar.vue'
@@ -10,13 +10,14 @@ import { clamp, formatTime } from '@/utils/format'
 import type { Item } from '@/api/types'
 
 const props = defineProps<{ item: Item; busy?: boolean }>()
-const emit = defineEmits<{ download: []; storage: []; correct: []; remove: [] }>()
+const emit = defineEmits<{ download: []; storage: []; correct: []; remove: []; play: [] }>()
 
 const badge = computed(() => badgeInfo(props.item.status))
 const downloading = computed(() => badge.value.tone === 'downloading')
 const progress = computed(() => clamp(props.item.progress || 0, 0, 100))
 const retryable = computed(() => isRetryable(props.item.status))
 const isPending = computed(() => props.item.status === '待下载' || props.item.status === '等待下载')
+const playable = computed(() => badge.value.tone === 'saved' && !!props.item.file_path)
 </script>
 
 <template>
@@ -45,6 +46,7 @@ const isPending = computed(() => props.item.status === '待下载' || props.item
     <div class="side">
       <StatusBadge :status="item.status" :suffix="downloading && progress > 0 ? ` ${progress}%` : ''" />
       <div class="actions">
+        <BaseButton v-if="playable" size="sm" variant="primary" :icon="Play" @click="emit('play')">播放</BaseButton>
         <BaseButton
           v-if="retryable"
           size="sm"

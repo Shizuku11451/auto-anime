@@ -20,6 +20,23 @@ export function subscriptionWords(item: DiscoverItem, keyword: string): string {
     .map((s) => s.trim()).filter(Boolean))].join(',')
 }
 
+export function releaseEpisodes(items: DiscoverItem[]): number[] {
+  return [...new Set(items.filter((item) => /^\d{1,3}$/.test(item.episode)).map((item) => Number(item.episode)))]
+    .sort((a, b) => a - b)
+}
+
+export function episodeSummary(episodes: number[]): string {
+  const ranges: string[] = []
+  const format = (episode: number) => String(episode).padStart(2, '0')
+  for (let i = 0; i < episodes.length; i++) {
+    const start = episodes[i]!
+    let end = start
+    while (episodes[i + 1] === end + 1) end = episodes[++i]!
+    ranges.push(start === end ? format(start) : `${format(start)}–${format(end)}`)
+  }
+  return ranges.join('、')
+}
+
 export function groupReleases(items: DiscoverItem[]) {
   const groups = new Map<string, { key: string; title: string; language: string; item: DiscoverItem; items: DiscoverItem[] }>()
   for (const item of items) {
@@ -30,5 +47,5 @@ export function groupReleases(items: DiscoverItem[]) {
     if (existing) existing.items.push(item)
     else groups.set(key, { key, title, language, item, items: [item] })
   }
-  return [...groups.values()]
+  return [...groups.values()].map((group) => ({ ...group, episodes: releaseEpisodes(group.items) }))
 }

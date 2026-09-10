@@ -5,6 +5,30 @@ import type { AnimeDetail, AnimeSummary, Feed, Item, ResourceItem } from '@/api/
 
 export type FeedPrefill = Partial<Feed> & { url?: string; name?: string; from_discover?: boolean }
 
+/** 播放器的一个条目：只带展示与流地址所需字段 */
+export interface PlayerEntry {
+  id: number
+  /** 系列展示名（番剧译名/识别名） */
+  title: string
+  season: number
+  episode: string
+  fansub_group: string
+  quality: string
+}
+
+/** 传给播放器组件的展示信息 */
+export interface PlayerSource {
+  src: string
+  /** 断点续播的存储键（按条目区分） */
+  storageKey: string
+  series: string
+  label: string
+  badge: string
+  sub: string
+  /** 连播提示里显示的下一集名 */
+  nextLabel: string
+}
+
 interface DialogState {
   feed: { open: boolean; feed: FeedPrefill | null }
   storage: { open: boolean; title: string }
@@ -13,6 +37,7 @@ interface DialogState {
   animeEdit: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
   bind: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
   animeManage: { open: boolean; action: 'delete' | 'merge'; animes: (AnimeDetail | AnimeSummary)[] }
+  player: { open: boolean; items: PlayerEntry[]; index: number }
 }
 
 const state = reactive<DialogState>({
@@ -23,6 +48,7 @@ const state = reactive<DialogState>({
   animeEdit: { open: false, anime: null },
   bind: { open: false, anime: null },
   animeManage: { open: false, action: 'delete', animes: [] },
+  player: { open: false, items: [], index: 0 },
 })
 
 function openFeed(feed: FeedPrefill | null = null) {
@@ -82,6 +108,19 @@ function openBind(anime: AnimeDetail | AnimeSummary) {
   state.bind.open = true
 }
 
+/** 打开播放器：items 为播放列表（可只传一个），startId 指定从哪条开始播 */
+function openPlayer(items: PlayerEntry[], startId?: number) {
+  if (!items.length) return
+  const start = startId != null ? items.findIndex((x) => x.id === startId) : 0
+  state.player.items = items
+  state.player.index = start >= 0 ? start : 0
+  state.player.open = true
+}
+
+function closePlayer() {
+  state.player.open = false
+}
+
 export function useDialogs() {
   return {
     state,
@@ -93,5 +132,7 @@ export function useDialogs() {
     openAnimeEdit,
     openBind,
     openAnimeManage,
+    openPlayer,
+    closePlayer,
   }
 }

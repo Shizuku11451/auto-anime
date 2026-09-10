@@ -1,10 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/xml"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,8 +22,7 @@ var discoverSearchTemplate string // 设置页配置的自定义搜索模板；�
 const (
 	discoverPlaceholderEN = "{keyword}"
 	discoverPlaceholderCN = "{关键词}"
-	discoverMaxItems      = 60
-	discoverTimeout       = 20 * time.Second
+	discoverTimeout       = 60 * time.Second
 	discoverKeywordMax    = 100
 )
 
@@ -32,17 +30,22 @@ const (
 var discoverMaxBytes = 8 << 20
 
 type discoverSource struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Hint     string `json:"hint"`
-	Template string `json:"-"`
-	Custom   bool   `json:"custom"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Hint        string `json:"hint"`
+	Template    string `json:"-"`
+	Custom      bool   `json:"custom"`
+	PageParam   string `json:"-"`
+	PageSize    int    `json:"-"`
+	ResultLimit int    `json:"-"`
 }
 
-// 内置源只收录实测可直接匿名搜索的站点；蜜柑计划、动漫花园的匿名搜索
-// 在 2026-09-07 实测不可用（返回空结果/不按关键词过滤），故未内置。
+// 2026-09-10 核验公开 RSS：正常关键词返回相关条目，不存在的关键词返回空结果。
+// 分页能力与源站的单次返回上限分别记录，不能把最新列表当成全部历史。
 var discoverBuiltinSources = []discoverSource{
-	{ID: "acgrip", Name: "ACG.RIP", Hint: "动漫资源站，一般可国内直连", Template: "https://acg.rip/.xml?term={keyword}"},
+	{ID: "acgrip", Name: "ACG.RIP", Hint: "公开搜索 RSS，支持自动翻页查找早期集数", Template: "https://acg.rip/.xml?term={keyword}", PageParam: "page", PageSize: 30},
+	{ID: "mikan", Name: "蜜柑计划", Hint: "公开搜索 RSS，最多返回最近 100 条；可加上字幕组缩小搜索范围", Template: "https://mikanani.me/RSS/Search?searchstr={keyword}", ResultLimit: 100},
+	{ID: "dmhy", Name: "动漫花园", Hint: "公开关键词 RSS，最多返回最近 500 条", Template: "https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}", ResultLimit: 500},
 }
 
 // validateDiscoverTemplate ensures a custom search template is an http(s) RSS
@@ -112,49 +115,11 @@ type discoverItem struct {
 // parseDiscoverFeed 解码 RSS/RDF/Atom 并保留资源页与种子两条链接；
 // parseFeed 会把 enclosure 合并进 Link，这里需要分开展示。
 func parseDiscoverFeed(data []byte) ([]discoverItem, error) {
-	var doc rss
-	if err := xml.Unmarshal(data, &doc); err != nil {
+	page, err := decodeFeedPage(bytes.NewReader(data))
+	if err != nil {
 		return nil, err
 	}
-	if doc.XMLName.Local != "rss" && doc.XMLName.Local != "RDF" && doc.XMLName.Local != "feed" {
-		return nil, fmt.Errorf("搜索源返回的不是 RSS 文档")
-	}
-	out := make([]discoverItem, 0, len(doc.Items)+len(doc.RootItems))
-	appendItem := func(title, link, torrent, pub string) {
-		title = strings.TrimSpace(title)
-		if title == "" || (link == "" && torrent == "") {
-			return
-		}
-		info := extractAnimeInfo(title)
-		out = append(out, discoverItem{
-			Title: title, AnimeTitle: info.Title, Group: info.Group,
-			Episode: info.Episode, Quality: info.Quality,
-			Link: link, Torrent: torrent, Published: strings.TrimSpace(pub),
-		})
-	}
-	for _, item := range doc.Items {
-		appendItem(item.Title, item.Link, item.Enclosure.URL, item.Pub)
-	}
-	for _, item := range doc.RootItems {
-		appendItem(item.Title, item.Link, item.Enclosure.URL, item.Pub)
-	}
-	for _, entry := range doc.Entries {
-		link, torrent := "", ""
-		for _, candidate := range entry.Links {
-			switch {
-			case candidate.Rel == "enclosure":
-				torrent = candidate.Href
-			case candidate.Rel == "alternate" || link == "":
-				link = candidate.Href
-			}
-		}
-		pub := entry.Pub
-		if pub == "" {
-			pub = entry.Updated
-		}
-		appendItem(entry.Title, link, torrent, pub)
-	}
-	return out, nil
+	return discoverItemsFromEntries(page.Entries), nil
 }
 
 func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
@@ -175,51 +140,19 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 	feedURL := discoverSearchURL(source.Template, keyword)
 	ctx, cancel := context.WithTimeout(r.Context(), discoverTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+	result, err := fetchRSS(ctx, feedURL)
 	if err != nil {
-		http.Error(w, "搜索地址无效："+err.Error(), http.StatusBadRequest)
+		http.Error(w, "搜索失败："+err.Error(), http.StatusBadGateway)
 		return
 	}
-	req.Header.Set("User-Agent", "Auto-Anime/1.0")
-	res, err := httpClient.Do(req)
-	if err != nil {
-		http.Error(w, "搜索源连接失败："+err.Error(), http.StatusBadGateway)
-		return
-	}
-	defer res.Body.Close()
-	if res.StatusCode >= 400 {
-		http.Error(w, fmt.Sprintf("搜索源返回 HTTP %d", res.StatusCode), http.StatusBadGateway)
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, int64(discoverMaxBytes)+1))
-	if err != nil {
-		http.Error(w, "读取搜索结果失败："+err.Error(), http.StatusBadGateway)
-		return
-	}
-	if len(data) > discoverMaxBytes {
-		http.Error(w, fmt.Sprintf("搜索响应超过 %d MB，已放弃解析", discoverMaxBytes>>20), http.StatusBadGateway)
-		return
-	}
-	items, err := parseDiscoverFeed(data)
-	if err != nil {
-		http.Error(w, "解析搜索结果失败："+err.Error(), http.StatusBadGateway)
-		return
-	}
-	if len(items) > discoverMaxItems {
-		items = items[:discoverMaxItems]
-	}
-	// 资源页与种子链接可能是相对路径，按搜索地址补全。
-	if base, _ := url.Parse(feedURL); base != nil {
-		for i := range items {
-			items[i].Link = resolveDiscoverLink(base, items[i].Link)
-			items[i].Torrent = resolveDiscoverLink(base, items[i].Torrent)
-		}
-	}
+	items := discoverItemsFromEntries(result.Entries)
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOut(w, map[string]any{
 		"source": source.ID, "source_name": source.Name,
 		"keyword": keyword, "feed_url": feedURL,
 		"count": len(items), "items": items,
+		"pages": result.Pages, "history": result.History,
+		"limited": result.Limited, "warning": result.Warning,
 	})
 }
 
