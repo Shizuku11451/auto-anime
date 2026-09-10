@@ -1,6 +1,6 @@
 <div align="center">
 
-# Auto-Anime · 自动追番
+# Auto-Anime
 
 **一个使用 Go 编写、适合 NAS Docker 部署的 RSS 自动追番服务**
 
