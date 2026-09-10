@@ -208,7 +208,14 @@ export interface DiscoverItem {
   published: string
 }
 
-export interface DiscoverResult {
+export interface FeedReadInfo {
+  pages: number
+  history: boolean
+  limited: boolean
+  warning: string
+}
+
+export interface DiscoverResult extends FeedReadInfo {
   source: string
   source_name: string
   keyword: string
@@ -223,7 +230,7 @@ export interface MetaCandidate {
   name_cn: string
 }
 
-export interface PreviewResult {
+export interface PreviewResult extends FeedReadInfo {
   total: number
   count: number
   items: { title: string; link: string; published: string; description: string }[]

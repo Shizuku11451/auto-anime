@@ -10,7 +10,7 @@ import { toast } from '@/stores/toast'
 import { formatTime } from '@/utils/format'
 import type { DiscoverItem } from '@/api/types'
 import { useAppStore } from '@/stores/app'
-import { groupReleases, subscriptionTitle, subscriptionWords } from '@/utils/discover'
+import { episodeSummary, groupReleases, subscriptionTitle, subscriptionWords } from '@/utils/discover'
 
 const { state, loadSources, search } = useDiscover()
 const dialogs = useDialogs()
@@ -80,7 +80,7 @@ function openPage(item: DiscoverItem) {
     <form class="toolbar card" @submit.prevent="submit">
       <label class="source">
         <span class="src-label">搜索源</span>
-        <select v-model="state.source" :disabled="noSources" aria-label="搜索源">
+        <select v-model="state.source" :disabled="noSources || state.searching" aria-label="搜索源">
           <option v-if="noSources" value="">{{ state.sourcesError ? '搜索源加载失败' : '无可用搜索源' }}</option>
           <option v-for="s in state.sources" :key="s.id" :value="s.id" :title="s.hint || s.name">
             {{ s.name }}{{ s.custom ? '（自定义）' : '' }}
@@ -96,6 +96,7 @@ function openPage(item: DiscoverItem) {
           placeholder="输入番剧名或关键词，例如：芙莉莲"
           autocomplete="off"
           enterkeyhint="search"
+          :disabled="state.searching"
         />
       </label>
       <BaseButton type="submit" variant="primary" :icon="Search" :loading="state.searching" :disabled="noSources">
@@ -111,8 +112,11 @@ function openPage(item: DiscoverItem) {
       <div v-if="state.result && !state.searching" class="summary card">
         <div class="summary-main">
           <b>「{{ state.result.keyword }}」</b>
-          <span class="muted">{{ state.result.source_name }} · {{ releases.length }} 个版本 · {{ state.result.count }} 条资源</span>
+          <span class="muted">{{ state.result.source_name }} · 已读取 {{ state.result.pages }} 页 · {{ releases.length }} 个版本 · {{ state.result.count }} 条资源</span>
           <span class="rss mono truncate" :title="state.result.feed_url">{{ state.result.feed_url }}</span>
+          <p class="read-scope" :class="{ limited: state.result.limited }" role="status">
+            {{ state.result.warning || (state.result.history ? '已读取可用的历史页。下方集数是此来源已发现的集数，不代表全季已发布。' : '此来源仅提供当前 RSS 列表；未找到的早期集数可换源或加上字幕组再搜索。') }}
+          </p>
         </div>
         <div class="summary-actions">
           <BaseButton size="sm" :icon="Copy" @click="copyFeedUrl">复制 RSS 地址</BaseButton>
@@ -127,7 +131,7 @@ function openPage(item: DiscoverItem) {
       :hint="state.sourcesError || '请到设置页配置自定义 RSS 搜索模板'"
       tone="error"
     />
-    <EmptyState v-else-if="state.searching" :icon="Compass" :title="`正在搜索「${state.keyword.trim()}」…`" loading />
+    <EmptyState v-else-if="state.searching" :icon="Compass" :title="`正在搜索「${state.keyword.trim()}」…`" hint="支持翻页的来源会继续查找早期集数，请稍候" loading />
     <EmptyState v-else-if="state.error" :icon="CloudOff" title="搜索失败" :hint="state.error" tone="error">
       <BaseButton @click="submit">重试</BaseButton>
     </EmptyState>
@@ -156,6 +160,8 @@ function openPage(item: DiscoverItem) {
             <span v-if="release.item.quality">{{ release.item.quality }}</span>
             <span v-if="release.language">{{ release.language }}</span>
           </div>
+          <p v-if="release.episodes.length" class="r-episodes">已发现 {{ release.episodes.length }} 集：{{ episodeSummary(release.episodes) }}</p>
+          <p v-else class="r-original">尚未识别出单集编号，请核对原始标题。</p>
           <p v-if="!release.item.fansub_group" class="r-original">未识别到字幕组，默认关闭自动下载，请先核对过滤规则。</p>
           <details>
             <summary class="r-original">查看集数与原始标题</summary>
@@ -263,6 +269,21 @@ function openPage(item: DiscoverItem) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.read-scope {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.read-scope.limited {
+  color: var(--amber);
+}
+.r-episodes {
+  color: var(--text-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .results {

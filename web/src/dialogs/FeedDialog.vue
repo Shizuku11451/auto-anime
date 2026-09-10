@@ -5,7 +5,7 @@ import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useDialogs } from '@/stores/dialogs'
 import { useAppStore } from '@/stores/app'
-import { http, errorMessage } from '@/api/client'
+import { api, http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import type { Feed, PreviewResult } from '@/api/types'
 
@@ -24,11 +24,14 @@ const previewCount = ref(0)
 const filterKey = computed(() => JSON.stringify([form.url.trim(), form.include.trim(), form.exclude.trim()]))
 const previewReady = computed(() => previewKey.value === filterKey.value && previewCount.value > 0)
 let previewRequest = 0
+let previewController: AbortController | undefined
 let enabledAtOpen = true
 
 watch(
   () => s.open,
   (open) => {
+    previewController?.abort()
+    previewRequest++
     if (!open) return
     const f = s.feed
     form.name = f?.name ?? ''
@@ -41,7 +44,6 @@ watch(
     preview.value = ''
     previewKey.value = ''
     previewCount.value = 0
-    previewRequest++
     previewing.value = false
     msg.value = ''
     if (f?.from_discover) void runPreview()
@@ -53,6 +55,7 @@ function close() {
 }
 
 async function runPreview() {
+  previewController?.abort()
   const request = ++previewRequest
   const key = filterKey.value
   const url = form.url.trim()
@@ -62,19 +65,27 @@ async function runPreview() {
   }
   msg.value = ''
   previewing.value = true
-  preview.value = '正在读取 RSS…'
+  preview.value = '正在读取 RSS，支持翻页的来源会继续查找早期集数…'
+  previewController = new AbortController()
   try {
-    const data = await http.post<PreviewResult>('/api/preview', { url, include_words: form.include.trim(), exclude_words: form.exclude.trim() })
+    const data = await api<PreviewResult>('/api/preview', {
+      method: 'POST',
+      json: { url, include_words: form.include.trim(), exclude_words: form.exclude.trim() },
+      signal: previewController.signal,
+    })
     if (request !== previewRequest) return
     previewKey.value = key
     previewCount.value = data.count
     preview.value = data.count
-      ? `共读取 ${data.total} 条，过滤后匹配 ${data.count} 条（已入库的资源不会重复添加）：\n` +
+      ? `共读取 ${data.pages} 页、${data.total} 条，过滤后匹配 ${data.count} 条（已入库的资源不会重复添加）：\n` +
         data.items
           .map((i) => '· ' + i.title)
           .join('\n') +
         (data.count > data.items.length ? '\n仅展示前 20 条' : '')
-      : `共读取 ${data.total} 条，没有符合过滤规则的资源，请调整关键词后重新预览`
+      : `共读取 ${data.pages} 页、${data.total} 条，没有符合过滤规则的资源，请调整关键词后重新预览`
+    preview.value += '\n\n' + (data.warning || (data.history
+      ? '保存后同步同样的历史页；以上为当前来源已发现的资源，不代表全季已发布。'
+      : '此来源仅提供当前 RSS 列表，未找到的早期集数可换源或缩小搜索范围。'))
   } catch (e) {
     if (request !== previewRequest) return
     previewKey.value = ''
@@ -114,19 +125,23 @@ async function save() {
   }
   saving.value = true
   try {
+    let feedId: number
     if (editing.value) {
-      await http.put('/api/feeds/' + (s.feed as Feed).id, body)
-      toast.success('订阅已保存')
+      feedId = (s.feed as Feed).id
+      await http.put('/api/feeds/' + feedId, body)
     } else {
       const created = await http.post<{ ok: boolean; id: number }>('/api/feeds', body)
-      if (created.id) {
-        try {
-          const r = await http.post<{ added: number }>('/api/sync/' + created.id)
-          toast.success(`订阅已创建并完成首次同步，新增 ${r.added} 条`)
-        } catch (e) {
-          toast.error('订阅已保存，但首次同步失败：' + errorMessage(e))
-        }
+      feedId = created.id
+    }
+    if (feedId && (!editing.value || s.feed?.from_discover)) {
+      try {
+        const r = await http.post<{ added: number }>('/api/sync/' + feedId)
+        toast.success(`订阅已保存并完成同步，新增 ${r.added} 条`)
+      } catch (e) {
+        toast.error('订阅已保存，但同步未完整完成：' + errorMessage(e))
       }
+    } else {
+      toast.success('订阅已保存')
     }
     close()
     await store.refresh()
@@ -142,7 +157,7 @@ async function save() {
   <BaseDialog :open="s.open" :title="editing ? '编辑订阅' : '添加订阅'" @close="close">
     <form @submit.prevent="save">
       <p v-if="s.feed?.from_discover" class="field-hint">
-        {{ editing ? '此搜索源已订阅：保存将把原订阅调整为所选版本，仅影响后续同步，已有条目和文件保留。' : '只订阅下方规则匹配的版本。请核对预览中的字幕组、语言和集数。' }}
+        {{ editing ? '此搜索源已订阅：保存将调整版本并立即同步，补入尚未收录的匹配资源。已有条目和文件保留。' : '只订阅下方规则匹配的版本，同时读取来源支持的历史页。请核对预览中的字幕组、语言和集数。' }}
       </p>
       <div class="field">
         <label for="f-name">订阅名称</label>
@@ -186,7 +201,7 @@ async function save() {
       <BaseButton variant="ghost" :icon="Eye" :loading="previewing" @click="runPreview">预览匹配条目</BaseButton>
       <span class="spacer" />
       <BaseButton @click="close">取消</BaseButton>
-      <BaseButton variant="primary" :loading="saving" :disabled="!!s.feed?.from_discover && (!previewReady || previewing)" @click="save">{{ editing ? '保存' : '保存并获取' }}</BaseButton>
+      <BaseButton variant="primary" :loading="saving" :disabled="!!s.feed?.from_discover && (!previewReady || previewing)" @click="save">{{ editing ? (s.feed?.from_discover ? '保存并同步' : '保存') : '保存并获取' }}</BaseButton>
     </template>
   </BaseDialog>
 </template>

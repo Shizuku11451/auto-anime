@@ -15,6 +15,7 @@ import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
 import { seasonLabel } from '@/utils/format'
 import type { ResourceItem } from '@/api/types'
+import type { PlayerEntry } from '@/stores/dialogs'
 
 const dialogs = useDialogs()
 const store = useAppStore()
@@ -66,6 +67,46 @@ async function remove(item: ResourceItem) {
     toast.error(errorMessage(e))
   }
   await Promise.all([dialogs.reloadAnimeDetail(), store.refresh()])
+}
+
+/** 播放：当前详情内所有已保存资源按季/集排序成连播列表 */
+function play(item: ResourceItem) {
+  const d = s.data
+  if (!d) return
+  const name = d.meta_name_cn || d.title
+  const entries: PlayerEntry[] = []
+  for (const se of [...d.seasons].sort((a, b) => a.season - b.season)) {
+    const rows = [...se.episodes.flatMap((ep) => ep.items), ...se.loose]
+    rows.sort((a, b) => epNo(a) - epNo(b))
+    for (const r of rows) {
+      if (r.status !== '已保存' || !r.file_path) continue
+      entries.push({
+        id: r.id,
+        title: name,
+        season: r.season > 0 ? r.season : se.season,
+        episode: r.episode,
+        fansub_group: r.fansub_group,
+        quality: r.quality,
+      })
+    }
+  }
+  dialogs.openPlayer(entries.length ? entries : [toEntry(name, item)], item.id)
+}
+
+function toEntry(name: string, r: ResourceItem): PlayerEntry {
+  return {
+    id: r.id,
+    title: name,
+    season: r.season > 0 ? r.season : 1,
+    episode: r.episode,
+    fansub_group: r.fansub_group,
+    quality: r.quality,
+  }
+}
+
+function epNo(x: { episode: string }): number {
+  const n = Number.parseFloat(x.episode)
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
 }
 </script>
 
@@ -140,6 +181,7 @@ async function remove(item: ResourceItem) {
               @download="download(it)"
               @correct="dialogs.openCorrect(it)"
               @remove="remove(it)"
+              @play="play(it)"
             />
           </div>
           <div v-if="se.loose.length" class="ep-block">
@@ -152,6 +194,7 @@ async function remove(item: ResourceItem) {
               @download="download(it)"
               @correct="dialogs.openCorrect(it)"
               @remove="remove(it)"
+              @play="play(it)"
             />
           </div>
         </section>

@@ -7,13 +7,31 @@
 - 面向中国大陆网络，默认直接连接，不依赖代理、境外 CDN 或必须访问境外服务才能完成的初始化。
 - 除“开发进度快照”外，本文件描述后续开发约束，不代表其中提及的功能已经实现；实际能力以代码和验证结果为准。
 
-## 开发进度快照（2026-09-09）
+## 开发进度快照（2026-09-10）
 
 当前阶段：外部下载器任务跟踪闭环已打通，并用真实 RSS（anibt.net）+ 本机 Aria2 完成端到端实测（识别 → BT 下载 → 归档 → 可播放 → 集数正确）。以下记录来自当前源码及本轮实际验证，后续完成相关工作时应更新本节，不要直接将规划项标记完成。
+
+### 找番历史分页与公开搜索来源（2026-09-10）
+
+- 根因：搜索、订阅预览和同步原先都只读一个 RSS 响应，搜索另截断前 60 条。开发机直连复现截图关键词「与你相恋到」：ACG.RIP 第一页 30 条，绿茶字幕组 1080p 简繁日内封版本只匹配第 05–08 集；第二页含第 01–04 集，第三页还有其他版本，共 72 条。不能把 RSS 最新窗口或某字幕组已发布集数当作全季。
+- 新增 `feed_fetch.go`：RSS/RDF/Atom 共用解析与读取，保留资源页、enclosure、发布时间及简介；ACG.RIP 搜索 RSS 按已核验的 `page` 参数翻页，其他来源仅跟随同来源的标准 `rel="next"`，不猜测分页接口。搜索、预览、同步共用同一逻辑，旧订阅无需改 URL；按实际资源 URL 去重。单次最多 20 页/1,000 条，单页 8 MB、累计 32 MB、总用时 60 秒、单页 20 秒，并发最多 3 个，后续页间隔 200 毫秒；沿用统一出站代理配置。循环/重复页、跨来源下一页或重定向、大小/数量上限、后续页失败都显式提示；后续页失败时仍同步已读取的条目、保存错误并可重试，不漏报部分完成。
+- 内置增加蜜柑计划 `https://mikanani.me/RSS/Search?searchstr={keyword}` 和动漫花园 `https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}`。本轮显式直连核验正常关键词、无结果关键词和真实 XML，未绕过登录或验证；蜜柑最近 100 条、动漫花园最近 500 条，达到来源上限时提示缩小关键词或换源，不假设它们支持 RSS 分页。来源公开可用不等于每个资源都已获版权授权。
+- 前端：搜索、预览展示读取页数与范围提示，版本卡片区分资源条数与去重后的已发现集数（缺号不会画成连续范围）；移除 60 条静默截断。找番入口调整已有订阅后「保存并同步」立即补入匹配历史条目；预览仍先过滤再展示前 20 条，实际同步使用全部已读取匹配项。关闭预览取消请求；搜索中锁定源/关键词并清理旧结果，错误页不混入上次结果。
+- 验证：新增 `feed_fetch_test.go` 覆盖 30+30+12 分页、三处一致/已有 4 集补至 8 集/重复同步新增 0、RSS/RDF/Atom 下一页与重定向后的相对地址、重复与循环、跨来源拒绝、总大小/条数/页数/超时、部分失败保留与重试、来源限制和超过 60 条的响应；前端集数归一和缺号测试通过。`gofmt -w`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s`、`go vet ./...`、Go 构建、`web/npm run build`（含 vue-tsc）和 `git diff --check` 通过。
+- 浏览器：临时数据库/端口 + 本地 RSS + Edge 验证已有订阅从 4 集补至 8 集、新订阅首次同步 8 集、再次同步新增 0、修改过滤规则后预览失效、零匹配禁止保存、加载/空/失败/部分失败、1280/768/390/320 宽度亮暗主题无横向越界，无页面脚本错误。通过真实应用接口直连 ACG.RIP/蜜柑/动漫花园分别读取 72/100/102 条，该版本三源均发现第 01–08 集，ACG.RIP 预览匹配 8 条；蜜柑的 100 条上限提示已在手机界面验证。未修改用户运行数据库，未触发真实媒体下载，未作 Docker/NAS 实机验证。
+
+### 内置播放器（2026-09-09）
+
+- 新增 `stream.go`：`GET/HEAD /api/items/{id}/stream` 按条目提供已归档视频流。仅「已保存」且有 `file_path` 的条目可播；`http.ServeContent` + `*os.File` 以 io.Seeker 定位读取处理 Range/If-Range/HEAD，不把文件读进内存，GB 级文件拖动进度只读所需字节段。`streamContentTypes` 显式指定 mp4/mkv/webm/ts 等 MIME，不依赖平台 mime 数据库（Windows 注册表/精简容器）。兼容旧的嵌套归档记录：`file_path` 指向目录时复用 `pickMainVideo` 选最大视频文件。方法与解析错误分别 405/404，中文错误文案。注册在 `main.go` 的 `/api/items/` 处理器内（`/stream` 后缀分支），自动走登录鉴权中间件。
+- 前端新增 `web/src/components/player/VideoPlayer.vue`（全屏影院式播放器）与 `web/src/dialogs/PlayerDialog.vue`（宿主：Teleport 到 body 的黑色覆盖层 + 播放列表切换，`<Transition :duration="240">` 兜底失焦时 transitionend 丢失的卸载）。播放器注册 dialogStack（Esc 只关最上层、滚动锁），键盘快捷键仅在栈顶生效：空格/K 播放暂停、←→ ±5s、J/L ±10s、↑↓ 音量、M/F/P、0-9 百分比跳转、Esc 退出全屏或关闭。功能：自绘进度条（缓冲指示、悬停时间预览、指针拖动）、音量滑条、0.5–3x 倍速菜单、画中画（能力检测）、全屏（含 webkit 回退）、触屏双击左右快退/快进 10 秒（桌面双击全屏、单击播放）、控制栏自动隐藏、加载 spinner、错误面板（按 MediaError code 分文案 + 重试）、MKV 兼容性 canPlayType 预警条。**断点续播**：位置按条目存 localStorage（`anime-player:pos:{id}`，>10s 且距结尾 >20s 才记，3 秒节流 + 暂停/关闭/卸载时保存，自然播完清除）；音量/静音/倍速存全局偏好。弹窗状态 `player`（items+index）在 `stores/dialogs.ts`，`openPlayer(entries, startId)` 由调用方构建连播列表（ItemsView 按同番已保存条目、AnimeDetailDialog 按详情季/集排序）。
+- 入口：`ItemRow.vue` / `ResourceRow.vue` 新增「播放」按钮（仅 `已保存` 且有 `file_path`），`AnimeDetailDialog.vue` 资源行同样可播；播完 hasNext 时显示「即将播放下一集」卡片（5 秒倒计时自动连播，可立即播放/取消）。
+- 验证：`stream_test.go` 覆盖整文件 200、Range 206（区间/开区间/后缀区间与 Content-Range）、Accept-Ranges、按扩展名 MIME（mkv/webm）、未保存/缺文件/未知 ID 404、POST 405、目录记录选主视频；`gofmt`（去 CR 比对，仓库 CRLF 检出）、`go vet`、`CGO_ENABLED=0 go test ./... -count=1 -timeout=240s`、`go build`、`web/npm run build`（含 vue-tsc）全部通过。隔离实例（8090 端口 + 本地 RSS/媒体服务器 + ffmpeg 生成测试视频）浏览器端到端：订阅 → 自动下载归档 → 列表「播放」→ 硬件解码播放（currentTime 前进）、自动起播修复（onMeta 无条件尝试 play，被自动播放策略拦截时停在暂停态）、空格暂停、←→ ±5s、进度条点击精确跳转 50%、倍速 1.5x 生效、上一集/下一集、Esc 关闭、断点续播（关闭后重开提示「已从 0:30 继续播放」并跳转）、播完连播卡片 5 秒倒计时与自动切换、手机 390px 视口 overlay 全屏（DOM 几何验证）；curl 实测真实端点 206 + Content-Range + Content-Type。开发中发现并修复 onMeta 自动起播条件 bug；测试环境（ZCode 内置浏览器面板）存在渲染管线冻结导致的 Transition leave 挂起与截图合成伪影，已通过 DOM 几何与同步 JS 链路验证排除产品问题，并给 Transition 加显式 duration 兜底。
+- 未验证：真实 NAS/Docker 容器内播放；Safari/Firefox 实机（MKV 提示条逻辑已实现，靠 canPlayType）；大文件（GB 级）真实拖动；字幕渲染（明确不做，README 已说明用媒体服务器）。
 
 ### 番剧库管理（2026-09-09）
 
 - 提交前审查修复：番剧改名的名称、资源、元数据、订阅归属及配置更新统一事务提交，任一步失败完整回滚；`TestAnimeRenameRollsBackAllAssociations` 用订阅更新触发器复现并验证。前端操作后刷新等待旧轮询结束再重新读取，避免沿用操作前快照；Edge 延迟旧轮询响应验证新建番剧在下一次定时轮询前显示。全量 Go 测试、vet、构建、前端构建及订阅过滤测试通过。
+
 
 - 番剧库增加新建、卡片直接编辑/合并/删除、批量选择（含全选当前筛选结果）、范围筛选和排序；详情页同样提供合并与删除。新建复用编辑表单，默认季号为 1，避免被空番剧自动清理；同名创建返回 409，不覆盖已有配置。
 - 新增 `anime_manage.go`：`POST /api/animes` 新建，`POST /api/animes/manage` 按 `action=merge|delete` 处理最多 500 个来源 ID。整批事务提交或回滚；合并保留有效季号/集数/文件路径，资源标为手动归属，定向订阅改指目标，目标配置保持原样。来源番剧配置/元数据及旧存储记录被删除。删除含资源需显式 `delete_items=true`，并暂停、解绑定向订阅；旧 DELETE 接口仍拒绝删除有资源的番剧。
@@ -53,7 +71,8 @@
 | 账户登录 | `WEB_USER` 与 `WEB_PASSWORD` 齐备时启用：浏览器走 `/login` 登录页（沿用亮暗主题），登录成功发 HttpOnly、SameSite=Lax 会话 Cookie（30 天）；`web_sessions` 表只存令牌 SHA-256 哈希，注销即时作废，启动清理过期会话；`/api/login` 按来源 IP 限速（连续 5 次失败锁 15 分钟）；脚本仍可用 Basic Auth；API 未认证返回 401（不带 WWW-Authenticate），页面请求 302 到 `/login?next=`（仅站内路径）；`/api/health`、`/static/`、登录页保持公开；未配置或只配置其一不启用 | `auth.go`、`main.go`、`web/src/login/`、`web/` |
 | 出站代理 | `PROXY_URL`（默认空=显式直连）支持 http/https/socks5/socks5h（无前缀按 http，凭据写在 URL）；代理作用于 RSS 同步/预览、直链下载、`.torrent` 字节下载（新增 `torrentClient`）、Bangumi、Webhook；下载器 RPC（`downloaderClient`/`qbitClient`）始终直连；`newTransport()`/`newClient()` 统一传输配置，日志与 `/api/status` 只输出脱敏地址；无效配置启动即失败并给出原因 | `proxy.go`、`main.go`、`meta.go`、`archive.go`、`downloader.go` |
 | 用户设置与引导 | `settings` 表 KV 存用户自定义配置，数据库值优先、env 回退，保存后热更新全局变量（无需重启）；可改：管理员账户（盐值哈希 `v1$salt$hash` 存库，页面只能重设不能查看）、下载模式、三个下载器的地址/凭据/路径映射、出站代理、同步周期、媒体库目录 `library_dir`（绝对路径校验，清空回退 `DOWNLOAD_DIR`）；首次安装（无凭据且未跳过引导）强制进入 `/setup` 引导页（`/api/setup` 初始化后 403 锁定，可跳过）；设置页在侧栏「设置」视图；敏感字段接口只回传 `*_set` 布尔不回明文 | `settings.go`、`auth.go`、`main.go`、`static/` |
-| 找番搜索 | 侧栏「找番」：`GET /api/discover/sources` 列出内置与自定义搜索源；`GET /api/discover/search` 按关键词拉取资源站搜索 RSS（20 秒超时、8MB 响应上限、最多 60 条、资源页与种子链接分开保留、相对链接补全），逐条复用标题识别（番剧名/字幕组/集数/清晰度）；内置 ACG.RIP（2026-09-07 实测可国内直连匿名搜索；蜜柑计划/动漫花园的匿名搜索当时不可用，未内置）；设置页可配自定义 RSS 搜索模板（`{keyword}`/`{关键词}` 占位符、http(s) 与主机校验，存 settings 表热生效、清空即回退）；前端结果列表一键预填订阅弹窗（名称=识别番剧名、包含=搜索词），摘要条展示并复制本次搜索的 RSS 地址；搜索走统一出站代理配置 | `discover.go`、`settings.go`、`main.go`、`static/` |
+| 找番搜索 | 内置 ACG.RIP、蜜柑计划、动漫花园及可选自定义 RSS 模板；搜索/预览/同步共用历史读取（ACG.RIP 分页与标准 RSS/Atom 下一页，20 页/1,000 条、单页 8MB/累计 32MB、总超时 60 秒）；展示页数、版本、已发现集数及来源窗口/部分失败提示，按资源 URL 去重；选定版本预填过滤规则与统一番名，保存时预览确认并同步，旧订阅可补入历史条目；出站走统一代理配置 | `discover.go`、`feed_fetch.go`、`settings.go`、`main.go`、`web/` |
+| 内置播放器 | `GET /api/items/{id}/stream` 按 Range 流式供片（ServeContent + 显式 MIME，目录记录自动选主视频）；前端全屏播放器：进度拖动/缓冲指示、音量、0.5–3x 倍速、画中画、全屏、键盘快捷键、触屏双击快进、断点续播（localStorage 按条目）、同番连播列表与下一集倒计时；入口在最近条目与番剧详情的已保存资源行；不转码、不渲染字幕，格式支持取决于浏览器 | `stream.go`、`main.go`、`web/src/components/player/`、`web/src/dialogs/PlayerDialog.vue` |
 | 基础运维 | Webhook 事件、Dockerfile（已复制 go.sum）、Compose、健康检查及 `/data` 持久化 | `main.go`、部署文件 |
 
 ### 修复与验证（2026-09-08）
@@ -139,12 +158,15 @@
 - `settings.go`：用户设置存储与应用、首次安装引导、管理员凭据哈希。
 - `proxy.go`：`PROXY_URL` 解析、统一出站传输配置与代理地址脱敏。
 - `discover.go`：找番搜索源注册表、搜索请求（大小/超时限制）与结果解析。
+- `feed_fetch.go`：搜索、预览、同步共用的 RSS/RDF/Atom 解析、历史分页、来源窗口提示、限流与读取限制。
 - `downloader.go`：下载器任务提交、任务 ID 持久化、进度轮询、路径映射与 infohash/种子处理。
 - `meta.go`：Bangumi 封面识别、本地缓存与 `/api/covers/` 服务。
 - `archive.go`：直链与下载器文件的归档、文件名处理和本地元数据生成。
+- `stream.go`：内置播放器的媒体流接口（Range 流式、MIME、可播条目解析）。
 - `archive_migration.go`：纠错迁移、源文件保护、目标准备与失败回滚、提交后旧文件清理。
 - `recovery.go`：下载任务恢复及下载器配置校验。
 - `status.go`：健康检查和运行状态。
+- `anime_cleanup.go`：空番剧自动清理与防误清锁；`anime_manage.go`：番剧手动创建与管理 API。
 - `*_test.go`：Go 测试；`web/`：管理界面源码（`src/api` 类型与请求封装、`src/stores` 全局状态、`src/components` 通用与布局组件、`src/views` 五个视图、`src/dialogs` 业务弹窗、`src/login` 与 `src/setup` 独立入口）；`static/`：`web/` 的构建产物，不要手工编辑。
 - `Dockerfile`、`docker-compose.yml`：构建及 NAS 部署；`README.md`：用户配置与使用说明。
 - 目录结构调整时同步维护本节。

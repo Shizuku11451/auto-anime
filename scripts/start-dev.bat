@@ -22,8 +22,8 @@ set "DATA_DIR=E:\anime-e2e"
 set "RPC_SECRET=e2e-secret"
 set "PORT=8000"
 set "ARIA2_PORT=6800"
-rem project dir = this script's dir (static UI files live here)
-set "PROJECT_DIR=%~dp0"
+rem project dir = parent of this script's dir (static UI files live there)
+set "PROJECT_DIR=%~dp0.."
 
 if not exist "%ARIA2_EXE%" (
   echo [ERROR] aria2 not found: %ARIA2_EXE%

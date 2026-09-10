@@ -6,6 +6,7 @@ import AnimeEditDialog from './AnimeEditDialog.vue'
 import BindDialog from './BindDialog.vue'
 import CorrectDialog from './CorrectDialog.vue'
 import AnimeManageDialog from './AnimeManageDialog.vue'
+import PlayerDialog from './PlayerDialog.vue'
 </script>
 
 <template>
@@ -16,4 +17,5 @@ import AnimeManageDialog from './AnimeManageDialog.vue'
   <BindDialog />
   <CorrectDialog />
   <AnimeManageDialog />
+  <PlayerDialog />
 </template>

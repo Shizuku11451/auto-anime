@@ -5,5 +5,7 @@ __pycache__/
 *.test
 *.exe
 *.log
+docs/
+scripts/
 web/node_modules/
 web/.vite/

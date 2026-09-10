@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"encoding/xml"
@@ -143,10 +144,12 @@ type rssNode struct {
 	} `xml:"enclosure"`
 }
 type rss struct {
-	XMLName   xml.Name  `xml:""`
-	Items     []rssNode `xml:"channel>item"`
-	RootItems []rssNode `xml:"item"`
-	Entries   []struct {
+	XMLName      xml.Name  `xml:""`
+	Items        []rssNode `xml:"channel>item"`
+	RootItems    []rssNode `xml:"item"`
+	Links        []rssLink `xml:"link"`
+	ChannelLinks []rssLink `xml:"channel>link"`
+	Entries      []struct {
 		Title string `xml:"title"`
 		Links []struct {
 			Href string `xml:"href,attr"`
@@ -156,6 +159,11 @@ type rss struct {
 		Updated     string `xml:"updated"`
 		Description string `xml:"summary"`
 	} `xml:"entry"`
+}
+
+type rssLink struct {
+	Href string `xml:"href,attr"`
+	Rel  string `xml:"rel,attr"`
 }
 
 func env(k, d string) string {
@@ -190,34 +198,14 @@ func notify(event string, id int, status string) {
 	}()
 }
 func fetchFeedItems(feedURL string) ([]feedItem, error) {
-	if !strings.HasPrefix(feedURL, "http://") && !strings.HasPrefix(feedURL, "https://") {
-		return nil, fmt.Errorf("RSS 地址无效")
-	}
-	req, err := http.NewRequest("GET", feedURL, nil)
+	result, err := fetchRSS(context.Background(), feedURL)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Auto-Anime/1.0")
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
+	if result.Incomplete {
+		return feedItemsFromEntries(result.Entries), fmt.Errorf("%s", result.Warning)
 	}
-	defer res.Body.Close()
-	if res.StatusCode >= 400 {
-		return nil, fmt.Errorf("RSS 返回 HTTP %d", res.StatusCode)
-	}
-	items, err := parseFeed(res.Body)
-	if err != nil {
-		return nil, err
-	}
-	base, _ := url.Parse(feedURL)
-	for i := range items {
-		link, parseErr := url.Parse(strings.TrimSpace(items[i].Link))
-		if parseErr == nil && link.Scheme == "" {
-			items[i].Link = base.ResolveReference(link).String()
-		}
-	}
-	return items, nil
+	return feedItemsFromEntries(result.Entries), nil
 }
 func initDB() {
 	if n, e := strconv.Atoi(env("POLL_MINUTES", "30")); e == nil && n >= 5 {
@@ -306,43 +294,11 @@ func extractAnimeInfo(raw string) animeInfo {
 }
 
 func parseFeed(r io.Reader) ([]feedItem, error) {
-	var doc rss
-	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
+	page, err := decodeFeedPage(r)
+	if err != nil {
 		return nil, err
 	}
-	if doc.XMLName.Local != "rss" && doc.XMLName.Local != "RDF" && doc.XMLName.Local != "feed" {
-		return nil, fmt.Errorf("不是 RSS 或 Atom 文档")
-	}
-	out := make([]feedItem, 0, len(doc.Items)+len(doc.Entries))
-	for _, item := range append(doc.Items, doc.RootItems...) {
-		link := item.Link
-		if item.Enclosure.URL != "" {
-			link = item.Enclosure.URL
-		}
-		out = append(out, feedItem{item.Title, link, item.Pub, item.Description})
-	}
-	for _, entry := range doc.Entries {
-		link := ""
-		for _, candidate := range entry.Links {
-			if candidate.Rel == "enclosure" {
-				link = candidate.Href
-				break
-			}
-		}
-		if link == "" {
-			for _, candidate := range entry.Links {
-				if candidate.Rel == "alternate" || link == "" {
-					link = candidate.Href
-				}
-			}
-		}
-		pub := entry.Pub
-		if pub == "" {
-			pub = entry.Updated
-		}
-		out = append(out, feedItem{entry.Title, link, pub, entry.Description})
-	}
-	return out, nil
+	return feedItemsFromEntries(page.Entries), nil
 }
 func syncFeed(id int) (int, error) {
 	animeCleanupMu.RLock()
@@ -354,14 +310,14 @@ func syncFeed(id int) (int, error) {
 		return 0, e
 	}
 	f.Auto = a == 1
-	feedItems, e := fetchFeedItems(f.URL)
+	fetched, e := fetchRSS(context.Background(), f.URL)
 	if e != nil {
 		db.Exec("UPDATE feeds SET last_error=? WHERE id=?", e.Error(), id)
 		return 0, e
 	}
 	n := 0
 	var writeErr error
-	for _, it := range feedItems {
+	for _, it := range feedItemsFromEntries(fetched.Entries) {
 		if it.Title == "" || it.Link == "" || !allowed(it.Title, f.Include, f.Exclude) {
 			continue
 		}
@@ -416,6 +372,9 @@ func syncFeed(id int) (int, error) {
 				notify("new_item", int(itemID), "待下载")
 			}
 		}
+	}
+	if writeErr == nil && fetched.Incomplete {
+		writeErr = fmt.Errorf("历史资源未读取完整：%s", fetched.Warning)
 	}
 	lastError := ""
 	if writeErr != nil {
@@ -663,11 +622,12 @@ func preview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "请求参数无效", 400)
 		return
 	}
-	items, err := fetchFeedItems(strings.TrimSpace(in.URL))
+	fetched, err := fetchRSS(r.Context(), strings.TrimSpace(in.URL))
 	if err != nil {
 		http.Error(w, "RSS 预览失败："+err.Error(), 502)
 		return
 	}
+	items := feedItemsFromEntries(fetched.Entries)
 	total := len(items)
 	filtered := make([]feedItem, 0, len(items))
 	for _, item := range items {
@@ -690,7 +650,8 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		out = append(out, previewItem{item.Title, item.Link, item.Pub, item.Description})
 	}
-	jsonOut(w, map[string]any{"items": out, "count": count, "total": total})
+	jsonOut(w, map[string]any{"items": out, "count": count, "total": total,
+		"pages": fetched.Pages, "history": fetched.History, "limited": fetched.Limited, "warning": fetched.Warning})
 }
 
 func backup(w http.ResponseWriter, r *http.Request) {
@@ -1168,6 +1129,16 @@ func main() {
 			jsonOut(w, map[string]bool{"ok": true})
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/stream") {
+			var id int64
+			n, _ := fmt.Sscanf(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/items/"), "/stream"), "%d", &id)
+			if n != 1 || id <= 0 {
+				http.Error(w, "条目不存在", 404)
+				return
+			}
+			streamItem(w, r, id)
+			return
+		}
 		if !strings.HasSuffix(r.URL.Path, "/download") {
 			http.NotFound(w, r)
 			return
@@ -1186,7 +1157,7 @@ func main() {
 		fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/api/sync/"), "%d", &id)
 		n, e := syncFeed(id)
 		if e != nil {
-			http.Error(w, e.Error(), 502)
+			http.Error(w, fmt.Sprintf("已新增 %d 条；%v", n, e), 502)
 			return
 		}
 		jsonOut(w, map[string]int{"added": n})

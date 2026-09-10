@@ -17,6 +17,7 @@ import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
 import { CHIP_DEFS, chipCount } from '@/utils/status'
 import type { Item } from '@/api/types'
+import type { PlayerEntry } from '@/stores/dialogs'
 
 const store = useAppStore()
 const dialogs = useDialogs()
@@ -70,6 +71,30 @@ async function remove(item: Item) {
     toast.error(errorMessage(e))
   }
   await store.refresh()
+}
+
+/** 播放：同番已保存的资源按季/集排序成连播列表 */
+function play(item: Item) {
+  const series = item.anime_title || item.title
+  const saved = store.items.value.filter(
+    (x) => x.status === '已保存' && x.file_path && (x.anime_title || x.title) === series,
+  )
+  const toEntry = (x: Item): PlayerEntry => ({
+    id: x.id,
+    title: series,
+    season: x.season > 0 ? x.season : 1,
+    episode: x.episode,
+    fansub_group: x.fansub_group,
+    quality: x.quality,
+  })
+  saved.sort((a, b) => (a.season - b.season) || (epNo(a) - epNo(b)))
+  const entries = saved.map(toEntry)
+  dialogs.openPlayer(entries.length ? entries : [toEntry(item)], item.id)
+}
+
+function epNo(x: Item): number {
+  const n = Number.parseFloat(x.episode)
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
 }
 </script>
 
@@ -154,6 +179,7 @@ async function remove(item: Item) {
         @storage="dialogs.openStorage(item.anime_title || item.title)"
         @correct="dialogs.openCorrect(item)"
         @remove="remove(item)"
+        @play="play(item)"
       />
     </TransitionGroup>
   </div>
