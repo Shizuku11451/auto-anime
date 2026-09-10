@@ -22,5 +22,5 @@ export const router = createRouter({
 
 router.afterEach((to) => {
   const title = to.meta.title as string | undefined
-  document.title = title ? `${title} · 自动追番` : '自动追番'
+  document.title = title ? `${title} · Auto-Anime` : 'Auto-Anime'
 })

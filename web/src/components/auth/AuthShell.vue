@@ -2,7 +2,7 @@
 import BrandMark from '@/components/ui/BrandMark.vue'
 import ThemeToggle from '@/components/ui/ThemeToggle.vue'
 
-withDefaults(defineProps<{ subtitle?: string; wide?: boolean }>(), { subtitle: 'RSS · NAS MEDIA LIBRARY', wide: false })
+withDefaults(defineProps<{ subtitle?: string; wide?: boolean }>(), { subtitle: '番剧收藏计划', wide: false })
 </script>
 
 <template>
@@ -17,7 +17,7 @@ withDefaults(defineProps<{ subtitle?: string; wide?: boolean }>(), { subtitle: '
       <BrandMark size="lg" :subtitle="subtitle" class="auth-brand" />
       <slot />
     </div>
-    <p class="auth-foot">自动追番 · 本地服务，无公共 CDN 依赖</p>
+    <p class="auth-foot">Auto-Anime</p>
   </div>
 </template>
 

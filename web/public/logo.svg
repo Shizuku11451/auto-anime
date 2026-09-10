@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 270" fill="none">
+  <title>Auto-Anime</title>
+  <defs>
+    <linearGradient id="ink" x1="55" y1="170" x2="1040" y2="80" gradientUnits="userSpaceOnUse"><stop stop-color="#57bfff"/><stop offset=".28" stop-color="#668fff"/><stop offset=".57" stop-color="#9180ff"/><stop offset="1" stop-color="#ee98ea"/></linearGradient>
+    <linearGradient id="orbit" x1="10" y1="120" x2="1090" y2="150" gradientUnits="userSpaceOnUse"><stop stop-color="#9acaff"/><stop offset=".25" stop-color="#50cfff"/><stop offset=".55" stop-color="#9288ff"/><stop offset="1" stop-color="#f5a6f3"/></linearGradient>
+    <path id="a" fill-rule="evenodd" d="M5 27H68Q94 27 94 51V127H60V117Q49 131 25 131Q0 131 0 109V97Q0 69 33 69H60V62Q60 55 52 55H0ZM60 88H43Q32 88 32 101Q32 107 40 107Q60 107 60 88Z"/>
+    <path id="star" d="M0-43C8-12 12-8 43 0C12 8 8 12 0 43C-8 12-12 8-43 0C-12-8-8-12 0-43Z"/>
+  </defs>
+  <g fill="url(#orbit)">
+    <path d="M17 189C-44 150 123 92 203 72L217 75C101 111-3 163 61 187L56 191C37 192 24 191 17 189Z"/>
+    <path d="M276 54C425 13 650-10 739 18C827 47 704 89 654 103C736 65 737 46 678 39C552 22 385 47 291 62Z"/>
+    <path d="M969 100C1080 90 1155 158 1023 194L1016 193C1116 149 1065 111 969 100Z"/>
+    <path d="M210 218C329 226 448 214 527 191C427 239 286 235 210 218Z"/>
+    <path d="M479 235C624 228 756 210 838 196C864 193 885 195 905 197C765 241 627 249 479 235Z"/>
+  </g>
+  <!-- Hand-drawn letter contours, with no embedded image or font dependency. -->
+  <g fill="url(#ink)" transform="translate(127 58) skewX(-16)">
+    <use href="#a"/>
+    <path d="M107 27H142V98Q142 105 150 105H160Q168 105 168 97V27H203V101Q203 128 173 128H134Q107 128 107 104Z"/>
+    <path d="M222 3H259V27H280V51H259V94Q259 103 268 103H286V128H247Q222 128 222 103V51H212V27H222Z"/>
+    <path fill-rule="evenodd" d="M320 25H359Q389 25 389 55V98Q389 128 359 128H320Q290 128 290 99V56Q290 25 320 25ZM340 42C335 64 332 70 311 78C332 84 335 90 340 112C345 90 348 84 369 78C348 71 345 64 340 42Z"/>
+    <path d="M400 65H440V86H400Z"/>
+    <path fill-rule="evenodd" d="M457 27H520Q546 27 546 51V127H512V117Q501 131 477 131Q452 131 452 109V97Q452 69 485 69H512V62Q512 55 504 55H452ZM512 88H495Q484 88 484 101Q484 107 492 107Q512 107 512 88Z"/>
+    <path d="M561 27H620Q653 27 653 56V128H618V61Q618 53 610 53H596V128H561Z"/>
+    <path d="M667 27H702V128H667Z"/><ellipse cx="685" cy="3" rx="21" ry="19"/>
+    <path d="M716 27H753Q772 27 780 33Q790 27 806 27H820Q852 27 852 57V128H817V64Q817 57 810 57H802V128H768V64Q768 57 760 57H751V128H716Z"/>
+    <path fill-rule="evenodd" d="M896 27H927Q955 27 955 51V64Q955 86 931 86H900V96Q900 106 911 106H951V128H895Q866 128 866 101V58Q866 27 896 27ZM900 64H922V56Q922 49 915 49H908Q900 49 900 57Z"/>
+  </g>
+  <g><use href="#star" fill="#9392ff" transform="translate(239 63) scale(1.02)"/><use href="#star" fill="#d18def" transform="translate(1021 91) scale(.8)"/><use href="#star" fill="#b08cf5" transform="translate(947 222) scale(.48)"/></g>
+</svg>
