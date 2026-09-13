@@ -37,6 +37,7 @@ export interface Item {
   downloader: string
   task_error: string
   progress: number
+  download_speed: number
   file_path: string
   anime_id: number
   season: number
@@ -63,6 +64,8 @@ export interface AnimeSummary {
 }
 
 export interface ResourceItem {
+  download_speed: number
+  progress: number
   id: number
   anime_id: number
   title: string
@@ -106,8 +109,13 @@ export interface AnimeDetail {
   item_count: number
   saved_count: number
   sources: string[]
+  rating: number
+  summary: string
+  voices: VoiceActor[]
   seasons: SeasonGroup[]
 }
+
+export interface VoiceActor { character: string; character_image: string; person: string; person_image: string }
 
 export interface AnimeUpdateInput {
   title: string
@@ -137,6 +145,7 @@ export interface RuntimeStatus {
 }
 
 export interface Settings {
+  max_concurrent_downloads: number
   auto_cleanup_empty_anime: boolean
   web_user: string
   web_password_set: boolean
@@ -165,6 +174,7 @@ export interface Settings {
 }
 
 export interface SettingsInput {
+  max_concurrent_downloads?: number
   auto_cleanup_empty_anime?: boolean
   web_user?: string
   web_password?: string

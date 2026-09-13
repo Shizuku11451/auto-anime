@@ -13,11 +13,13 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,9 +47,10 @@ type archiveFile struct {
 }
 
 type taskState struct {
-	Progress int
-	Files    []archiveFile
-	Fail     string
+	DownloadSpeed int64
+	Progress      int
+	Files         []archiveFile
+	Fail          string
 }
 
 func wakeTaskPoller() {
@@ -149,6 +152,7 @@ func applyTaskUpdate(t taskRef, s taskState) {
 		return
 	}
 	if s.Fail != "" {
+		clearTransfer(t.ID)
 		result, err := db.Exec("UPDATE items SET status='下载失败',task_error=? WHERE id=? AND status IN ("+activeTaskStatusSQL+")", s.Fail, t.ID)
 		if err == nil {
 			if n, _ := result.RowsAffected(); n > 0 {
@@ -158,6 +162,7 @@ func applyTaskUpdate(t taskRef, s taskState) {
 		return
 	}
 	if len(s.Files) > 0 {
+		clearTransfer(t.ID)
 		path, err := archiveFromFiles(t.ID, s.Files)
 		if err != nil {
 			// Completion state is re-observed every round, so the archive
@@ -171,6 +176,7 @@ func applyTaskUpdate(t taskRef, s taskState) {
 		return
 	}
 	var status string
+	setTransfer(t.ID, s.DownloadSpeed, s.Progress, max(10*time.Second, 2*time.Duration(downloaderPollSeconds)*time.Second))
 	var progress int
 	db.QueryRow("SELECT COALESCE(status,''),COALESCE(progress,0) FROM items WHERE id=?", t.ID).Scan(&status, &progress)
 	if status == "下载中" && progress == s.Progress {
@@ -231,26 +237,91 @@ func torrentLink(link string) bool {
 }
 
 func fetchTorrentBytes(link string) ([]byte, error) {
+	if data, ok := readTorrentCache(link); ok {
+		return data, nil
+	}
+	return fetchTorrentWithRetry(link, time.Sleep)
+}
+
+func torrentCachePath(link string) string {
+	sum := sha1.Sum([]byte(link))
+	return filepath.Join(downloadDir, ".torrent-cache", hex.EncodeToString(sum[:8])+".torrent")
+}
+
+func readTorrentCache(link string) ([]byte, bool) {
+	data, err := os.ReadFile(torrentCachePath(link))
+	return data, err == nil && len(data) > 0 && data[0] == 'd'
+}
+
+// Serialize torrent fetches so batch downloads do not burst against RSS hosts.
+var torrentFetchMu sync.Mutex
+
+func fetchTorrentWithRetry(link string, wait func(time.Duration)) ([]byte, error) {
+	torrentFetchMu.Lock()
+	defer torrentFetchMu.Unlock()
+	defer wait(time.Second)
+	for attempt := 0; ; attempt++ {
+		data, delay, err := fetchTorrentAttempt(link)
+		if delay < 0 || attempt >= 2 {
+			return data, err
+		}
+		backoff := time.Duration(5*(1<<attempt)) * time.Second
+		if delay > backoff {
+			backoff = delay
+		}
+		if backoff > time.Minute {
+			return nil, err
+		}
+		wait(backoff)
+	}
+}
+
+func fetchTorrentAttempt(link string) ([]byte, time.Duration, error) {
 	res, err := torrentClient.Get(link)
 	if err != nil {
-		return nil, fmt.Errorf("获取种子文件失败: %w", err)
+		return nil, -1, fmt.Errorf("获取种子文件失败: %w", err)
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusTooManyRequests {
+		delay := time.Duration(0)
+		value := strings.TrimSpace(res.Header.Get("Retry-After"))
+		if seconds, parseErr := strconv.ParseInt(value, 10, 64); parseErr == nil && seconds > 0 {
+			if seconds > 60 {
+				seconds = 61
+			}
+			delay = time.Duration(seconds) * time.Second
+		} else if until, parseErr := http.ParseTime(value); parseErr == nil {
+			delay = time.Until(until)
+			if delay < 0 {
+				delay = 0
+			}
+		}
+		return nil, delay, fmt.Errorf("种子站点限流（HTTP 429），请稍后重试")
+	}
 	if res.StatusCode >= 400 {
-		return nil, fmt.Errorf("获取种子文件 HTTP %d", res.StatusCode)
+		return nil, -1, fmt.Errorf("获取种子文件 HTTP %d", res.StatusCode)
 	}
 	const limit = 20 << 20
 	data, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("读取种子文件失败")
+		return nil, -1, fmt.Errorf("读取种子文件失败")
 	}
 	if len(data) > limit {
-		return nil, fmt.Errorf("种子文件超过 20 MB")
+		return nil, -1, fmt.Errorf("种子文件超过 20 MB")
 	}
 	if len(data) == 0 || data[0] != 'd' {
-		return nil, fmt.Errorf("不是有效的种子文件")
+		return nil, -1, fmt.Errorf("不是有效的种子文件")
 	}
-	return data, nil
+	cache := torrentCachePath(link)
+	if err := os.MkdirAll(filepath.Dir(cache), 0755); err == nil {
+		tmp := cache + ".tmp"
+		if os.WriteFile(tmp, data, 0644) == nil {
+			if os.Rename(tmp, cache) != nil {
+				os.Remove(tmp)
+			}
+		}
+	}
+	return data, -1, nil
 }
 
 // torrentInfoHash returns the lowercase hex SHA-1 of the bencoded "info" value.
@@ -388,7 +459,31 @@ func aria2RPC(method string, params []any, out any) error {
 	return json.Unmarshal(rpc.Result, out)
 }
 
+// removeDownloaderTask cancels only the task recorded on an item. It never
+// deletes archived media files; completed Aria2 results are removed from its
+// history so stale entries do not occupy the managed queue.
+func removeDownloaderTask(downloader, taskID string) {
+	if taskID == "" {
+		return
+	}
+	switch downloader {
+	case "aria2":
+		if err := aria2RPC("aria2.remove", []any{taskID}, nil); err != nil {
+			_ = aria2RPC("aria2.removeDownloadResult", []any{taskID}, nil)
+		}
+	}
+}
+
 func aria2Add(link string) (string, error) {
+	// Use multiple connections for large HTTP files and let Aria2 split them
+	// into reasonably sized ranges. These options affect only tasks submitted
+	// by Auto-Anime and preserve the downloader's global limits.
+	options := map[string]string{
+		"split":                     "8",
+		"max-connection-per-server": "8",
+		"min-split-size":            "5M",
+		"continue":                  "true",
+	}
 	var gid string
 	if torrentLink(link) {
 		data, err := fetchTorrentBytes(link)
@@ -397,14 +492,15 @@ func aria2Add(link string) (string, error) {
 		}
 		// aria2.addUri would download the .torrent file itself; torrent
 		// payloads must go through aria2.addTorrent as base64.
-		err = aria2RPC("aria2.addTorrent", []any{base64.StdEncoding.EncodeToString(data), []any{}}, &gid)
+		err = aria2RPC("aria2.addTorrent", []any{base64.StdEncoding.EncodeToString(data), []any{}, options}, &gid)
 		return gid, err
 	}
-	err := aria2RPC("aria2.addUri", []any{[]string{link}}, &gid)
+	err := aria2RPC("aria2.addUri", []any{[]string{link}, options}, &gid)
 	return gid, err
 }
 
 type aria2Status struct {
+	DownloadSpeed   string `json:"downloadSpeed"`
 	Status          string `json:"status"`
 	CompletedLength string `json:"completedLength"`
 	TotalLength     string `json:"totalLength"`
@@ -418,13 +514,15 @@ type aria2Status struct {
 		Info struct {
 			Name string `json:"name"`
 		} `json:"info"`
-		Mode string `json:"mode"`
+		Mode        string `json:"mode"`
+		NumSeeders  int    `json:"numSeeders"`
+		Connections int    `json:"connections"`
 	} `json:"bittorrent"`
 }
 
 func aria2Poll(gid string) (taskState, error) {
 	var st aria2Status
-	keys := []string{"status", "completedLength", "totalLength", "errorMessage", "dir", "files", "bittorrent"}
+	keys := []string{"status", "completedLength", "totalLength", "errorMessage", "dir", "files", "bittorrent", "downloadSpeed"}
 	if err := aria2RPC("aria2.tellStatus", []any{gid, keys}, &st); err != nil {
 		if strings.Contains(err.Error(), "is not found") {
 			return taskState{Fail: "任务在 Aria2 中不存在"}, nil
@@ -460,7 +558,8 @@ func aria2Poll(gid string) (taskState, error) {
 			return taskState{Progress: 100, Files: files}, nil
 		}
 	}
-	return taskState{Progress: progress}, nil
+	speed, _ := strconv.ParseInt(st.DownloadSpeed, 10, 64)
+	return taskState{Progress: progress, DownloadSpeed: speed}, nil
 }
 func aria2CompletedFiles(st *aria2Status) ([]archiveFile, error) {
 	remoteBase := aria2Dir
@@ -549,11 +648,12 @@ func qbitAdd(link, tag string) error {
 }
 
 type qbitTorrent struct {
-	Hash     string  `json:"hash"`
-	Name     string  `json:"name"`
-	SavePath string  `json:"save_path"`
-	Progress float64 `json:"progress"`
-	State    string  `json:"state"`
+	DownloadSpeed int64   `json:"dlspeed"`
+	Hash          string  `json:"hash"`
+	Name          string  `json:"name"`
+	SavePath      string  `json:"save_path"`
+	Progress      float64 `json:"progress"`
+	State         string  `json:"state"`
 }
 
 func (c *qbitClient) info(query url.Values) ([]qbitTorrent, error) {
@@ -637,7 +737,7 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 	if progress > 100 {
 		progress = 100
 	}
-	return taskState{Progress: progress}, nil
+	return taskState{Progress: progress, DownloadSpeed: torrent.DownloadSpeed}, nil
 }
 
 func qbitFinishedState(state string) bool {
@@ -753,13 +853,14 @@ func transmissionAdd(link string) (string, error) {
 }
 
 type transmissionTorrent struct {
-	Status      int     `json:"status"`
-	PercentDone float64 `json:"percentDone"`
-	IsFinished  bool    `json:"isFinished"`
-	DownloadDir string  `json:"downloadDir"`
-	Error       int     `json:"error"`
-	ErrorString string  `json:"errorString"`
-	Files       []struct {
+	DownloadSpeed int64   `json:"rateDownload"`
+	Status        int     `json:"status"`
+	PercentDone   float64 `json:"percentDone"`
+	IsFinished    bool    `json:"isFinished"`
+	DownloadDir   string  `json:"downloadDir"`
+	Error         int     `json:"error"`
+	ErrorString   string  `json:"errorString"`
+	Files         []struct {
 		Name string `json:"name"`
 	} `json:"files"`
 }
@@ -777,7 +878,7 @@ func transmissionPoll(c *transmissionClient, t taskRef) (taskState, error) {
 	}
 	arguments := map[string]any{
 		"ids":    []int{id},
-		"fields": []string{"id", "status", "percentDone", "isFinished", "downloadDir", "error", "errorString", "files"},
+		"fields": []string{"id", "status", "percentDone", "isFinished", "downloadDir", "error", "errorString", "files", "rateDownload"},
 	}
 	if err := c.call(map[string]any{"method": "torrent-get", "arguments": arguments}, &out); err != nil {
 		return taskState{}, err
@@ -809,7 +910,7 @@ func transmissionPoll(c *transmissionClient, t taskRef) (taskState, error) {
 	if progress > 100 {
 		progress = 100
 	}
-	return taskState{Progress: progress}, nil
+	return taskState{Progress: progress, DownloadSpeed: torrent.DownloadSpeed}, nil
 }
 
 func transmissionCompletedFiles(torrent *transmissionTorrent) ([]archiveFile, error) {

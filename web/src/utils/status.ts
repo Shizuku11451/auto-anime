@@ -13,7 +13,8 @@ export function badgeInfo(status: string | null | undefined): BadgeInfo {
   if (s === '下载中' || s.startsWith('已发送到')) return { tone: 'downloading', text: s }
   if (s === '下载失败') return { tone: 'failed', text: '下载失败' }
   if (s === '等待下载器') return { tone: 'waiting', text: '等待下载器' }
-  if (s === '等待下载' || s === '待下载') return { tone: 'pending', text: '待下载' }
+  if (s === '等待下载') return { tone: 'pending', text: '排队中' }
+  if (s === '待下载') return { tone: 'pending', text: '待下载' }
   return { tone: 'pending', text: s }
 }
 
@@ -23,7 +24,7 @@ export function isDownloading(status: string | null | undefined): boolean {
 
 /** 这些状态允许手动发起/重试下载 */
 export function isRetryable(status: string | null | undefined): boolean {
-  return ['待下载', '等待下载', '下载失败', '等待下载器'].includes(status || '待下载')
+  return ['待下载', '下载失败', '等待下载器'].includes(status || '待下载')
 }
 
 export interface ChipDef {

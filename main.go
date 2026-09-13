@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -44,13 +45,14 @@ var aria2Dir = env("ARIA2_DIR", "")
 var aria2LocalDir = env("ARIA2_LOCAL_DIR", "")
 var qbitLocalDir = env("QBIT_LOCAL_DIR", "")
 var transmissionLocalDir = env("TRANSMISSION_LOCAL_DIR", "")
-var downloaderPollSeconds = 30
+var embeddedAria2 = env("EMBEDDED_ARIA2", "") != "0"
+var embeddedAria2Cmd *exec.Cmd
+var downloaderPollSeconds = 10
 var webhookURL = strings.TrimSpace(env("WEBHOOK_URL", ""))
 var listenPort = env("PORT", "8000")
 var webUser = env("WEB_USER", "")
 var webPassword = env("WEB_PASSWORD", "")
 var httpClient = newClient(60 * time.Second)
-var downloadSlots = make(chan struct{}, 2)
 var qualityPattern = regexp.MustCompile(`(?i)(2160p|1080p|720p|480p|4k|8k)`)
 var groupPattern = regexp.MustCompile(`^\s*[\[【（(]([^\]】）)]+)[\]】）)]\s*`)
 var separatorPattern = regexp.MustCompile(`\s+[-–—]\s*`)
@@ -211,7 +213,7 @@ func initDB() {
 	if n, e := strconv.Atoi(env("POLL_MINUTES", "30")); e == nil && n >= 5 {
 		pollMinutes = n
 	}
-	if n, e := strconv.Atoi(env("DOWNLOADER_POLL_SECONDS", "30")); e == nil && n >= 5 {
+	if n, e := strconv.Atoi(env("DOWNLOADER_POLL_SECONDS", "10")); e == nil && n >= 5 {
 		downloaderPollSeconds = n
 	}
 	var e error
@@ -244,6 +246,19 @@ func initDB() {
 		if count == 0 {
 			if _, e = db.Exec("ALTER TABLE items ADD COLUMN " + col); e != nil {
 				log.Fatal(e)
+			}
+		}
+	}
+	// Add columns only when upgrading an older database; avoid noisy duplicate-column errors.
+	for _, spec := range []struct{ name, ddl string }{
+		{"rating", "rating REAL DEFAULT 0"},
+		{"summary", "summary TEXT DEFAULT ''"},
+		{"voices", "voices TEXT DEFAULT '[]'"},
+	} {
+		var exists int
+		if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('anime_meta') WHERE name=?", spec.name).Scan(&exists); err == nil && exists == 0 {
+			if _, err := db.Exec("ALTER TABLE anime_meta ADD COLUMN " + spec.ddl); err != nil {
+				log.Printf("add anime_meta.%s: %v", spec.name, err)
 			}
 		}
 	}
@@ -397,11 +412,17 @@ func downloadItem(id int) {
 	if changed == 0 {
 		return
 	}
-	downloadSlots <- struct{}{}
-	defer func() { <-downloadSlots }()
-	if _, err = db.Exec("UPDATE items SET status='下载中',downloader='',task_id='',progress=0 WHERE id=?", id); err != nil {
-		return
+	for {
+		claimed, waiting, claimErr := claimDownload(id)
+		if claimErr != nil || (!claimed && !waiting) {
+			return
+		}
+		if claimed {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
+	clearTransfer(id)
 	var link string
 	if db.QueryRow("SELECT link FROM items WHERE id=?", id).Scan(&link) != nil {
 		return
@@ -917,6 +938,16 @@ func deleteFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
+	rows, _ := db.Query("SELECT downloader,task_id FROM items WHERE feed_id=? AND COALESCE(task_id,'')<>''", id)
+	if rows != nil {
+		for rows.Next() {
+			var downloader, taskID string
+			if rows.Scan(&downloader, &taskID) == nil {
+				removeDownloaderTask(downloader, taskID)
+			}
+		}
+		rows.Close()
+	}
 	_, _ = db.Exec("DELETE FROM items WHERE feed_id=?", id)
 	result, err := db.Exec("DELETE FROM feeds WHERE id=?", id)
 	if err != nil {
@@ -994,31 +1025,33 @@ func items(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type item struct {
-		ID         int    `json:"id"`
-		Title      string `json:"title"`
-		Link       string `json:"link"`
-		Published  string `json:"published"`
-		Status     string `json:"status"`
-		AnimeTitle string `json:"anime_title"`
-		Episode    string `json:"episode"`
-		Quality    string `json:"quality"`
-		Group      string `json:"fansub_group"`
-		Feed       string `json:"feed_name"`
-		Downloader string `json:"downloader"`
-		TaskError  string `json:"task_error"`
-		Progress   int    `json:"progress"`
-		FilePath   string `json:"file_path"`
-		AnimeID    int64  `json:"anime_id"`
-		Season     int    `json:"season"`
-		Manual     bool   `json:"manual"`
-		CoverFile  string `json:"-"`
-		Cover      string `json:"cover"`
+		ID            int    `json:"id"`
+		Title         string `json:"title"`
+		Link          string `json:"link"`
+		Published     string `json:"published"`
+		Status        string `json:"status"`
+		AnimeTitle    string `json:"anime_title"`
+		Episode       string `json:"episode"`
+		Quality       string `json:"quality"`
+		Group         string `json:"fansub_group"`
+		Feed          string `json:"feed_name"`
+		Downloader    string `json:"downloader"`
+		TaskError     string `json:"task_error"`
+		Progress      int    `json:"progress"`
+		DownloadSpeed int64  `json:"download_speed"`
+		FilePath      string `json:"file_path"`
+		AnimeID       int64  `json:"anime_id"`
+		Season        int    `json:"season"`
+		Manual        bool   `json:"manual"`
+		CoverFile     string `json:"-"`
+		Cover         string `json:"cover"`
 	}
 	out := []item{}
 	for rows.Next() {
 		var x item
 		var manual int
 		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.FilePath, &x.AnimeID, &x.Season, &manual, &x.CoverFile)
+		x.DownloadSpeed, x.Progress = transferSnapshot(x.ID, x.Status, x.Progress)
 		x.Manual = manual == 1
 		if x.CoverFile != "" {
 			x.Cover = "/api/covers/" + x.CoverFile
@@ -1042,6 +1075,10 @@ func main() {
 	}
 	// 数据库里保存的用户设置优先于环境变量，最后加载。
 	loadSettings()
+	if err := startEmbeddedAria2(); err != nil {
+		log.Fatal(err)
+	}
+	defer stopEmbeddedAria2()
 	if authEnabled() {
 		log.Println("Web 登录已启用")
 	} else if setupDone {
@@ -1099,6 +1136,63 @@ func main() {
 	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
 	http.HandleFunc("/api/items/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/manage") {
+			if r.Method != http.MethodPost {
+				http.Error(w, "方法不支持", 405)
+				return
+			}
+			var in struct {
+				Action string `json:"action"`
+				IDs    []int  `json:"ids"`
+			}
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil || len(in.IDs) == 0 || len(in.IDs) > 500 {
+				http.Error(w, "批量参数无效", 400)
+				return
+			}
+			seen := map[int]bool{}
+			for _, id := range in.IDs {
+				if id <= 0 || seen[id] {
+					http.Error(w, "条目标识无效", 400)
+					return
+				}
+				seen[id] = true
+			}
+			if in.Action == "delete" {
+				for _, id := range in.IDs {
+					var downloader, taskID string
+					if db.QueryRow("SELECT downloader,task_id FROM items WHERE id=?", id).Scan(&downloader, &taskID) == nil {
+						removeDownloaderTask(downloader, taskID)
+					}
+				}
+				tx, err := db.Begin()
+				if err != nil {
+					http.Error(w, "批量移除失败", 500)
+					return
+				}
+				for _, id := range in.IDs {
+					if _, err = tx.Exec("DELETE FROM items WHERE id=?", id); err != nil {
+						tx.Rollback()
+						http.Error(w, "批量移除失败", 500)
+						return
+					}
+				}
+				if err = tx.Commit(); err != nil {
+					http.Error(w, "批量移除失败", 500)
+					return
+				}
+				jsonOut(w, map[string]any{"ok": true, "count": len(in.IDs)})
+				return
+			}
+			if in.Action == "download" {
+				for _, id := range in.IDs {
+					go downloadItem(id)
+				}
+				jsonOut(w, map[string]any{"ok": true, "count": len(in.IDs)})
+				return
+			}
+			http.Error(w, "批量操作无效", 400)
+			return
+		}
 		if r.Method == http.MethodPatch {
 			var id int64
 			n, _ := fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/api/items/"), "%d", &id)
@@ -1115,6 +1209,10 @@ func main() {
 			if n != 1 || id <= 0 {
 				http.Error(w, "条目不存在", 404)
 				return
+			}
+			var downloader, taskID string
+			if db.QueryRow("SELECT downloader,task_id FROM items WHERE id=?", id).Scan(&downloader, &taskID) == nil {
+				removeDownloaderTask(downloader, taskID)
 			}
 			result, err := db.Exec("DELETE FROM items WHERE id=?", id)
 			if err != nil {

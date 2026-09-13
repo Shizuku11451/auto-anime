@@ -90,6 +90,29 @@ func TestAria2SubmitsTorrentFileThroughAddTorrent(t *testing.T) {
 	}
 }
 
+func TestTorrentBytesUsesCacheAfterFirstFetch(t *testing.T) {
+	testDatabase(t)
+	root := t.TempDir()
+	old := downloadDir
+	downloadDir = root
+	defer func() { downloadDir = old }()
+	calls := 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte("d4:infod6:lengthi5e4:name3:abcee"))
+	}))
+	defer s.Close()
+	if _, err := fetchTorrentBytes(s.URL + "/x.torrent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fetchTorrentBytes(s.URL + "/x.torrent"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("fetch calls=%d", calls)
+	}
+}
+
 func TestAria2TracksProgressAndArchivesCompletion(t *testing.T) {
 	testDatabase(t)
 	local := t.TempDir()

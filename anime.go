@@ -248,20 +248,22 @@ func animeEntryAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 type resourceItem struct {
-	ID        int64  `json:"id"`
-	AnimeID   int64  `json:"anime_id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	Episode   string `json:"episode"`
-	Season    int    `json:"season"`
-	Quality   string `json:"quality"`
-	Group     string `json:"fansub_group"`
-	Feed      string `json:"feed_name"`
-	FilePath  string `json:"file_path"`
-	Cover     string `json:"cover"`
-	Link      string `json:"link"`
-	Manual    bool   `json:"manual"`
-	EpisodeNo int    `json:"episode_no"`
+	DownloadSpeed int64  `json:"download_speed"`
+	Progress      int    `json:"progress"`
+	ID            int64  `json:"id"`
+	AnimeID       int64  `json:"anime_id"`
+	Title         string `json:"title"`
+	Status        string `json:"status"`
+	Episode       string `json:"episode"`
+	Season        int    `json:"season"`
+	Quality       string `json:"quality"`
+	Group         string `json:"fansub_group"`
+	Feed          string `json:"feed_name"`
+	FilePath      string `json:"file_path"`
+	Cover         string `json:"cover"`
+	Link          string `json:"link"`
+	Manual        bool   `json:"manual"`
+	EpisodeNo     int    `json:"episode_no"`
 }
 
 type episodeGroup struct {
@@ -282,11 +284,16 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		return
 	}
 	coverFile, metaName, metaNameCN := "", "", ""
-	db.QueryRow(`SELECT COALESCE(cover_file,''),COALESCE(name,''),COALESCE(name_cn,'') FROM anime_meta WHERE anime_title=?`, a.Title).
-		Scan(&coverFile, &metaName, &metaNameCN)
+	var rating float64
+	var summary, voices string
+	db.QueryRow(`SELECT COALESCE(cover_file,''),COALESCE(name,''),COALESCE(name_cn,''),COALESCE(rating,0),COALESCE(summary,''),COALESCE(voices,'[]') FROM anime_meta WHERE anime_title=?`, a.Title).
+		Scan(&coverFile, &metaName, &metaNameCN, &rating, &summary, &voices)
+	if !json.Valid([]byte(voices)) {
+		voices = "[]"
+	}
 	rows, err := db.Query(`SELECT items.id,COALESCE(items.anime_id,0),COALESCE(items.title,''),COALESCE(items.status,'待下载'),COALESCE(items.episode,''),
 		COALESCE(items.season,0),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),
-		COALESCE(items.file_path,''),COALESCE(items.link,''),COALESCE(items.manual,0)
+		COALESCE(items.file_path,''),COALESCE(items.link,''),COALESCE(items.manual,0),COALESCE(items.progress,0)
 		FROM items LEFT JOIN feeds ON feeds.id=items.feed_id
 		WHERE items.anime_id=? ORDER BY items.id ASC`, id)
 	if err != nil {
@@ -300,11 +307,12 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	for rows.Next() {
 		var it resourceItem
 		var manual int
-		if err := rows.Scan(&it.ID, &it.AnimeID, &it.Title, &it.Status, &it.Episode, &it.Season, &it.Quality, &it.Group, &it.Feed, &it.FilePath, &it.Link, &manual); err != nil {
+		if err := rows.Scan(&it.ID, &it.AnimeID, &it.Title, &it.Status, &it.Episode, &it.Season, &it.Quality, &it.Group, &it.Feed, &it.FilePath, &it.Link, &manual, &it.Progress); err != nil {
 			http.Error(w, "查询失败", 500)
 			return
 		}
 		it.Manual = manual == 1
+		it.DownloadSpeed, it.Progress = transferSnapshot(int(it.ID), it.Status, it.Progress)
 		it.Cover = coverPath(coverFile)
 		if n, err := strconv.Atoi(strings.TrimSpace(it.Episode)); err == nil {
 			it.EpisodeNo = n
@@ -371,7 +379,7 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		"id": a.ID, "title": a.Title, "search_name": a.SearchName, "bangumi_id": a.BangumiID,
 		"season": a.Season, "storage_dir": a.StorageDir, "include_rules": a.IncludeRules, "exclude_rules": a.ExcludeRules,
 		"cover": coverPath(coverFile), "meta_name": metaName, "meta_name_cn": metaNameCN,
-		"item_count": total, "saved_count": saved, "sources": feeds,
+		"item_count": total, "saved_count": saved, "sources": feeds, "rating": rating, "summary": summary, "voices": json.RawMessage(voices),
 		"seasons": seasonList,
 	})
 }

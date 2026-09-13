@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { watchDebounced } from '@vueuse/core'
-import { FilterX, Inbox, SearchX, ServerOff } from '@lucide/vue'
+import { Download, FilterX, Inbox, ListChecks, SearchX, ServerOff, Trash2 } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SearchInput from '@/components/ui/SearchInput.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -24,6 +24,8 @@ const dialogs = useDialogs()
 const { is: isBusy, run } = useBusySet()
 
 const filter = ref('全部')
+const selecting = ref(false)
+const selected = ref<number[]>([])
 const search = ref(store.search.value)
 watchDebounced(
   search,
@@ -45,6 +47,15 @@ const list = computed(() => {
   const def = CHIP_DEFS.find((d) => d.key === filter.value) ?? CHIP_DEFS[0]!
   return store.items.value.filter((x) => def.match(x.status || '待下载'))
 })
+const allSelected = computed(() => list.value.length > 0 && list.value.every(x => selected.value.includes(x.id)))
+function toggle(id: number) { selected.value = selected.value.includes(id) ? selected.value.filter(x => x !== id) : [...selected.value, id] }
+function selectVisible() { selected.value = allSelected.value ? selected.value.filter(id => !list.value.some(x => x.id === id)) : [...new Set([...selected.value, ...list.value.map(x => x.id)])] }
+function toggleMode() { selecting.value = !selecting.value; selected.value = [] }
+async function batch(action: 'download' | 'delete') {
+  if (!selected.value.length) return
+  if (action === 'delete' && !await confirmDialog('批量移除记录', `确定移除选中的 ${selected.value.length} 条记录？不会删除已保存文件。`, { danger: true, okText: '移除' })) return
+  try { await http.post('/api/items/manage', { action, ids: selected.value }); toast.success(action === 'download' ? `已加入 ${selected.value.length} 条下载队列` : `已移除 ${selected.value.length} 条记录`); selected.value = []; selecting.value = false; await store.refresh() } catch (e) { toast.error(errorMessage(e)) }
+}
 
 async function download(item: Item) {
   await run(item.id, async () => {
@@ -102,6 +113,7 @@ function epNo(x: Item): number {
   <div class="page">
     <PageHeader title="最近条目" description="最新 100 条，每 5 秒自动刷新">
       <SearchInput v-model="search" placeholder="搜索番剧、原始标题、字幕组" width="300px" />
+      <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.items.value.length" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
     </PageHeader>
 
     <div class="chips" role="tablist" aria-label="状态筛选" :style="{ '--active': activeChip }">
@@ -118,6 +130,12 @@ function epNo(x: Item): number {
         {{ c.key }}
         <span class="n"><AnimatedNumber :value="c.n" /></span>
       </button>
+    </div>
+    <div v-if="selecting" class="batch-toolbar">
+      <label><input type="checkbox" :checked="allSelected" :indeterminate="!allSelected && list.some(x => selected.includes(x.id))" @change="selectVisible" /> 全选当前结果</label>
+      <span>已选 {{ selected.length }} 条</span>
+      <BaseButton size="sm" :icon="Download" :disabled="!selected.length" @click="batch('download')">批量下载</BaseButton>
+      <BaseButton size="sm" variant="danger" :icon="Trash2" :disabled="!selected.length" @click="batch('delete')">批量移除</BaseButton>
     </div>
 
     <div v-if="!store.loaded.value" class="list" aria-busy="true">
@@ -174,12 +192,15 @@ function epNo(x: Item): number {
         :key="item.id"
         :item="item"
         :busy="isBusy(item.id)"
+        :selecting="selecting"
+        :selected="selected.includes(item.id)"
         :style="{ '--i': i }"
         @download="download(item)"
         @storage="dialogs.openStorage(item.anime_title || item.title)"
         @correct="dialogs.openCorrect(item)"
         @remove="remove(item)"
         @play="play(item)"
+        @toggle="toggle(item.id)"
       />
     </TransitionGroup>
   </div>
@@ -255,6 +276,8 @@ function epNo(x: Item): number {
   display: grid;
   gap: 10px;
 }
+.batch-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--text-2); font-size: 13px; }
+.select-box { display: grid; place-items: center; padding-top: 8px; }
 .sk-row {
   display: grid;
   grid-template-columns: 54px 1fr;

@@ -40,3 +40,13 @@ export function splitKeywords(raw: string | null | undefined): string[] {
     .map((s) => s.trim())
     .filter(Boolean)
 }
+export function formatSpeed(bytesPerSecond: number | undefined): string {
+  let value = Number.isFinite(bytesPerSecond) ? Math.max(0, bytesPerSecond!) : 0
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}

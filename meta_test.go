@@ -106,6 +106,12 @@ func TestMetaAccept(t *testing.T) {
 	if metaAccept("  ", "テスト", "测试") {
 		t.Fatal("empty query must not match")
 	}
+	if !metaAccept("葬送的芙莉莲 S01 · 1080P", "葬送のフリーレン", "葬送的芙莉莲") {
+		t.Fatal("season and quality noise should be ignored")
+	}
+	if !metaAccept("Kimi-ga-Shinu-made-Koi-wo-Shitai", "Kimi ga Shinu made Koi wo Shitai", "") {
+		t.Fatal("punctuation differences should match")
+	}
 }
 
 func TestCoverLookupCachesAndServes(t *testing.T) {

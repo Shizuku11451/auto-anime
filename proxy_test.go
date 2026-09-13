@@ -37,6 +37,9 @@ func TestParseProxyURL(t *testing.T) {
 // The fake proxy answers without dialing the target, so an unresolvable
 // target host proves the request was routed through the proxy.
 func TestProxyRoutesOutboundContentRequests(t *testing.T) {
+	oldDownloadDir := downloadDir
+	downloadDir = t.TempDir()
+	t.Cleanup(func() { downloadDir = oldDownloadDir })
 	var viaProxy atomic.Bool
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		viaProxy.Store(true)

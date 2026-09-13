@@ -21,7 +21,15 @@ var proxyURL *url.URL
 // newTransport is the single place building outbound transports, so every
 // proxy-aware client shares the same configuration.
 func newTransport() *http.Transport {
-	transport := &http.Transport{Proxy: nil}
+	transport := &http.Transport{
+		Proxy:               nil,
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 16,
+		MaxConnsPerHost:     16,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  true,
+		ForceAttemptHTTP2:   true,
+	}
 	if proxyURL != nil {
 		transport.Proxy = http.ProxyURL(proxyURL)
 	}

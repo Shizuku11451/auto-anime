@@ -396,7 +396,9 @@ func saveArchive(m archiveMetadata, res *http.Response) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m.Size, err = io.Copy(f, res.Body)
+	reader := &transferReader{reader: res.Body, id: m.ID, total: res.ContentLength, windowStart: time.Now()}
+	m.Size, err = io.Copy(f, reader)
+	clearTransfer(m.ID)
 	if err == nil {
 		err = f.Sync()
 	}

@@ -5,6 +5,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { badgeInfo, isRetryable } from '@/utils/status'
 import type { ResourceItem } from '@/api/types'
+import { formatSpeed } from '@/utils/format'
 
 const props = defineProps<{ item: ResourceItem; busy?: boolean }>()
 const emit = defineEmits<{ download: []; correct: []; remove: []; play: [] }>()
@@ -25,6 +26,7 @@ const playable = computed(() => badgeInfo(props.item.status).tone === 'saved' &&
         <span v-if="item.manual" class="tag amber">已纠错</span>
       </p>
       <p v-if="item.file_path" class="path" :title="item.file_path">{{ item.file_path }}</p>
+      <p v-if="badgeInfo(item.status).tone === 'downloading'" class="res-meta">{{ item.progress || 0 }}% · {{ formatSpeed(item.download_speed) }}</p>
     </div>
     <div class="res-actions">
       <BaseButton v-if="playable" size="sm" variant="primary" :icon="Play" @click="emit('play')">播放</BaseButton>

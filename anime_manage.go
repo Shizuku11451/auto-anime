@@ -154,6 +154,18 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 		if in.Action == "delete" && count > 0 && !in.DeleteItems {
 			return bad(409, "该番剧仍有资源，请明确选择同时删除资源记录")
 		}
+		if in.Action == "delete" && in.DeleteItems {
+			rows, queryErr := tx.Query("SELECT downloader,task_id FROM items WHERE "+related+" AND COALESCE(task_id,'')<>''", a.ID, a.Title)
+			if queryErr == nil {
+				for rows.Next() {
+					var downloader, taskID string
+					if rows.Scan(&downloader, &taskID) == nil {
+						removeDownloaderTask(downloader, taskID)
+					}
+				}
+				rows.Close()
+			}
+		}
 		var itemResult, feedResult sql.Result
 		if in.Action == "merge" {
 			season := a.Season

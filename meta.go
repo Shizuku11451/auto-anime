@@ -39,15 +39,37 @@ func isBangumiHost(host string) bool {
 }
 
 type bangumiSubject struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	NameCN string `json:"name_cn"`
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	NameCN  string `json:"name_cn"`
+	Summary string `json:"summary"`
+	Rating  struct {
+		Score float64 `json:"score"`
+		Total int     `json:"total"`
+	} `json:"rating"`
 	Images struct {
 		Large  string `json:"large"`
 		Common string `json:"common"`
 		Medium string `json:"medium"`
 		Grid   string `json:"grid"`
 	} `json:"images"`
+}
+
+type bangumiVoice struct {
+	Character struct {
+		Name   string `json:"name"`
+		Images struct {
+			Medium string `json:"medium"`
+			Grid   string `json:"grid"`
+		} `json:"images"`
+	} `json:"character"`
+	Person struct {
+		Name   string `json:"name"`
+		Images struct {
+			Medium string `json:"medium"`
+			Grid   string `json:"grid"`
+		} `json:"images"`
+	} `json:"person"`
 }
 
 // startMetaWorker launches the single background lookup worker. Titles are
@@ -156,13 +178,57 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source string)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at) VALUES(?,?,?,?,?,?,?,?)
-		ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at`,
-		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339))
+	voices := fetchBangumiVoices(subject.ID)
+	_, err = db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at,rating=excluded.rating,summary=excluded.summary,voices=excluded.voices`,
+		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices)
 	if err == nil {
 		refreshSeriesPoster(animeTitle)
 	}
 	return err
+}
+
+func fetchBangumiVoices(id int) string {
+	u := fmt.Sprintf("%s/v0/subjects/%d/characters", bangumiAPI, id)
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return "[]"
+	}
+	req.Header.Set("User-Agent", metaUserAgent)
+	res, err := metaClient.Do(req)
+	if err != nil || res.StatusCode >= 400 {
+		if res != nil {
+			res.Body.Close()
+		}
+		return "[]"
+	}
+	defer res.Body.Close()
+	var rows []bangumiVoice
+	if json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&rows) != nil {
+		return "[]"
+	}
+	type voice struct {
+		Character      string `json:"character"`
+		CharacterImage string `json:"character_image"`
+		Person         string `json:"person"`
+		PersonImage    string `json:"person_image"`
+	}
+	out := make([]voice, 0, min(len(rows), 12))
+	for _, row := range rows {
+		if row.Person.Name == "" {
+			continue
+		}
+		image := row.Person.Images.Medium
+		if image == "" {
+			image = row.Person.Images.Grid
+		}
+		out = append(out, voice{row.Character.Name, row.Character.Images.Medium, row.Person.Name, image})
+		if len(out) >= 12 {
+			break
+		}
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
 }
 
 // metaQueryTitles turns a recognized title into search keywords. Bracket tags
@@ -195,24 +261,62 @@ func metaQueryTitles(animeTitle string) []string {
 // metaAccept requires the query and one of the subject names to overlap after
 // normalization, so an unrelated first hit does not steal the cover.
 func metaAccept(query, name, nameCN string) bool {
+	return metaMatchScore(query, name, nameCN) > 0
+}
+
+func normalizeMetaText(s string) string {
+	s = strings.ToLower(strings.NewReplacer("０", "0", "１", "1", "２", "2", "３", "3", "４", "4", "５", "5", "６", "6", "７", "7", "８", "8", "９", "9").Replace(s))
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (r >= '一' && r <= '龯') || (r >= 'ぁ' && r <= 'ヿ') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// metaMatchScore returns a positive score only when enough identifying text
+// overlaps. Exact normalized aliases score highest; short season suffixes and
+// punctuation are ignored by normalization, while unrelated short names do
+// not pass merely because they share one character.
+func metaMatchScore(query, name, nameCN string) int {
 	q := normalizeMetaText(query)
 	if len([]rune(q)) < 2 {
-		return false
+		return 0
 	}
+	best := 0
 	for _, candidate := range []string{nameCN, name} {
 		c := normalizeMetaText(candidate)
 		if len([]rune(c)) < 2 {
 			continue
 		}
-		if strings.Contains(c, q) || strings.Contains(q, c) {
-			return true
+		if q == c {
+			best = max(best, 1000)
+		} else if strings.Contains(c, q) || strings.Contains(q, c) {
+			best = max(best, 700+min(len([]rune(q)), len([]rune(c))))
+		} else {
+			common := longestCommonRunes(q, c)
+			if common >= 4 || (common >= 3 && len([]rune(q)) >= 6) {
+				best = max(best, common*10)
+			}
 		}
 	}
-	return false
+	return best
 }
 
-func normalizeMetaText(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), ""))
+func longestCommonRunes(a, b string) int {
+	ar, br := []rune(a), []rune(b)
+	best := 0
+	for i := range ar {
+		for j := range br {
+			n := 0
+			for i+n < len(ar) && j+n < len(br) && ar[i+n] == br[j+n] {
+				n++
+			}
+			best = max(best, n)
+		}
+	}
+	return best
 }
 
 // searchBangumiList queries Bangumi and returns the raw candidate list for
@@ -252,10 +356,14 @@ func searchBangumi(query string) (*bangumiSubject, error) {
 	if err != nil {
 		return nil, err
 	}
+	best, score := -1, 0
 	for i := range list {
-		if metaAccept(query, list[i].Name, list[i].NameCN) {
-			return &list[i], nil
+		if n := metaMatchScore(query, list[i].Name, list[i].NameCN); n > score {
+			best, score = i, n
 		}
+	}
+	if best >= 0 {
+		return &list[best], nil
 	}
 	return nil, nil
 }

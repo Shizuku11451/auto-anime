@@ -5,7 +5,7 @@ RUN go mod download
 COPY *.go .
 RUN CGO_ENABLED=0 go build -ldflags='-s -w' -o /auto-anime .
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates aria2
 WORKDIR /app
 COPY --from=build /auto-anime .
 COPY static ./static

@@ -125,12 +125,13 @@ npm run build   # 类型检查 + 打包，输出到 ../static/，把产物一起
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DOWNLOAD_MODE` | `direct` | 下载方式：`direct` 直链 / `aria2` / `qbittorrent` / `transmission` |
+| `DOWNLOAD_MODE` | `direct` | 下载方式：`direct` 直链 / `aria2` / `qbittorrent` / `transmission`；内置 Aria2 启用时运行态自动使用 `aria2` |
+| `EMBEDDED_ARIA2` | `1` | 未配置 `ARIA2_URL` 时启动镜像内置 Aria2；设为 `0` 关闭 |
 | `DOWNLOAD_DIR` | `/data/downloads` | 归档根目录 |
 | `LIBRARY_DIR` | 空（用 `DOWNLOAD_DIR`） | 媒体库目录：番剧文件夹的根目录，供飞牛影视 / Emby / Jellyfin 扫描；也可在设置页修改 |
 | `DB_PATH` | `/data/auto-anime.db` | SQLite 数据库路径 |
 | `POLL_MINUTES` | `30` | RSS 定时同步周期（分钟，最小 5） |
-| `DOWNLOADER_POLL_SECONDS` | `30` | 下载器任务进度轮询间隔（秒，最小 5） |
+| `DOWNLOADER_POLL_SECONDS` | `10` | 下载器任务进度轮询间隔（秒，最小 5） |
 | `PORT` | `8000` | Web 服务监听端口 |
 | `COVERS_DIR` | `/data/covers` | 封面本地缓存目录 |
 | `PROXY_URL` | 空（直连） | 出站代理地址，支持 `http://` `https://` `socks5://` `socks5h://`，见下方说明 |
@@ -163,12 +164,17 @@ http://用户名:密码@192.168.1.10:7890     # 需要认证的代理
 
 ### Aria2
 
+未配置 `ARIA2_URL` 时，程序会在下载目录 `.aria2` 下自动启动并管理内置 Aria2，任务删除时会同步取消对应 RPC 任务，启动时会清理该目录中数据库已不存在的排队任务。配置 `ARIA2_URL` 后使用外部 Aria2，不会接管或清理外部任务。
+
 | 变量 | 说明 |
 | --- | --- |
 | `ARIA2_URL` | RPC 地址，如 `http://NAS地址:6800/jsonrpc` |
 | `ARIA2_TOKEN` | RPC secret（可选） |
 | `ARIA2_DIR` | Aria2 容器内的下载目录 |
 | `ARIA2_LOCAL_DIR` | 同一目录映射到本容器的路径；两侧路径相同时可省略 |
+| `ARIA2_PATH` | 非 Docker 环境的 `aria2c` 可执行文件路径；留空时从 PATH 查找 |
+| `EMBEDDED_ARIA2_PORT` | 内置 Aria2 RPC 端口，默认 `6800` |
+| `ARIA2_BT_TRACKER` | 可选，逗号分隔的附加 BT Tracker 列表 |
 
 HTTP(S) 直链走 `addUri`；`.torrent` 链接由本程序读取后经 `addTorrent` 提交。
 
@@ -227,6 +233,8 @@ HTTP(S) 直链走 `addUri`；`.torrent` 链接由本程序读取后经 `addTorre
 ## 📖 使用说明
 
 **找番**
+
+在「设置 → 下载方式 → 同时下载数量」可设置 1–32 个任务，默认 2，保存后生效并在重启后保留。超过上限的任务显示「排队中」；直链下载与 Auto-Anime 提交的外部下载器任务共同计数，完成归档或失败后释放名额。调低上限不打断已有任务，外部下载器自身的队列限制仍然有效；不会接管其他软件提交的下载任务。最近条目和番剧详情显示下载速率（B/s、KB/s、MB/s），外部任务按下载器轮询周期更新，直链按实际接收字节采样；完成、失败或样本过期后速率归零。
 
 在「设置 → 媒体库」可开启「自动清理空番剧」，**默认关闭**。开启并保存后立即检查一次，之后服务启动时及每分钟检查；关闭后停止后续清理。仅删除没有资源、没有订阅通过「归入番剧」关联（包含暂停订阅）、没有手动元数据绑定或自定义搜索名、季号、存储位置、包含/排除规则的空记录。旧条目按标题关联及旧存储配置也会受到保护。清理同时移除相应自动元数据记录，不删除 NAS 媒体、目录或封面文件。设置保存在数据库，重启保留，无新增环境变量；现有 JSON 备份不包含 settings 表。
 

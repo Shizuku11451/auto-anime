@@ -6,11 +6,11 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ProgressBar from '@/components/ui/ProgressBar.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { badgeInfo, isRetryable } from '@/utils/status'
-import { clamp, formatTime } from '@/utils/format'
+import { clamp, formatTime, formatSpeed } from '@/utils/format'
 import type { Item } from '@/api/types'
 
-const props = defineProps<{ item: Item; busy?: boolean }>()
-const emit = defineEmits<{ download: []; storage: []; correct: []; remove: []; play: [] }>()
+const props = defineProps<{ item: Item; busy?: boolean; selecting?: boolean; selected?: boolean }>()
+const emit = defineEmits<{ download: []; storage: []; correct: []; remove: []; play: []; toggle: [] }>()
 
 const badge = computed(() => badgeInfo(props.item.status))
 const downloading = computed(() => badge.value.tone === 'downloading')
@@ -21,7 +21,8 @@ const playable = computed(() => badge.value.tone === 'saved' && !!props.item.fil
 </script>
 
 <template>
-  <article class="item-row">
+  <article class="item-row" :class="{ selecting }">
+    <label v-if="selecting" class="select-box"><input type="checkbox" :checked="selected" :aria-label="`选择 ${item.title}`" @change="emit('toggle')" /></label>
     <CoverImage :src="item.cover" :icon="Tv" class="thumb" radius="var(--r-sm)" />
 
     <div class="info">
@@ -41,6 +42,7 @@ const playable = computed(() => badge.value.tone === 'saved' && !!props.item.fil
       <p v-if="badge.tone === 'saved' && item.file_path" class="path" title="归档位置">{{ item.file_path }}</p>
       <p v-if="item.task_error" class="error-line">{{ item.task_error }}</p>
       <ProgressBar v-if="downloading" :value="progress" class="progress" />
+      <p v-if="downloading" class="download-speed">{{ formatSpeed(item.download_speed) }}</p>
     </div>
 
     <div class="side">
@@ -134,6 +136,10 @@ const playable = computed(() => badge.value.tone === 'saved' && !!props.item.fil
   margin-top: 4px;
   max-width: 460px;
 }
+.item-row.selecting {
+  grid-template-columns: 22px 54px minmax(0, 1fr) auto;
+}
+.download-speed { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .side {
   display: flex;
   flex-direction: column;
@@ -152,6 +158,9 @@ const playable = computed(() => badge.value.tone === 'saved' && !!props.item.fil
     grid-template-columns: 46px minmax(0, 1fr);
     padding: 12px 13px;
     gap: 10px 12px;
+  }
+  .item-row.selecting {
+    grid-template-columns: 22px 46px minmax(0, 1fr);
   }
   .thumb {
     width: 46px;

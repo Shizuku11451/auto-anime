@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
 import { Inbox, Link, Pencil, Merge, Trash2 } from '@lucide/vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -20,6 +21,10 @@ import type { PlayerEntry } from '@/stores/dialogs'
 const dialogs = useDialogs()
 const store = useAppStore()
 const s = dialogs.state.animeDetail
+const visibility = useDocumentVisibility()
+useIntervalFn(() => {
+  if (s.open && !s.loading && visibility.value === 'visible') void dialogs.reloadAnimeDetail()
+}, 5000)
 const d = computed(() => s.data)
 const { is: isBusy, run } = useBusySet()
 
@@ -141,6 +146,8 @@ function epNo(x: { episode: string }): number {
             <div class="stat"><b>{{ totalEpisodes }}</b><span>集</span></div>
             <div class="stat"><b>{{ d.seasons.length }}</b><span>季</span></div>
           </div>
+          <div v-if="d.rating" class="rating" :aria-label="`评分 ${d.rating.toFixed(1)} 分`">评分 <b>{{ d.rating.toFixed(1) }}</b> / 10</div>
+          <p v-if="d.summary" class="summary">{{ d.summary }}</p>
           <p class="hero-rules">
             <template v-if="d.include_rules">
               多来源规则：包含 <code>{{ d.include_rules }}</code>
@@ -156,6 +163,16 @@ function epNo(x: { episode: string }): number {
             </BaseButton>
             <BaseButton size="sm" :icon="Merge" :disabled="store.animes.value.length < 2" @click="dialogs.openAnimeManage('merge', [d])">合并番剧</BaseButton>
             <BaseButton size="sm" :icon="Trash2" variant="danger" @click="dialogs.openAnimeManage('delete', [d])">删除番剧</BaseButton>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="d.voices?.length" class="voices">
+        <h3>声优信息</h3>
+        <div class="voice-grid">
+          <div v-for="v in d.voices" :key="v.person + v.character" class="voice-card">
+            <img v-if="v.person_image" :src="v.person_image" :alt="v.person" loading="lazy" />
+            <div><b>{{ v.person }}</b><span>{{ v.character }}</span></div>
           </div>
         </div>
       </section>
@@ -233,6 +250,16 @@ function epNo(x: { episode: string }): number {
   gap: 10px;
   align-content: start;
 }
+.rating { color: var(--amber); font-size: 14px; }
+.rating b { font-size: 22px; }
+.summary { color: var(--text-2); font-size: 13px; line-height: 1.65; max-height: 110px; overflow: auto; white-space: pre-line; }
+.voices { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 18px; }
+.voices h3 { margin: 0 0 10px; font-size: 14px; }
+.voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.voice-card { display: flex; align-items: center; gap: 9px; padding: 7px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.voice-card img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: var(--surface-2); }
+.voice-card div { min-width: 0; display: grid; gap: 2px; }
+.voice-card span { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hero-meta {
   display: flex;
   flex-wrap: wrap;

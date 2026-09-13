@@ -54,7 +54,7 @@ func recoverDownloads(database *sql.DB) ([]int, error) {
 func resumeDownloads(ids []int) {
 	jobs := make(chan int)
 	var workers sync.WaitGroup
-	for i := 0; i < cap(downloadSlots); i++ {
+	for i := 0; i < maximumConcurrentDownloads; i++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()

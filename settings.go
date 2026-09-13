@@ -56,6 +56,11 @@ func loadSettings() {
 // Regular fields take effect whenever the key exists in the table (so clearing
 // one in the UI reverts to the env/default); secrets only ever move upwards.
 func applyStoredSettings(stored map[string]string) {
+	if v, ok := stored["max_concurrent_downloads"]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= maximumConcurrentDownloads {
+			configuredDownloads.Store(int64(n))
+		}
+	}
 	if v, ok := stored["download_mode"]; ok && v != "" {
 		downloadMode = v
 	}
@@ -219,6 +224,7 @@ func persistSettings(values map[string]string, revokeSessions bool) error {
 // Sensitive fields (passwords, tokens) can only be set, never read back or
 // cleared through this API.
 type settingsInput struct {
+	MaxConcurrentDownloads  *int    `json:"max_concurrent_downloads"`
 	WebUser                 *string `json:"web_user"`
 	WebPassword             *string `json:"web_password"`
 	DownloadMode            *string `json:"download_mode"`
@@ -255,6 +261,9 @@ func decodeSettings(w http.ResponseWriter, r *http.Request) (*settingsInput, boo
 
 // validateSettings checks mode, poll interval and proxy before anything is saved.
 func validateSettings(in *settingsInput) error {
+	if n := in.MaxConcurrentDownloads; n != nil && (*n < 1 || *n > maximumConcurrentDownloads) {
+		return fmt.Errorf("同时下载数量必须是 1-32 的整数")
+	}
 	user := webUser
 	if in.WebUser != nil && strings.TrimSpace(*in.WebUser) != "" {
 		user = strings.TrimSpace(*in.WebUser)
@@ -321,6 +330,9 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 		return err
 	}
 	values := map[string]string{}
+	if in.MaxConcurrentDownloads != nil {
+		values["max_concurrent_downloads"] = strconv.Itoa(*in.MaxConcurrentDownloads)
+	}
 	apply := func(key, value string) error {
 		values[key] = value
 		return nil
@@ -442,8 +454,9 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		jsonOut(w, map[string]any{
 			"web_user": webUser, "web_password_set": webHash != "" || webPassword != "",
-			"download_mode": downloadMode,
-			"aria2_url":     aria2URL, "aria2_token_set": aria2Token != "",
+			"download_mode":            downloadMode,
+			"max_concurrent_downloads": downloadLimit(),
+			"aria2_url":                aria2URL, "aria2_token_set": aria2Token != "",
 			"aria2_dir": aria2Dir, "aria2_local_dir": aria2LocalDir,
 			"qbit_url": qbitURL, "qbit_user": qbitUser, "qbit_password_set": qbitPassword != "",
 			"qbit_save_path": qbitSavePath, "qbit_local_dir": qbitLocalDir,
