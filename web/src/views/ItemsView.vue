@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { watchDebounced } from '@vueuse/core'
-import { Download, FilterX, Inbox, ListChecks, SearchX, ServerOff, Trash2 } from '@lucide/vue'
+import { Download, FilterX, Inbox, ListChecks, Pause, Play, SearchX, ServerOff, Trash2 } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SearchInput from '@/components/ui/SearchInput.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -9,14 +9,15 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import ItemRow from '@/components/items/ItemRow.vue'
+import DownloadControls from '@/components/items/DownloadControls.vue'
 import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { useBusySet } from '@/composables/useBusy'
 import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
-import { CHIP_DEFS, chipCount } from '@/utils/status'
-import type { Item } from '@/api/types'
+import { CHIP_DEFS, chipCount, isPausable, isResumable, isRetryable } from '@/utils/status'
+import type { Item, ItemBatchResult } from '@/api/types'
 import type { PlayerEntry } from '@/stores/dialogs'
 
 const store = useAppStore()
@@ -26,6 +27,22 @@ const { is: isBusy, run } = useBusySet()
 const filter = ref('全部')
 const selecting = ref(false)
 const selected = ref<number[]>([])
+type BatchAction = 'download' | 'pause' | 'resume' | 'delete'
+const batchRunning = ref<BatchAction | null>(null)
+const batchIds = ref<number[]>([])
+const batchFailures = ref<ItemBatchResult['failed']>([])
+const selectedItems = computed(() => store.items.value.filter(x => selected.value.includes(x.id)))
+const actionLabels = { download: '加入下载队列', pause: '暂停', resume: '加入继续队列', delete: '移除' }
+function actionable(action: BatchAction) {
+  return selectedItems.value.filter(x => !isBusy(x.id) && (action === 'delete' ||
+    (action === 'download' ? isRetryable(x.status) : action === 'pause' ? isPausable(x.status) : isResumable(x.status))))
+}
+const downloadable = computed(() => actionable('download').length)
+const pausable = computed(() => actionable('pause').length)
+const resumable = computed(() => actionable('resume').length)
+watch(store.items, (items) => {
+  if (!batchRunning.value) selected.value = selected.value.filter(id => items.some(x => x.id === id))
+})
 const search = ref(store.search.value)
 watchDebounced(
   search,
@@ -51,17 +68,40 @@ const allSelected = computed(() => list.value.length > 0 && list.value.every(x =
 function toggle(id: number) { selected.value = selected.value.includes(id) ? selected.value.filter(x => x !== id) : [...selected.value, id] }
 function selectVisible() { selected.value = allSelected.value ? selected.value.filter(id => !list.value.some(x => x.id === id)) : [...new Set([...selected.value, ...list.value.map(x => x.id)])] }
 function toggleMode() { selecting.value = !selecting.value; selected.value = [] }
-async function batch(action: 'download' | 'delete') {
-  if (!selected.value.length) return
-  if (action === 'delete' && !await confirmDialog('批量移除记录', `确定移除选中的 ${selected.value.length} 条记录？不会删除已保存文件。`, { danger: true, okText: '移除' })) return
-  try { await http.post('/api/items/manage', { action, ids: selected.value }); toast.success(action === 'download' ? `已加入 ${selected.value.length} 条下载队列` : `已移除 ${selected.value.length} 条记录`); selected.value = []; selecting.value = false; await store.refresh() } catch (e) { toast.error(errorMessage(e)) }
+async function batch(action: BatchAction) {
+  if (batchRunning.value) return
+  const ids = actionable(action).map(x => x.id)
+  if (!ids.length) return
+  if (action === 'delete' && !await confirmDialog('批量移除记录', `确定移除选中的 ${ids.length} 条记录？不会删除已保存文件。`, { danger: true, okText: '移除' })) return
+  batchRunning.value = action
+  batchIds.value = ids
+  batchFailures.value = []
+  try {
+    const result = await http.post<ItemBatchResult>('/api/items/manage', { action, ids })
+    batchFailures.value = result.failed
+    if (result.count) toast.success(`${result.count} 条任务已${actionLabels[action]}`)
+    if (result.failed.length) toast.error(`${result.failed.length} 条任务操作失败，请查看具体原因`)
+    else if (!result.count) toast.info('任务状态已更新，无需重复操作')
+    // 保留未执行与失败的选中项；仅移除已成功的可操作条目。
+    const failedIds = new Set(result.failed.map(x => x.id))
+    selected.value = selected.value.filter(id => !ids.includes(id) || failedIds.has(id))
+    selecting.value = selected.value.length > 0
+  } catch (e) {
+    toast.error(errorMessage(e))
+  } finally {
+    await store.refresh()
+    batchRunning.value = null
+    batchIds.value = []
+  }
 }
 
-async function download(item: Item) {
+async function control(item: Item, action: 'download' | 'pause' | 'resume') {
+  if (batchIds.value.includes(item.id)) return
   await run(item.id, async () => {
     try {
-      await http.post(`/api/items/${item.id}/download`)
-      toast.success('已加入下载队列')
+      const result = await http.post<{ changed: boolean }>(`/api/items/${item.id}/${action}`)
+      if (result.changed) toast.success(`已${actionLabels[action]}`)
+      else toast.info('任务已处于该状态')
     } catch (e) {
       toast.error(errorMessage(e))
     }
@@ -70,18 +110,21 @@ async function download(item: Item) {
 }
 
 async function remove(item: Item) {
+  if (isBusy(item.id) || batchIds.value.includes(item.id)) return
   const ok = await confirmDialog('移除记录', '只删除这条记录，不会删除 NAS 上已保存的文件。', {
     danger: true,
     okText: '移除',
   })
   if (!ok) return
-  try {
-    await http.delete(`/api/items/${item.id}`)
-    toast.success('已移除记录')
-  } catch (e) {
-    toast.error(errorMessage(e))
-  }
-  await store.refresh()
+  await run(item.id, async () => {
+    try {
+      await http.delete(`/api/items/${item.id}`)
+      toast.success('已移除记录')
+    } catch (e) {
+      toast.error(errorMessage(e))
+    }
+    await store.refresh()
+  })
 }
 
 /** 播放：同番已保存的资源按季/集排序成连播列表 */
@@ -113,8 +156,10 @@ function epNo(x: Item): number {
   <div class="page">
     <PageHeader title="最近条目" description="最新 100 条，每 5 秒自动刷新">
       <SearchInput v-model="search" placeholder="搜索番剧、原始标题、字幕组" width="300px" />
-      <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.items.value.length" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
+      <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.items.value.length || !!batchRunning" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
     </PageHeader>
+
+    <DownloadControls />
 
     <div class="chips" role="tablist" aria-label="状态筛选" :style="{ '--active': activeChip }">
       <button
@@ -132,10 +177,15 @@ function epNo(x: Item): number {
       </button>
     </div>
     <div v-if="selecting" class="batch-toolbar">
-      <label><input type="checkbox" :checked="allSelected" :indeterminate="!allSelected && list.some(x => selected.includes(x.id))" @change="selectVisible" /> 全选当前结果</label>
+      <label><input type="checkbox" :checked="allSelected" :disabled="!!batchRunning" :indeterminate="!allSelected && list.some(x => selected.includes(x.id))" @change="selectVisible" /> 全选当前结果</label>
       <span>已选 {{ selected.length }} 条</span>
-      <BaseButton size="sm" :icon="Download" :disabled="!selected.length" @click="batch('download')">批量下载</BaseButton>
-      <BaseButton size="sm" variant="danger" :icon="Trash2" :disabled="!selected.length" @click="batch('delete')">批量移除</BaseButton>
+      <BaseButton size="sm" :icon="Download" :loading="batchRunning === 'download'" :disabled="!downloadable || !!batchRunning" @click="batch('download')">下载 {{ downloadable }}</BaseButton>
+      <BaseButton size="sm" :icon="Pause" :loading="batchRunning === 'pause'" :disabled="!pausable || !!batchRunning" @click="batch('pause')">暂停 {{ pausable }}</BaseButton>
+      <BaseButton size="sm" :icon="Play" :loading="batchRunning === 'resume'" :disabled="!resumable || !!batchRunning" @click="batch('resume')">继续 {{ resumable }}</BaseButton>
+      <BaseButton size="sm" variant="danger" :icon="Trash2" :loading="batchRunning === 'delete'" :disabled="!selected.length || !!batchRunning" @click="batch('delete')">批量移除</BaseButton>
+    </div>
+    <div v-if="batchFailures.length" class="batch-errors" role="alert">
+      <p v-for="failure in batchFailures" :key="failure.id">条目 #{{ failure.id }}：{{ failure.error }}</p>
     </div>
 
     <div v-if="!store.loaded.value" class="list" aria-busy="true">
@@ -191,11 +241,13 @@ function epNo(x: Item): number {
         v-for="(item, i) in list"
         :key="item.id"
         :item="item"
-        :busy="isBusy(item.id)"
+        :busy="isBusy(item.id) || batchIds.includes(item.id)"
         :selecting="selecting"
         :selected="selected.includes(item.id)"
         :style="{ '--i': i }"
-        @download="download(item)"
+        @download="control(item, 'download')"
+        @pause="control(item, 'pause')"
+        @resume="control(item, 'resume')"
         @storage="dialogs.openStorage(item.anime_title || item.title)"
         @correct="dialogs.openCorrect(item)"
         @remove="remove(item)"
@@ -277,6 +329,7 @@ function epNo(x: Item): number {
   gap: 10px;
 }
 .batch-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--text-2); font-size: 13px; }
+.batch-errors { display: grid; gap: 5px; padding: 12px; margin-bottom: 16px; background: var(--red-soft); border: 1px solid var(--red-border); border-radius: var(--r-md); color: var(--red); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .select-box { display: grid; place-items: center; padding-top: 8px; }
 .sk-row {
   display: grid;

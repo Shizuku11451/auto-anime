@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CircleAlert, CircleCheck, Clock, Hourglass, LoaderCircle } from '@lucide/vue'
+import { CircleAlert, CircleCheck, Clock, Hourglass, LoaderCircle, Pause } from '@lucide/vue'
 import { badgeInfo } from '@/utils/status'
 
 const props = withDefaults(defineProps<{ status: string; suffix?: string; size?: 'sm' | 'md' }>(), {
@@ -19,6 +19,8 @@ const icon = computed(() => {
       return CircleAlert
     case 'waiting':
       return Hourglass
+    case 'paused':
+      return Pause
     default:
       return Clock
   }
@@ -80,7 +82,7 @@ const icon = computed(() => {
   background: var(--red-soft);
   border-color: var(--red-border);
 }
-.tone-waiting {
+.tone-waiting, .tone-paused {
   color: var(--amber);
   background: var(--amber-soft);
   border-color: var(--amber-border);

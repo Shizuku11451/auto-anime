@@ -1,28 +1,30 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Download, FolderOpen, PenLine, Play, RotateCw, Trash2, Tv } from '@lucide/vue'
+import { Download, FolderOpen, Pause, PenLine, Play, RotateCw, Trash2, Tv } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ProgressBar from '@/components/ui/ProgressBar.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import { badgeInfo, isRetryable } from '@/utils/status'
+import { badgeInfo, isPausable, isResumable, isRetryable } from '@/utils/status'
 import { clamp, formatTime, formatSpeed } from '@/utils/format'
 import type { Item } from '@/api/types'
 
 const props = defineProps<{ item: Item; busy?: boolean; selecting?: boolean; selected?: boolean }>()
-const emit = defineEmits<{ download: []; storage: []; correct: []; remove: []; play: []; toggle: [] }>()
+const emit = defineEmits<{ download: []; pause: []; resume: []; storage: []; correct: []; remove: []; play: []; toggle: [] }>()
 
 const badge = computed(() => badgeInfo(props.item.status))
 const downloading = computed(() => badge.value.tone === 'downloading')
 const progress = computed(() => clamp(props.item.progress || 0, 0, 100))
 const retryable = computed(() => isRetryable(props.item.status))
+const pausable = computed(() => isPausable(props.item.status))
+const resumable = computed(() => isResumable(props.item.status))
 const isPending = computed(() => props.item.status === '待下载' || props.item.status === '等待下载')
 const playable = computed(() => badge.value.tone === 'saved' && !!props.item.file_path)
 </script>
 
 <template>
   <article class="item-row" :class="{ selecting }">
-    <label v-if="selecting" class="select-box"><input type="checkbox" :checked="selected" :aria-label="`选择 ${item.title}`" @change="emit('toggle')" /></label>
+    <label v-if="selecting" class="select-box"><input type="checkbox" :checked="selected" :disabled="busy" :aria-label="`选择 ${item.title}`" @change="emit('toggle')" /></label>
     <CoverImage :src="item.cover" :icon="Tv" class="thumb" radius="var(--r-sm)" />
 
     <div class="info">
@@ -41,12 +43,12 @@ const playable = computed(() => badge.value.tone === 'saved' && !!props.item.fil
       <p class="original" :title="item.title">{{ item.title }}</p>
       <p v-if="badge.tone === 'saved' && item.file_path" class="path" title="归档位置">{{ item.file_path }}</p>
       <p v-if="item.task_error" class="error-line">{{ item.task_error }}</p>
-      <ProgressBar v-if="downloading" :value="progress" class="progress" />
+      <ProgressBar v-if="downloading || ((resumable || item.status === '等待继续') && progress > 0)" :value="progress" class="progress" />
       <p v-if="downloading" class="download-speed">{{ formatSpeed(item.download_speed) }}</p>
     </div>
 
     <div class="side">
-      <StatusBadge :status="item.status" :suffix="downloading && progress > 0 ? ` ${progress}%` : ''" />
+      <StatusBadge :status="item.status" :suffix="(downloading || resumable) && progress > 0 ? ` ${progress}%` : ''" />
       <div class="actions">
         <BaseButton v-if="playable" size="sm" variant="primary" :icon="Play" @click="emit('play')">播放</BaseButton>
         <BaseButton
@@ -59,9 +61,11 @@ const playable = computed(() => badge.value.tone === 'saved' && !!props.item.fil
         >
           {{ isPending ? '下载' : '重试' }}
         </BaseButton>
+        <BaseButton v-if="pausable" size="sm" :icon="Pause" :loading="busy" @click="emit('pause')">暂停</BaseButton>
+        <BaseButton v-if="resumable" size="sm" variant="soft" :icon="Play" :loading="busy" @click="emit('resume')">继续</BaseButton>
         <BaseButton v-if="item.anime_title" size="sm" :icon="FolderOpen" @click="emit('storage')">位置</BaseButton>
-        <BaseButton size="sm" :icon="PenLine" @click="emit('correct')">纠错</BaseButton>
-        <BaseButton size="sm" variant="danger" :icon="Trash2" @click="emit('remove')">移除</BaseButton>
+        <BaseButton size="sm" :icon="PenLine" :disabled="busy" @click="emit('correct')">纠错</BaseButton>
+        <BaseButton size="sm" variant="danger" :icon="Trash2" :disabled="busy" @click="emit('remove')">移除</BaseButton>
       </div>
     </div>
   </article>

@@ -61,6 +61,8 @@ export interface AnimeSummary {
   item_count: number
   saved_count: number
   episode_count: number
+  rating: number
+  summary: string
 }
 
 export interface ResourceItem {
@@ -106,6 +108,7 @@ export interface AnimeDetail {
   cover: string
   meta_name: string
   meta_name_cn: string
+  meta_source: string
   item_count: number
   saved_count: number
   sources: string[]
@@ -113,6 +116,11 @@ export interface AnimeDetail {
   summary: string
   voices: VoiceActor[]
   seasons: SeasonGroup[]
+}
+
+export interface MetaRematchResult {
+  ok: boolean
+  queued: boolean
 }
 
 export interface VoiceActor { character: string; character_image: string; person: string; person_image: string }
@@ -137,11 +145,19 @@ export interface StorageInfo {
 export interface RuntimeStatus {
   poll_minutes: number
   download_mode: string
+  max_concurrent_downloads: number
   counts: Record<string, number>
   auth_enabled: boolean
   proxy: string
   library_dir: string
   download_dir: string
+}
+
+export interface ItemBatchResult {
+  ok: boolean
+  count: number
+  skipped: number
+  failed: { id: number; error: string }[]
 }
 
 export interface Settings {
@@ -246,6 +262,27 @@ export interface PreviewResult extends FeedReadInfo {
   items: { title: string; link: string; published: string; description: string }[]
 }
 
+export interface AvailabilityTracker {
+  url: string
+  seeds: number
+  leechers: number
+  error?: string
+}
+
+export type AvailabilityVerdict = 'available' | 'no_seeds' | 'unreachable' | 'unknown'
+
+export interface AvailabilityItem {
+  url: string
+  kind: string
+  info_hash?: string
+  seeds: number
+  leechers: number
+  trackers_total: number
+  trackers_alive: number
+  verdict: AvailabilityVerdict
+  error?: string
+}
+
 export interface CorrectInput {
   anime_id?: number
   anime_title?: string
@@ -260,11 +297,12 @@ export interface CorrectResult {
   cleanup_warning: string
 }
 
-export type DownloadMode = 'direct' | 'aria2' | 'qbittorrent' | 'transmission'
+export type DownloadMode = 'builtin' | 'direct' | 'aria2' | 'qbittorrent' | 'transmission'
 
 export const MODE_LABEL: Record<string, string> = {
+  builtin: '内置 qBittorrent',
   direct: '本地直链',
   aria2: 'Aria2',
-  qbittorrent: 'qBittorrent',
+  qbittorrent: '外部 qBittorrent',
   transmission: 'Transmission',
 }

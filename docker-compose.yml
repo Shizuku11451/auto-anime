@@ -3,6 +3,7 @@ services:
     build: .
     container_name: auto-anime
     restart: unless-stopped
+    stop_grace_period: 45s
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
       interval: 30s
@@ -11,26 +12,29 @@ services:
       start_period: 10s
     ports:
       - "8000:8000"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
     environment:
       DOWNLOAD_DIR: /data/downloads
       # 可选：媒体库目录（番剧文件夹的根目录），供飞牛影视/Emby/Jellyfin 扫描；
       # 留空时番剧归档到 DOWNLOAD_DIR。登录后也可在设置页修改
       LIBRARY_DIR: ""
       POLL_MINUTES: "30"
-      # 默认启用镜像内置 Aria2；填写 ARIA2_URL 后自动改用外部 Aria2
-      EMBEDDED_ARIA2: "1"
-      DOWNLOAD_MODE: direct
+      # 镜像内置无界面 qBittorrent，自动启动、鉴权并恢复会话
+      DOWNLOAD_MODE: builtin
+      QBITTORRENT_DATA_DIR: /data/qbittorrent
+      EMBEDDED_QBIT_PORT: "8080"
+      QBITTORRENT_BT_PORT: "6881"
+      # 内置 WebUI 只监听容器回环地址，无需映射 8080 端口
+      # 使用外部 Aria2 时将 DOWNLOAD_MODE 改为 aria2，并填写以下配置
       ARIA2_URL: ""
       ARIA2_TOKEN: ""
-      # 可选：宿主机运行时指定 aria2c 路径和 RPC 端口
-      ARIA2_PATH: ""
-      EMBEDDED_ARIA2_PORT: "6800"
       # ARIA2_DIR 是 Aria2 容器内的下载目录；ARIA2_LOCAL_DIR 是同一目录在本容器内的路径
       ARIA2_DIR: ""
       ARIA2_LOCAL_DIR: ""
-      # 如使用 qBittorrent，将 DOWNLOAD_MODE 改为 qbittorrent
-      QBIT_URL: http://qbittorrent:8080
-      QBIT_USER: admin
+      # 如使用外部 qBittorrent，将 DOWNLOAD_MODE 改为 qbittorrent
+      QBIT_URL: ""
+      QBIT_USER: ""
       QBIT_PASSWORD: ""
       QBIT_SAVE_PATH: ""
       # QBIT_LOCAL_DIR 是 QBIT_SAVE_PATH 在本容器内的对应路径
@@ -45,7 +49,7 @@ services:
       WEB_USER: ""
       WEB_PASSWORD: ""
       # 如使用 Transmission，将 DOWNLOAD_MODE 改为 transmission
-      TRANSMISSION_URL: http://transmission:9091
+      TRANSMISSION_URL: ""
       TRANSMISSION_USER: ""
       TRANSMISSION_PASSWORD: ""
       TRANSMISSION_DOWNLOAD_DIR: ""

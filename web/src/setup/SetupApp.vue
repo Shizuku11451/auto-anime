@@ -9,11 +9,11 @@ import { MODE_LABEL } from '@/api/types'
 
 const STEPS = [
   { key: 'account', title: '管理员账户', icon: UserRound, hint: '设置后访问面板需要登录；留空则暂不启用登录，之后可在设置页开启。' },
-  { key: 'download', title: '下载方式', icon: HardDrive, hint: '不配置则使用本地直链下载；磁力与种子资源需要外部下载器。' },
+  { key: 'download', title: '下载方式', icon: HardDrive, hint: 'Docker 默认使用内置 qBittorrent，也可连接已有下载器或选择本地直链。' },
   { key: 'network', title: '网络与同步', icon: Globe, hint: '代理只作用于 RSS、找番、直链下载与封面；下载器 RPC 始终直连。' },
 ] as const
 
-const MODES = ['direct', 'aria2', 'qbittorrent', 'transmission'] as const
+const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 
 const step = ref(0)
 const dir = ref<1 | -1>(1)
@@ -49,8 +49,9 @@ const isLast = computed(() => step.value === STEPS.length - 1)
 onMounted(async () => {
   try {
     const r = await fetch('/api/setup/status')
-    const s = (await r.json()) as { required: boolean }
+    const s = (await r.json()) as { required: boolean; download_mode?: (typeof MODES)[number] }
     if (!s.required) location.replace('/')
+    if (s.download_mode && MODES.includes(s.download_mode)) form.mode = s.download_mode
   } catch {
     /* 状态接口不可用时留在向导页 */
   }
@@ -299,6 +300,9 @@ async function skip() {
                   </div>
                 </div>
               </div>
+              <p v-else-if="form.mode === 'builtin'" key="builtin" class="field-hint direct-hint">
+                镜像已包含 qBittorrent，由程序自动启动和连接，无需填写地址或密码。任务与续传数据保存在数据目录，重启后继续下载。
+              </p>
               <p v-else key="direct" class="field-hint direct-hint">
                 本地直链会直接下载 HTTP/HTTPS 资源；磁力链接与种子在没有下载器时会停在「等待下载器」，之后可在设置页补充。
               </p>

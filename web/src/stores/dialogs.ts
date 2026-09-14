@@ -66,16 +66,20 @@ function openCorrect(item: Item | ResourceItem) {
   state.correct.open = true
 }
 
+let detailRequestVersion = 0
+
 async function loadAnimeDetail(id: number) {
+  const version = ++detailRequestVersion
+  const current = () => version === detailRequestVersion && state.animeDetail.open && state.animeDetail.id === id
   state.animeDetail.loading = true
   state.animeDetail.error = ''
   try {
     const d = await http.get<AnimeDetail>('/api/animes/' + id)
-    if (state.animeDetail.id === id) state.animeDetail.data = d
+    if (current()) state.animeDetail.data = d
   } catch (e) {
-    if (state.animeDetail.id === id) state.animeDetail.error = e instanceof Error ? e.message : String(e)
+    if (current()) state.animeDetail.error = e instanceof Error ? e.message : String(e)
   } finally {
-    if (state.animeDetail.id === id) state.animeDetail.loading = false
+    if (current()) state.animeDetail.loading = false
   }
 }
 

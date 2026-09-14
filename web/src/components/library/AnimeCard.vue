@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { CircleCheck, Film, Tv, Pencil, Merge, Trash2 } from '@lucide/vue'
+import { computed, ref } from 'vue'
+import { CircleCheck, Film, Tv, Pencil, Merge, Trash2, Star, ChevronDown } from '@lucide/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import type { AnimeSummary } from '@/api/types'
@@ -10,6 +10,7 @@ const emit = defineEmits<{ open: [id: number]; toggle: [id: number]; edit: []; m
 
 const displayName = computed(() => props.anime.meta_name_cn || props.anime.title)
 const showSub = computed(() => displayName.value !== props.anime.title)
+const expanded = ref(false)
 const ratio = computed(() =>
   props.anime.item_count ? Math.round((props.anime.saved_count / props.anime.item_count) * 100) : 0,
 )
@@ -21,10 +22,16 @@ const ratio = computed(() =>
     <div class="poster-wrap">
       <CoverImage :src="anime.cover" :alt="displayName" radius="0" class="poster" />
       <div class="poster-shade" aria-hidden="true" />
+      <span v-if="anime.rating > 0" class="rating-badge" :title="`Bangumi 评分 ${anime.rating.toFixed(1)}`">
+        <Star aria-hidden="true" />{{ anime.rating.toFixed(1) }}
+      </span>
       <div class="poster-tags">
         <span v-if="anime.bangumi_id" class="tag accent">已绑定</span>
         <span v-else-if="anime.include_rules" class="tag">多来源</span>
         <span v-if="anime.season > 1" class="tag">第 {{ anime.season }} 季</span>
+      </div>
+      <div v-if="anime.summary" class="poster-veil" aria-hidden="true">
+        <p class="veil-text">{{ anime.summary }}</p>
       </div>
     </div>
     <div class="body">
@@ -40,6 +47,11 @@ const ratio = computed(() =>
       </div>
     </div>
     </button>
+    <button v-if="anime.summary" type="button" class="summary-toggle" :aria-expanded="expanded" @click="expanded = !expanded">
+      <span>简介</span>
+      <ChevronDown aria-hidden="true" class="chev" :class="{ open: expanded }" />
+    </button>
+    <div v-if="anime.summary" v-show="expanded" class="summary-panel">{{ anime.summary }}</div>
     <div class="card-actions">
       <label v-if="selecting" class="select-label"><input type="checkbox" :checked="selected" :aria-label="`选择 ${displayName}`" @change="emit('toggle', anime.id)" />{{ selected ? '已选择' : '选择' }}</label>
       <template v-else>
@@ -90,10 +102,14 @@ const ratio = computed(() =>
 .poster :deep(img) {
   transition:
     opacity var(--t-slow) var(--ease-out),
-    transform 900ms var(--ease-out);
+    transform 900ms var(--ease-out),
+    filter var(--t-med) var(--ease-out);
 }
-.anime-card:hover .poster :deep(img.loaded) {
-  transform: scale(1.06);
+/* 悬浮封面：封面高斯模糊放大，简介浮层淡入；键盘聚焦卡片时同样生效 */
+.poster-wrap:hover .poster :deep(img.loaded),
+.card-open:focus-visible .poster :deep(img.loaded) {
+  transform: scale(1.12);
+  filter: blur(14px) brightness(0.68) saturate(1.1);
 }
 .poster-shade {
   position: absolute;
@@ -111,6 +127,41 @@ const ratio = computed(() =>
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  transition: opacity var(--t-med) var(--ease-out);
+}
+.poster-wrap:hover .poster-tags,
+.card-open:focus-visible .poster-tags {
+  opacity: 0;
+}
+.poster-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  padding: 12px 11px;
+  background: rgba(8, 10, 16, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-med) var(--ease-out);
+}
+.poster-wrap:hover .poster-veil,
+.card-open:focus-visible .poster-veil {
+  opacity: 1;
+  pointer-events: auto;
+}
+.veil-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+  color: #f1f3f8;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 .poster-tags .tag {
   backdrop-filter: blur(8px);
@@ -123,6 +174,61 @@ const ratio = computed(() =>
   background: rgba(139, 124, 255, 0.55);
   border-color: rgba(255, 255, 255, 0.22);
   color: #fff;
+}
+.rating-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(20, 22, 30, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #f1f3f8;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.rating-badge svg {
+  width: 12px;
+  height: 12px;
+  color: var(--amber);
+  fill: var(--amber);
+}
+.summary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 13px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+.summary-toggle:hover { color: var(--text-1); background: var(--surface-2); }
+.summary-toggle:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
+.summary-toggle .chev { width: 14px; height: 14px; flex: none; transition: transform var(--t-med) var(--ease-out); }
+.summary-toggle .chev.open { transform: rotate(180deg); }
+.summary-panel {
+  padding: 10px 13px 12px;
+  border-top: 1px dashed var(--line);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-line;
+  max-height: 180px;
+  overflow: auto;
 }
 .body {
   padding: 12px 13px 13px;

@@ -10,10 +10,11 @@ import { useAppStore } from '@/stores/app'
 import { MODE_LABEL, type Settings, type SettingsInput } from '@/api/types'
 
 const store = useAppStore()
-const narrow = useMediaQuery('(max-width: 600px)')
+const narrow = useMediaQuery('(max-width: 1000px)')
 
-const MODES = ['direct', 'aria2', 'qbittorrent', 'transmission'] as const
+const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const MODE_DESC: Record<string, string> = {
+  builtin: '内置 qBittorrent 自动下载磁力和种子资源，完成后归档；普通直链由本程序下载',
   direct: 'HTTP/HTTPS 直链由本程序直接下载，磁力与种子需要外部下载器',
   aria2: '通过 JSON-RPC 提交任务，完成后从映射路径复制归档',
   qbittorrent: '通过 WebUI 接口提交任务并按标签跟踪进度',
@@ -24,7 +25,6 @@ const form = reactive({
   web_user: '',
   web_password: '',
   download_mode: 'direct',
-  max_concurrent_downloads: 2,
   aria2_url: '',
   aria2_token: '',
   aria2_dir: '',
@@ -64,7 +64,6 @@ async function load() {
     form.web_user = s.web_user || ''
     form.web_password = ''
     form.download_mode = s.download_mode || 'direct'
-    form.max_concurrent_downloads = s.max_concurrent_downloads ?? 2
     form.aria2_url = s.aria2_url || ''
     form.aria2_token = ''
     form.aria2_dir = s.aria2_dir || ''
@@ -96,14 +95,9 @@ onMounted(load)
 
 async function save() {
   msg.value = ''
-  if (!Number.isInteger(form.max_concurrent_downloads) || form.max_concurrent_downloads < 1 || form.max_concurrent_downloads > 32) {
-    msg.value = '同时下载数量必须是 1-32 的整数'
-    return
-  }
   const body: SettingsInput = {
     web_user: form.web_user.trim(),
     download_mode: form.download_mode,
-    max_concurrent_downloads: form.max_concurrent_downloads,
     aria2_url: form.aria2_url.trim(),
     aria2_dir: form.aria2_dir.trim(),
     aria2_local_dir: form.aria2_local_dir.trim(),
@@ -217,7 +211,10 @@ async function save() {
         </div>
 
         <Transition name="fade" mode="out-in">
-          <div v-if="form.download_mode === 'aria2'" key="aria2" class="mode-panel">
+          <div v-if="form.download_mode === 'builtin'" key="builtin" class="mode-panel direct-note">
+            <p class="field-hint">Docker 镜像已包含 qBittorrent，无需填写地址或密码。下载任务和续传数据会随数据目录保存，重启后继续下载。</p>
+          </div>
+          <div v-else-if="form.download_mode === 'aria2'" key="aria2" class="mode-panel">
             <div class="field-row">
               <div class="field">
                 <label for="st-aria2-url">Aria2 RPC 地址</label>
@@ -298,11 +295,6 @@ async function save() {
             <p class="field-hint">磁力链接与种子文件需要配置 BT 下载器。</p>
           </div>
         </Transition>
-        <div class="field">
-          <label for="st-concurrent">同时下载数量</label>
-          <input id="st-concurrent" v-model.number="form.max_concurrent_downloads" type="number" min="1" max="32" step="1" required />
-          <p class="field-hint">范围 1–32。降低上限后，正在下载的任务继续完成，新任务排队。外部下载器自身的队列上限也会影响实际并发数。</p>
-        </div>
       </section>
 
       <!-- 媒体库 -->

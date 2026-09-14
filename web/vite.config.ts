@@ -27,7 +27,7 @@ function devPageRoutes(): Plugin {
   }
 }
 
-// 构建产物直接输出到仓库根目录的 static/，Go 服务端与 Dockerfile 无需改动：
+// 构建产物直接输出到后端目录的 backend/static/，Go 服务端按工作目录读取：
 //   /            -> static/index.html   （管理面板）
 //   /login       -> static/login.html   （登录页）
 //   /setup       -> static/setup.html   （首次安装引导）
@@ -46,7 +46,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../static',
+    outDir: '../backend/static',
     emptyOutDir: true,
     target: 'es2020',
     cssTarget: 'chrome90',

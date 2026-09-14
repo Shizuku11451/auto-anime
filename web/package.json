@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "自动追番管理界面（Vue 3 + Vite），构建产物输出到 ../static",
+  "description": "自动追番管理界面（Vue 3 + Vite），构建产物输出到 ../backend/static",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",

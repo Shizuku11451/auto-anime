@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
-import { Inbox, Link, Pencil, Merge, Trash2 } from '@lucide/vue'
+import { Inbox, Link, Pencil, Merge, Trash2, RefreshCw } from '@lucide/vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
@@ -15,7 +15,7 @@ import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
 import { seasonLabel } from '@/utils/format'
-import type { ResourceItem } from '@/api/types'
+import type { MetaRematchResult, ResourceItem } from '@/api/types'
 import type { PlayerEntry } from '@/stores/dialogs'
 
 const dialogs = useDialogs()
@@ -45,6 +45,28 @@ const totalEpisodes = computed(() => d.value?.seasons.reduce((n, se) => n + se.e
 
 function close() {
   s.open = false
+}
+
+async function rematchMetadata() {
+  const anime = d.value
+  if (!anime) return
+  if (anime.bangumi_id || anime.meta_source === 'manual') {
+    toast.error('该番剧已手动绑定元数据，请先在「元数据绑定」中解除绑定')
+    return
+  }
+  await run('rematch', async () => {
+    const ok = await confirmDialog('重新识别元数据', `将清除「${anime.title}」当前的封面和元数据匹配，并在后台重新获取。已设置的元数据搜索词会继续使用。`, {
+      okText: '重新识别',
+    })
+    if (!ok || !s.open || s.id !== anime.id) return
+    try {
+      await http.post<MetaRematchResult>(`/api/animes/${anime.id}/rematch`)
+      toast.success('已加入重新识别队列，结果将自动刷新')
+      await Promise.all([dialogs.reloadAnimeDetail(), store.refresh()])
+    } catch (e) {
+      toast.error(errorMessage(e))
+    }
+  })
 }
 
 async function download(item: ResourceItem) {
@@ -161,6 +183,7 @@ function epNo(x: { episode: string }): number {
             <BaseButton size="sm" :icon="Link" :variant="d.bangumi_id ? 'default' : 'soft'" @click="dialogs.openBind(d)">
               {{ d.bangumi_id ? '更换元数据' : '元数据绑定' }}
             </BaseButton>
+            <BaseButton size="sm" :icon="RefreshCw" :loading="isBusy('rematch')" @click="rematchMetadata">重新识别元数据</BaseButton>
             <BaseButton size="sm" :icon="Merge" :disabled="store.animes.value.length < 2" @click="dialogs.openAnimeManage('merge', [d])">合并番剧</BaseButton>
             <BaseButton size="sm" :icon="Trash2" variant="danger" @click="dialogs.openAnimeManage('delete', [d])">删除番剧</BaseButton>
           </div>
@@ -234,6 +257,8 @@ function epNo(x: { episode: string }): number {
 }
 .hero-cover {
   width: 112px;
+  /* hero 是 flex 布局：禁止交叉轴拉伸，否则封面被拉到与右侧信息区同高，2:3 比例失真 */
+  align-self: flex-start;
   box-shadow: var(--shadow-md);
 }
 .hero-lines {

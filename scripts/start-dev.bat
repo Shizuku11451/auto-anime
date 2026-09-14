@@ -1,7 +1,7 @@
 @echo off
 rem ============================================================
 rem  auto-anime - local dev launcher
-rem  Usage: double-click; logs print in this window.
+rem  Usage: double-click; app logs print here, Aria2 logs go to aria2.log.
 rem  Every launch rebuilds the exe from current source first.
 rem  Exit: close this window, or Ctrl+C then Y -
 rem        aria2 and auto-anime exit together.
@@ -22,8 +22,8 @@ set "DATA_DIR=E:\anime-e2e"
 set "RPC_SECRET=e2e-secret"
 set "PORT=8000"
 set "ARIA2_PORT=6800"
-rem project dir = parent of this script's dir (static UI files live there)
-set "PROJECT_DIR=%~dp0.."
+rem backend dir (Go sources + static UI files) = parent of this script's dir + backend
+set "PROJECT_DIR=%~dp0..\backend"
 
 if not exist "%ARIA2_EXE%" (
   echo [ERROR] aria2 not found: %ARIA2_EXE%
@@ -75,7 +75,12 @@ if not exist "%DATA_DIR%\aria2" mkdir "%DATA_DIR%\aria2"
 if not exist "%DATA_DIR%\downloads" mkdir "%DATA_DIR%\downloads"
 
 echo [START] aria2 (RPC %ARIA2_PORT%, BT/DHT on)...
-start "" /b "%ARIA2_EXE%" --enable-rpc --rpc-secret=%RPC_SECRET% --dir="%DATA_DIR%\aria2" --enable-dht=true --dht-listen-port=6881 --listen-port=6881 --bt-enable-lpd=true --seed-ratio=1.0 --seed-time=30 --file-allocation=none --continue=true --summary-interval=30
+rem Keep task IDs across restarts and verify files whose control record is gone.
+set "ARIA2_SESSION=%DATA_DIR%\aria2\session.txt"
+set "ARIA2_INPUT="
+if exist "%ARIA2_SESSION%" set ARIA2_INPUT=--input-file="%ARIA2_SESSION%"
+rem Console selection can block writes and stall RPC; write Aria2 logs to a file.
+start "" /b "%ARIA2_EXE%" --enable-rpc --rpc-listen-port=%ARIA2_PORT% --rpc-secret=%RPC_SECRET% --dir="%DATA_DIR%\aria2" --enable-dht=true --dht-listen-port=6881 --listen-port=6881 --bt-enable-lpd=true --seed-ratio=1.0 --seed-time=30 --file-allocation=none --continue=true --check-integrity=true %ARIA2_INPUT% --save-session="%ARIA2_SESSION%" --save-session-interval=10 --auto-save-interval=10 --force-save=true --summary-interval=0 --show-console-readout=false --log="%DATA_DIR%\aria2\aria2.log" --log-level=notice --console-log-level=warn >nul 2>&1
 
 rem env vars for auto-anime (inherited by the child process)
 set "DB_PATH=%DATA_DIR%\auto-anime.db"
@@ -96,6 +101,7 @@ echo ==================================================
 echo   Web UI    : http://127.0.0.1:%PORT%
 echo   Archive   : %DOWNLOAD_DIR%
 echo   BT cache  : %DATA_DIR%\aria2 (seeding; archive is a copy)
+echo   Aria2 log : %DATA_DIR%\aria2\aria2.log
 echo   Exit      : close this window, or Ctrl+C then Y
 echo ==================================================
 echo.

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>初始设置 · Auto-Anime</title>
+<meta name="theme-color" content="#0b0d12">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script>
+/* 主题初始化：与管理面板一致，手动选择优先，否则跟随系统偏好 */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  document.documentElement.dataset.theme = t;
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.content = t === "light" ? "#f4f5f8" : "#0b0d12";
+})();
+</script>
+  <script type="module" crossorigin src="/static/assets/setup-BIhHAhrR.js"></script>
+  <link rel="modulepreload" crossorigin href="/static/assets/components-DMncHwN5.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/ConfirmHost-DrL-tmKf.js">
+  <link rel="modulepreload" crossorigin href="/static/assets/AuthShell-CcR62X0U.js">
+  <link rel="stylesheet" crossorigin href="/static/assets/components-Dbotfxep.css">
+  <link rel="stylesheet" crossorigin href="/static/assets/ConfirmHost-CgZ3w00V.css">
+  <link rel="stylesheet" crossorigin href="/static/assets/AuthShell-fyZrVmo7.css">
+  <link rel="stylesheet" crossorigin href="/static/assets/setup-DLIOU5dP.css">
+</head>
+<body>
+<div id="app"></div>
+</body>
+</html>
