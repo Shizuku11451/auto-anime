@@ -167,6 +167,104 @@ func TestExtractReleaseNotes(t *testing.T) {
 	}
 }
 
+// privateReleaseServer 模拟私有仓库的 Release：只提供 /releases/assets/<id>
+// 下载（browser_download_url 会 404，与 GitHub 私有仓库行为一致）。
+func privateReleaseServer(t *testing.T, repo, tag string, payload []byte, checksumText string) *httptest.Server {
+	t.Helper()
+	release := map[string]any{
+		"tag_name":     tag,
+		"body":         "私有仓库测试",
+		"html_url":     "https://github.com/" + repo + "/releases/tag/" + tag,
+		"published_at": "2026-01-02T03:04:05Z",
+		"draft":        false,
+	}
+	server := httptest.NewServer(nil)
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			assetName := "auto-anime_" + tag + "_" + platformPair() + exeSuffix()
+			sumName := "checksums.txt"
+			release["assets"] = []map[string]any{
+				{
+					"name":                 assetName,
+					"url":                  server.URL + "/api/uploads/assets/1",
+					"browser_download_url": server.URL + "/downloads/" + tag + "/" + assetName,
+				},
+				{
+					"name":                 sumName,
+					"url":                  server.URL + "/api/uploads/assets/2",
+					"browser_download_url": server.URL + "/downloads/" + tag + "/" + sumName,
+				},
+			}
+			json.NewEncoder(w).Encode(release)
+		case strings.Contains(r.URL.Path, "/assets/1"):
+			if got := r.Header.Get("Accept"); got != "application/octet-stream" {
+				t.Errorf("下载附件必须带 octet-stream Accept，实际 %q", got)
+			}
+			w.Write(payload)
+		case strings.Contains(r.URL.Path, "/assets/2"):
+			fmt.Fprint(w, checksumText)
+		case strings.Contains(r.URL.Path, "/downloads/"):
+			// 私有仓库：浏览器下载地址对匿名/API 客户端返回 404
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	return server
+}
+
+func TestDownloadUsesReleaseAssetsAPI(t *testing.T) {
+	const repo = "owner/private-repo"
+	dir := t.TempDir()
+	t.Setenv("DB_PATH", filepath.Join(dir, "auto-anime.db"))
+	exe := filepath.Join(dir, "auto-anime"+exeSuffix())
+	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := executablePath
+	executablePath = func() (string, error) { return exe, nil }
+	defer func() { executablePath = oldPath }()
+
+	payload := make([]byte, 2<<20)
+	copy(payload, []byte("private release binary"))
+	sum := sha256.Sum256(payload)
+	assetName := "auto-anime_v1.2.0_" + platformPair() + exeSuffix()
+	server := privateReleaseServer(t, repo, "v1.2.0", payload, hex.EncodeToString(sum[:])+"  "+assetName+"\n")
+	defer server.Close()
+	useRewriteTransport(t, server)
+	withUpdateGlobals(t, "", "1.1.0")
+	runUpdateCheck()
+
+	rel := currentRelease()
+	if rel == nil || rel.AssetName != assetName {
+		t.Fatalf("未选到当前平台附件：%+v", rel)
+	}
+	if !rel.AssetUseAPI || !rel.SumUseAPI {
+		t.Fatalf("私有仓库应通过 Release Assets API 下载更新包与校验文件：%+v", rel)
+	}
+	if !strings.Contains(rel.AssetURL, "/assets/") {
+		t.Fatalf("下载地址应为附件 API 地址，实际 %q", rel.AssetURL)
+	}
+	if rel.PublicURL == "" {
+		t.Fatal("应保留 browser_download_url 作为兜底")
+	}
+
+	inPlace, err := applyUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("通过 Assets API 更新失败：%v", err)
+	}
+	_ = inPlace
+	staged, err := os.ReadFile(filepath.Join(dir, updateStageFileName))
+	if err != nil || len(staged) != len(payload) {
+		t.Fatalf("暂存更新包不正确：%v %d", err, len(staged))
+	}
+	recorded, err := os.ReadFile(filepath.Join(dir, updateStageFileName+".sha256"))
+	if err != nil || strings.TrimSpace(string(recorded)) != hex.EncodeToString(sum[:]) {
+		t.Fatalf("校验记录不正确：%q %v", recorded, err)
+	}
+}
+
 // withUpdateGlobals swaps the package-level update configuration for one test.
 func withUpdateGlobals(t *testing.T, source string, versionValue string) {
 	t.Helper()
@@ -203,6 +301,7 @@ func githubReleaseServer(t *testing.T, repo, tag, body string, assets map[string
 	for name := range assets {
 		list = append(list, map[string]any{
 			"name":                 name,
+			"url":                  "https://api.github.com/repos/" + repo + "/releases/assets/" + name,
 			"browser_download_url": "https://github.com/" + repo + "/releases/download/" + tag + "/" + name,
 		})
 	}

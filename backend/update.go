@@ -87,9 +87,18 @@ type releaseInfo struct {
 	HTMLURL   string `json:"html_url"`
 	Published string `json:"published_at"`
 	AssetName string `json:"asset_name"`
-	AssetURL  string `json:"asset_url"`
-	SumName   string `json:"sum_name"`
-	SumURL    string `json:"sum_url"`
+	// AssetURL 是实际下载地址：GitHub 源优先用 Release Assets API
+	// （/releases/assets/<id>），私有仓库的 browser_download_url 会返回 404。
+	AssetURL string `json:"asset_url"`
+	// PublicURL 是 browser_download_url，自定义更新源与公开仓库的备用地址。
+	PublicURL string `json:"public_url"`
+	// AssetUseAPI 表示下载地址是 GitHub Release Assets API，需要
+	// application/octet-stream 请求头才会返回文件内容。
+	AssetUseAPI bool   `json:"asset_use_api"`
+	SumName     string `json:"sum_name"`
+	SumURL      string `json:"sum_url"`
+	// SumUseAPI 表示校验文件也要走 Assets API 下载。
+	SumUseAPI bool   `json:"sum_use_api"`
 	SHA256    string `json:"sha256"`
 	// InstallOK 表示该版本在本平台可自动安装（与“是否有新版本”无关）。
 	InstallOK  bool   `json:"install_ok"`
@@ -455,16 +464,55 @@ func currentPlatform() string {
 	return runtime.GOOS + "_" + runtime.GOARCH
 }
 
-func updateAPIRequest(ctx context.Context, method, target string) (*http.Response, error) {
+func updateBodyRequest(ctx context.Context, method, target string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json, application/json")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "auto-anime-updater")
 	if githubToken != "" {
 		req.Header.Set("Authorization", "Bearer "+githubToken)
 	}
+	return req, nil
+}
+
+// updateDownloadClient follows the release-asset redirect and keeps the
+// Authorization header only for GitHub hosts (S3 rejects foreign headers).
+func updateDownloadClient() *http.Client {
+	client := *updateHTTPClient()
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("重定向次数过多")
+		}
+		if len(via) > 0 && isGitHubHost(req.URL.Hostname()) {
+			req.Header.Set("Authorization", via[0].Header.Get("Authorization"))
+		}
+		return nil
+	}
+	return &client
+}
+
+func isGitHubHost(host string) bool {
+	host = strings.ToLower(host)
+	return host == "github.com" || host == "api.github.com" || host == "codeload.github.com" ||
+		strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".githubusercontent.com")
+}
+
+// downloadURL is the address a one-click update actually fetches.
+func downloadURL(rel *releaseInfo) string {
+	if rel.AssetURL != "" {
+		return rel.AssetURL
+	}
+	return rel.PublicURL
+}
+
+func updateAPIRequest(ctx context.Context, method, target string) (*http.Response, error) {
+	req, err := updateBodyRequest(ctx, method, target)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json, application/json")
 	return updateHTTPClient().Do(req)
 }
 
@@ -512,13 +560,25 @@ func fetchGitHubRelease(base string) (releaseInfo, error) {
 		}
 		name := trimmedString(asset, "name")
 		names = append(names, name)
-		if isChecksumAsset(name) && rel.SumURL == "" {
-			rel.SumURL, rel.SumName = trimmedString(asset, "browser_download_url"), name
+		if isChecksumAsset(name) && rel.SumName == "" {
+			rel.SumName = name
 		}
 	}
-	rel.AssetName, rel.AssetURL = pickAssetForPlatform(tag, names, func(name string) string {
-		return assetURLByName(assets, name)
+	rel.AssetName, rel.PublicURL = pickAssetForPlatform(tag, names, func(name string) string {
+		return assetFieldByName(assets, name, "browser_download_url")
 	})
+	// 私有仓库的 browser_download_url 会返回 404，改用 Release Assets API 地址；
+	// 公开仓库两者都可用，API 地址同样有效，因此统一优先 API。
+	if apiURL := assetFieldByName(assets, rel.AssetName, "url"); apiURL != "" {
+		rel.AssetURL, rel.AssetUseAPI = apiURL, true
+	} else {
+		rel.AssetURL = rel.PublicURL
+	}
+	if apiURL := assetFieldByName(assets, rel.SumName, "url"); apiURL != "" {
+		rel.SumURL, rel.SumUseAPI = apiURL, true
+	} else {
+		rel.SumURL = assetFieldByName(assets, rel.SumName, "browser_download_url")
+	}
 	return rel, nil
 }
 
@@ -543,13 +603,13 @@ func isChecksumAsset(name string) bool {
 		lower == "sha256sums.txt" || strings.HasSuffix(lower, "checksums.txt")
 }
 
-func assetURLByName(assets []any, name string) string {
+func assetFieldByName(assets []any, name, key string) string {
 	for _, raw := range assets {
 		asset, ok := raw.(map[string]any)
 		if !ok || trimmedString(asset, "name") != name {
 			continue
 		}
-		return trimmedString(asset, "browser_download_url")
+		return trimmedString(asset, key)
 	}
 	return ""
 }
@@ -921,19 +981,24 @@ func removeFileIfExists(path string) {
 }
 
 func downloadFile(ctx context.Context, rel *releaseInfo, target string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rel.AssetURL, nil)
+	targetURL := downloadURL(rel)
+	// GitHub 源的附件地址需要 Accept: application/octet-stream；
+	// 自定义更新源的普通 URL 用默认 Accept 即可。
+	withBinaryAccept := rel.AssetUseAPI
+	res, err := downloadRequest(ctx, targetURL, withBinaryAccept)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "auto-anime-updater")
-	if githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+githubToken)
-	}
-	res, err := updateHTTPClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("下载更新包失败：%w", err)
-	}
 	defer res.Body.Close()
+	// 公开仓库的 browser_download_url 会 302 到 objects.githubusercontent.com，
+	// 由 updateDownloadClient 跟随；这里只处理最终状态。
+	if res.StatusCode != http.StatusOK && rel.PublicURL != "" && rel.PublicURL != targetURL {
+		res.Body.Close()
+		if res, err = downloadRequest(ctx, rel.PublicURL, false); err != nil {
+			return err
+		}
+		defer res.Body.Close()
+	}
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载更新包失败：更新源返回 HTTP %d", res.StatusCode)
 	}
@@ -958,6 +1023,25 @@ func downloadFile(ctx context.Context, rel *releaseInfo, target string) error {
 	return file.Sync()
 }
 
+func downloadRequest(ctx context.Context, target string, binaryAccept bool) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "auto-anime-updater")
+	if binaryAccept {
+		req.Header.Set("Accept", "application/octet-stream")
+	}
+	if githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+githubToken)
+	}
+	res, err := updateDownloadClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("下载更新包失败：%w", err)
+	}
+	return res, nil
+}
+
 // verifyDownload confirms the download belongs to the release and returns its
 // SHA-256. A published checksum is authoritative; if the release has none, only
 // a download directly from the configured GitHub repository is accepted.
@@ -968,7 +1052,7 @@ func verifyDownload(rel *releaseInfo, path string) (string, error) {
 	}
 	expected := strings.ToLower(strings.TrimSpace(rel.SHA256))
 	if expected == "" && rel.SumURL != "" {
-		expected = lookupChecksum(rel.SumURL, rel.AssetName)
+		expected = lookupChecksum(rel.SumURL, rel.AssetName, rel.SumUseAPI)
 	}
 	if expected != "" {
 		if !strings.EqualFold(expected, sum) {
@@ -976,21 +1060,39 @@ func verifyDownload(rel *releaseInfo, path string) (string, error) {
 		}
 		return sum, nil
 	}
-	if prefix := githubDownloadPrefix(); prefix != "" && strings.HasPrefix(rel.AssetURL, prefix) {
-		logUpdate("该 Release 未提供校验文件，按更新源仓库地址接受 %s", filepath.Base(rel.AssetURL))
+	// 没有校验文件时，只接受来自配置仓库/更新源的下载。
+	if prefix := githubDownloadPrefix(); prefix != "" && strings.HasPrefix(rel.PublicURL, prefix) {
+		logUpdate("该 Release 未提供校验文件，按更新源仓库地址接受 %s", filepath.Base(rel.PublicURL))
 		return sum, nil
 	}
 	base, _, err := resolveUpdateSource(updateSource)
-	if err != nil || !strings.HasPrefix(rel.AssetURL, base) {
+	if err != nil {
+		return "", fmt.Errorf("更新源无效：%w", err)
+	}
+	if isGitHubAPI(base) {
+		// API 附件地址由 api.github.com 提供，仓库归属已在检查阶段确认。
+		if rel.AssetUseAPI {
+			logUpdate("该 Release 未提供校验文件，按更新源仓库地址接受 %s", rel.AssetName)
+			return sum, nil
+		}
+		return "", errors.New("更新源未提供 SHA-256 校验值，为安全起见已中止更新")
+	}
+	if !strings.HasPrefix(rel.AssetURL, base) {
 		return "", fmt.Errorf("更新包来自 %s，不在更新源 %s 下，已中止", redactURL(rel.AssetURL), sourceHost())
 	}
 	return "", errors.New("更新源未提供 SHA-256 校验值，为安全起见已中止更新")
 }
 
-func lookupChecksum(sumURL, assetName string) string {
+func lookupChecksum(sumURL, assetName string, sumUseAPI bool) string {
 	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
 	defer cancel()
-	res, err := updateAPIRequest(ctx, http.MethodGet, sumURL)
+	var res *http.Response
+	var err error
+	if sumUseAPI {
+		res, err = downloadRequest(ctx, sumURL, true)
+	} else {
+		res, err = updateAPIRequest(ctx, http.MethodGet, sumURL)
+	}
 	if err != nil {
 		return ""
 	}
