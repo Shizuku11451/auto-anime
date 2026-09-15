@@ -19,9 +19,11 @@
 准备好 Docker 和 Docker Compose，获取源码：
 
 ```bash
-git clone https://github.com/sssshj114/auto-anime.git
+git clone https://github.com/Shizuku11451/auto-anime.git
 cd auto-anime
 ```
+
+> 仓库曾用名 `sssshj114/auto-anime`，旧地址会重定向到新仓库；已克隆的本地副本无需改动。
 
 默认将当前目录的 `./docker-data` 挂载到容器 `/data`。该目录与本地开发写入的 `data/`、`backend/data/` 刻意分开，避免本机调试留下的数据库被挂进容器。在 [docker-compose.yml](docker-compose.yml) 中改为你的 NAS 数据目录，并确保可写，例如：
 
@@ -102,6 +104,8 @@ Docker 部署的三种情况：
 - **`/app` 只读或更新包下载成功却提示未生效**：更新包会在下次启动时替换程序文件，重启容器即可；提示持续出现说明镜像层只读，需要重建容器。
 
 源码运行（版本为 `dev`）只提示有新版本，不自动替换文件。更新源、代理与关闭开关见[配置参考](docs/CONFIGURATION.md#版本检查与一键更新)，维护者发版流程也在同一节。
+
+仓库当前是**私有**仓库，因此版本检查需要凭据：在 Compose 中填写带 `repo` 读权限的 `GITHUB_TOKEN`，否则检查会返回 404 并在日志/界面提示更新源不可用。仓库改为公开后可直接去掉该变量。
 
 ## 维护与备份
 

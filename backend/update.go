@@ -37,7 +37,9 @@ import (
 // 只要 /data 卷还在，重启一次就会回到新版本。
 
 const (
-	updateDefaultSource = "sssshj114/auto-anime"
+	// updateDefaultSource 是内置默认更新源；发布工作流会用仓库名覆盖它
+	// （-ldflags "-X main.defaultUpdateSource=用户名/仓库"），便于仓库改名或 fork。
+	updateDefaultSource = "Shizuku11451/auto-anime"
 	updateStageFileName = "auto-anime.update"
 	updateBackupSuffix  = ".old"
 	// 单次下载上限，避免异常响应占满磁盘（正常可执行文件约 20-40 MB）。
@@ -47,6 +49,16 @@ const (
 	updateCheckInterval  = 6 * time.Hour
 	updateNotesLimit     = 48 << 10
 )
+
+// defaultUpdateSource 由构建注入，留空时使用上面的常量。
+var defaultUpdateSource = ""
+
+func builtinUpdateSource() string {
+	if value := strings.TrimSpace(defaultUpdateSource); value != "" {
+		return value
+	}
+	return updateDefaultSource
+}
 
 var (
 	// UPDATE_CHECK=0/false/off 关闭联网检查新版本。
@@ -168,7 +180,7 @@ var repoSourcePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 func resolveUpdateSource(raw string) (base, label string, err error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		value = updateDefaultSource
+		value = builtinUpdateSource()
 	}
 	value = strings.TrimSuffix(strings.TrimSuffix(value, "/"), "/")
 	if strings.HasPrefix(value, "github:") {

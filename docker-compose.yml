@@ -58,7 +58,7 @@ services:
       # 可选：自定义更新源。留空使用项目仓库；也可填 用户名/仓库、
       # GitHub 仓库地址，或自建更新源前缀（读取 <前缀>/latest.json）
       UPDATE_SOURCE: ""
-      # 可选：访问 GitHub API 的令牌（私有仓库或触发接口限额时使用）
+      # 可选：访问 GitHub API 的令牌（私有仓库必填，或用于提高接口限额）
       GITHUB_TOKEN: ""
       # 可选：仅更新流量使用的代理；留空沿用上面的 PROXY_URL
       UPDATE_PROXY: ""

@@ -138,6 +138,8 @@ QBIT_LOCAL_DIR: /source-downloads
 - **更新内容**：Release 正文会显示在弹窗中，纯文本渲染（HTML 已转换为文本），不执行任何页面脚本。
 - **忽略版本**：可以「忽略此版本」，仅保存在浏览器本地，出现更高版本时再次提醒。
 - **关闭**：`UPDATE_CHECK=0` 后不再联网检查，接口返回 `enabled=false`。
+- **私有仓库**：仓库为私有时匿名读取 Release 会返回 404，必须配置带 `repo` 读权限的 `GITHUB_TOKEN`（也可使用 `UPDATE_SOURCE` 指向自建更新源）。仓库公开后该变量可以去掉。
+- **仓库改名与 fork**：默认更新源为 `Shizuku11451/auto-anime`；发布工作流会用实际仓库名覆盖它（`-ldflags -X main.defaultUpdateSource=<owner/repo>`），因此 fork 后自行发版不需要改代码，本机构建可用 `-ldflags` 或 `UPDATE_SOURCE` 覆盖。
 
 ### Docker 部署的更新行为
 

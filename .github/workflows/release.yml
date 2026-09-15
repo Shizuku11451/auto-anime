@@ -54,7 +54,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }}" \
+            -ldflags "-s -w -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }} -X main.defaultUpdateSource=${{ github.repository }}" \
             -o "../dist/auto-anime-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -158,7 +158,8 @@ jobs:
           # 镜像使用的可执行文件来自本次 Release，前端产物随源码提供
           cp dist/auto-anime-${{ steps.meta.outputs.version }}-linux-amd64 image-context/
           cp dist/auto-anime-${{ steps.meta.outputs.version }}-linux-arm64 image-context/
-          cp backend/static/* image-context/static/
+          # static/ 内含 assets/ 子目录，必须递归复制
+          cp -R backend/static/. image-context/static/
           cp scripts/docker-entrypoint.sh scripts/release.Dockerfile image-context/
           ls -R image-context | head -n 40
       - name: Build and push image
