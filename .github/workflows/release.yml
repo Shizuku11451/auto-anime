@@ -184,16 +184,33 @@ jobs:
           cp -R backend/static/. image-context/static/
           cp scripts/docker-entrypoint.sh scripts/release.Dockerfile image-context/
           ls -R image-context | head -n 40
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: image-context
-          file: image-context/release.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            VERSION=${{ steps.meta.outputs.tag }}
-            COMMIT=${{ github.sha }}
-          tags: |
-            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.image }}:latest
+      - name: Build and push image (retry transient GHCR limits)
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -u
+          status=1
+          for attempt in 1 2 3; do
+            echo "推送 GHCR 镜像，第 ${attempt}/3 次尝试"
+            if docker buildx build \
+              --context image-context \
+              --file image-context/release.Dockerfile \
+              --platform linux/amd64,linux/arm64 \
+              --push \
+              --build-arg VERSION="$RELEASE_TAG" \
+              --build-arg COMMIT="$COMMIT" \
+              --tag "$IMAGE:$VERSION" \
+              --tag "$IMAGE:latest"; then
+              exit 0
+            fi
+            status=$?
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 90))
+              echo "GHCR 推送失败，${delay} 秒后重试"
+              sleep "$delay"
+            fi
+          done
+          exit "$status"
