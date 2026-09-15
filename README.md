@@ -132,7 +132,7 @@ CGO_ENABLED=0 go build -o auto-anime .
 DB_PATH=./data/auto-anime.db DOWNLOAD_DIR=./data/downloads COVERS_DIR=./data/covers ./auto-anime
 ```
 
-请在 `backend/` 下运行，程序从当前目录读取 `static/`，数据也落在 `backend/data/`。从仓库根目录执行会把数据写进仓库根的 `data/`，与容器数据目录同级，排查「容器里有没订阅过的番」时容易混淆。源码运行默认使用 `direct` 直链模式；磁力和种子下载需配置下载器。若选择 `builtin`，先安装 `qbittorrent-nox`，或通过 `QBITTORRENT_PATH` 指定可执行文件。
+请在 `backend/` 下运行，源码运行时程序从当前目录读取 `static/`，数据也落在 `backend/data/`。Release 提供的 Windows `.exe` 已内置前端资源，可从快捷方式或任意工作目录启动。源码运行从仓库根目录执行会把数据写进仓库根的 `data/`，与容器数据目录同级，排查「容器里有没订阅过的番」时容易混淆。源码运行默认使用 `direct` 直链模式；磁力和种子下载需配置下载器。若选择 `builtin`，先安装 `qbittorrent-nox`，或通过 `QBITTORRENT_PATH` 指定可执行文件。
 
 前端使用 Vue 3 + Vite + TypeScript，构建产物已随仓库提供。修改界面时，在另一个终端从仓库根目录执行（建议 Node.js 22.12+）：
 

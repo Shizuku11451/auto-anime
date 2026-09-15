@@ -216,7 +216,7 @@ func loginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, "static/login.html")
+	serveWebPage(w, r, "login.html")
 }
 
 // The login and setup pages, their assets, and the health probe stay

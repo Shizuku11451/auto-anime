@@ -1251,7 +1251,7 @@ func runApplication() error {
 	startAnimeCleanupWorker()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.ServeFile(w, r, "static/index.html")
+			serveWebPage(w, r, "index.html")
 			return
 		}
 		http.NotFound(w, r)
@@ -1268,7 +1268,7 @@ func runApplication() error {
 	http.HandleFunc("/api/backup", backup)
 	http.HandleFunc("/api/restore", restore)
 	http.HandleFunc("/api/import-opml", importOPML)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	http.Handle("/static/", http.StripPrefix("/static/", webAssetHandler()))
 	http.HandleFunc("/api/feeds/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PUT" {
 			updateFeed(w, r)

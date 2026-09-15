@@ -557,5 +557,5 @@ func setupPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, "static/setup.html")
+	serveWebPage(w, r, "setup.html")
 }

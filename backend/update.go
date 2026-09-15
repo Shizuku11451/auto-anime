@@ -587,7 +587,10 @@ func githubStatusError(res *http.Response) error {
 	case http.StatusOK:
 		return nil
 	case http.StatusNotFound:
-		return errors.New("更新源还没有发布任何 Release")
+		if strings.TrimSpace(githubToken) == "" {
+			return errors.New("无法访问 GitHub 更新源（返回 404）；如果仓库是私有的，请配置 GITHUB_TOKEN；如果仓库公开，请确认已发布 Release")
+		}
+		return errors.New("更新源还没有发布任何 Release，或当前令牌无权访问该仓库")
 	case http.StatusForbidden, http.StatusTooManyRequests:
 		return errors.New("GitHub 接口访问受限（可能触发限额）；可稍后重试或配置 GITHUB_TOKEN")
 	case http.StatusUnauthorized:
@@ -980,7 +983,25 @@ func removeFileIfExists(path string) {
 	}
 }
 
+// downloadFile 取回更新包，最多尝试两次：Release 附件常常走大文件 CDN，
+// 网络抖动导致的截断重试一次基本可以成功。
 func downloadFile(ctx context.Context, rel *releaseInfo, target string) error {
+	var lastErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		err := downloadOnce(ctx, rel, target)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt == 1 && ctx.Err() == nil {
+			logUpdate("下载失败，正在重试：%v", err)
+			time.Sleep(1200 * time.Millisecond)
+		}
+	}
+	return lastErr
+}
+
+func downloadOnce(ctx context.Context, rel *releaseInfo, target string) error {
 	targetURL := downloadURL(rel)
 	// GitHub 源的附件地址需要 Accept: application/octet-stream；
 	// 自定义更新源的普通 URL 用默认 Accept 即可。
@@ -991,7 +1012,7 @@ func downloadFile(ctx context.Context, rel *releaseInfo, target string) error {
 	}
 	defer res.Body.Close()
 	// 公开仓库的 browser_download_url 会 302 到 objects.githubusercontent.com，
-	// 由 updateDownloadClient 跟随；这里只处理最终状态。
+	// 由 updateDownloadClient 跟随；这里只处理最终状态，失败时再退回公开地址。
 	if res.StatusCode != http.StatusOK && rel.PublicURL != "" && rel.PublicURL != targetURL {
 		res.Body.Close()
 		if res, err = downloadRequest(ctx, rel.PublicURL, false); err != nil {
@@ -1019,6 +1040,10 @@ func downloadFile(ctx context.Context, rel *releaseInfo, target string) error {
 	}
 	if written == 0 {
 		return errors.New("更新包为空，已中止")
+	}
+	// 提前识别被 CDN 截断的下载，避免只报“校验失败”而看不出原因。
+	if res.ContentLength > 0 && written != res.ContentLength {
+		return fmt.Errorf("下载不完整（收到 %d / %d 字节），请重试", written, res.ContentLength)
 	}
 	return file.Sync()
 }
