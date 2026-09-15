@@ -33,5 +33,8 @@ start-dev.bat
 # Go 构建缓存（本机沙箱内构建时使用）
 .gocache/
 
+# Go 模块根在 backend/，仓库根不应出现 main.go（防误提交）
+/main.go
+
 # 本地验证用临时数据（不属于产品源码）
 backend/tmp_veil_seed/

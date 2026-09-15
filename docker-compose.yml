@@ -4,7 +4,7 @@ services:
     #   本地构建：保留 build，执行 docker compose up -d --build
     #   使用发布镜像：注释掉 build，改用 image（发布流程会把镜像推到 ghcr.io）
     build: .
-    image: ghcr.io/sssshj114/auto-anime:latest
+    image: ghcr.io/shizuku11451/auto-anime:latest
     container_name: auto-anime
     restart: unless-stopped
     stop_grace_period: 45s

@@ -145,7 +145,7 @@ QBIT_LOCAL_DIR: /source-downloads
 
 | 部署方式 | 一键更新后的结果 |
 | --- | --- |
-| 发布镜像（`ghcr.io/sssshj114/auto-anime`），`/app` 可写 | 更新包直接替换容器内可执行文件，并写入 `/data` 暂存副本，重启后即为新版本 |
+| 发布镜像（`ghcr.io/shizuku11451/auto-anime`），`/app` 可写 | 更新包直接替换容器内可执行文件，并写入 `/data` 暂存副本，重启后即为新版本 |
 | 发布镜像，`/app` 只读（默认行为时通常可写，容器以 root 运行） | 更新包写入 `/data` 暂存；下次启动由容器入口与应用引导步骤替换程序文件并自动重启 |
 | 本地构建镜像（`docker compose up -d --build`） | 可正常更新，但**下次构建镜像会覆盖为新镜像里的旧版本**；把源码更新并重新构建，或把 `/app/auto-anime` 做成挂载卷 |
 | 源码运行 | 不提供自动更新（版本为 `dev`），设置页只提示有新版本 |
@@ -158,7 +158,7 @@ QBIT_LOCAL_DIR: /source-downloads
 
 1. 提交并推送源码，打上语义化版本标签：`git tag -a v1.1.0 -m "更新说明" && git push origin v1.1.0`（标签注释会作为 Release 说明；留空则用两次 tag 之间的提交列表）。
 2. GitHub Actions 的 `release` 工作流会交叉编译 `linux/amd64`、`linux/arm64`、`windows/amd64` 三个可执行文件，生成 `checksums.txt` 并创建 Release。
-3. 同一工作流随后构建并推送 `ghcr.io/sssshj114/auto-anime:<版本>` 与 `:latest` 镜像；工作流也支持手动触发（`workflow_dispatch`）并填写已存在的 tag。
+3. 同一工作流随后构建并推送 `ghcr.io/shizuku11451/auto-anime:<版本>` 与 `:latest` 镜像；工作流也支持手动触发（`workflow_dispatch`）并填写已存在的 tag。
 4. 客户端的更新检查会立即看到该版本。本地构建镜像时可用 `--build-arg VERSION=v1.1.0` 写入版本号，否则镜像内版本为 `dev`。
 
 ## 网络与封面
