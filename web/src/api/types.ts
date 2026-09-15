@@ -154,6 +154,40 @@ export interface RuntimeStatus {
   proxy: string
   library_dir: string
   download_dir: string
+  /* 运行中的版本号（构建注入，本地构建为 dev）与展示用标签 */
+  version: string
+  version_label: string
+  /* 已有更新包写好、等待下次启动生效 */
+  install_ready: boolean
+}
+
+/* 一键更新的实时进度：idle | downloading | installing | restarting | failed */
+export type UpdateStatus = 'idle' | 'downloading' | 'installing' | 'restarting' | 'failed'
+
+export interface UpdateInfo {
+  /* 版本检查状态：unknown | ok | failed | disabled | error */
+  state: string
+  error: string
+  checked_at: string
+  source: string
+  current: string
+  latest: string
+  release_url: string
+  notes: string
+  published_at: string
+  update_available: boolean
+  can_install: boolean
+  install_hint: string
+  pending: boolean
+  status: UpdateStatus
+  message: string
+  /* 当前运行版本与构建信息 */
+  version: string
+  commit: string
+  build_time: string
+  platform: string
+  enabled: boolean
+  can_update: boolean
 }
 
 export interface ItemBatchResult {

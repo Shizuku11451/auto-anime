@@ -8,9 +8,14 @@ import ToastHost from '@/components/ui/ToastHost.vue'
 import ConfirmHost from '@/components/ui/ConfirmHost.vue'
 import DialogHost from '@/dialogs/DialogHost.vue'
 import { useAppStore } from '@/stores/app'
+import { useUpdateStore } from '@/stores/update'
 
 const store = useAppStore()
-onMounted(() => store.startPolling())
+const updateStore = useUpdateStore()
+onMounted(() => {
+  store.startPolling()
+  updateStore.startUpdateWatch()
+})
 </script>
 
 <template>

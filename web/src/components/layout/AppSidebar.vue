@@ -5,10 +5,28 @@ import BrandMark from '@/components/ui/BrandMark.vue'
 import ThemeToggle from '@/components/ui/ThemeToggle.vue'
 import RuntimeCard from './RuntimeCard.vue'
 import SideActions from './SideActions.vue'
+import UpdateNotice from './UpdateNotice.vue'
 import { NAV_ITEMS } from '@/nav'
+import { useDialogs } from '@/stores/dialogs'
+import { useUpdateStore } from '@/stores/update'
+import { isDevVersion } from '@/utils/update'
 
 const route = useRoute()
 const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name === route.name)))
+
+const update = useUpdateStore()
+const { openUpdate } = useDialogs()
+/** dev 之外显示真实版本号，方便确认更新是否生效 */
+const versionText = computed(() => {
+  const label = update.currentLabel.value
+  if (!label || isDevVersion(label.split(' ')[0])) return 'dev · 本地服务'
+  return `v${label.replace(/^v/, '')}`
+})
+
+function showRelease() {
+  update.dismiss()
+  openUpdate()
+}
 </script>
 
 <template>
@@ -31,12 +49,16 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
 
     <div class="spacer" />
 
+    <UpdateNotice />
+
     <RuntimeCard />
 
     <div class="side-foot">
       <SideActions layout="grid" />
       <div class="foot-row">
-        <span class="foot-ver">v1 · 本地服务</span>
+        <button type="button" class="foot-ver" :class="{ hot: update.updateAvailable.value }" @click="showRelease">
+          {{ versionText }}
+        </button>
         <ThemeToggle />
       </div>
     </div>
@@ -144,8 +166,22 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
   padding: 0 2px 0 8px;
 }
 .foot-ver {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-3);
   font-size: 11px;
+  font-weight: 550;
   letter-spacing: 0.04em;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color var(--t-fast) var(--ease-out);
+}
+.foot-ver:hover {
+  color: var(--text);
+}
+.foot-ver.hot {
+  color: var(--accent);
+  font-weight: 650;
 }
 </style>

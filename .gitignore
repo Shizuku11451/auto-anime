@@ -1,6 +1,7 @@
 
 # 本地数据、数据库与下载文件
 data/
+docker-data/
 *.db
 *.db-shm
 *.db-wal
@@ -10,6 +11,7 @@ data/
 *.exe~
 *.test
 auto-anime
+/auto-anime.exe
 
 # 缓存与日志
 __pycache__/
@@ -22,9 +24,14 @@ __pycache__/
 AGENTS.md
 /docs/AGENTS_HISTORY.md
 
-# 启动脚本
-scripts/
+# 启动脚本（发布流程依赖的两个脚本随源码入库，其余本地脚本不入库）
+scripts/*
+!scripts/docker-entrypoint.sh
+!scripts/release.Dockerfile
 start-dev.bat
+
+# Go 构建缓存（本机沙箱内构建时使用）
+.gocache/
 
 # 本地验证用临时数据（不属于产品源码）
 backend/tmp_veil_seed/

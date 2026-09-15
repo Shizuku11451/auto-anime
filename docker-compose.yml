@@ -1,6 +1,10 @@
 services:
   auto-anime:
+    # 二选一：
+    #   本地构建：保留 build，执行 docker compose up -d --build
+    #   使用发布镜像：注释掉 build，改用 image（发布流程会把镜像推到 ghcr.io）
     build: .
+    image: ghcr.io/sssshj114/auto-anime:latest
     container_name: auto-anime
     restart: unless-stopped
     stop_grace_period: 45s
@@ -48,6 +52,16 @@ services:
       # 可选：同时设置 WEB_USER 和 WEB_PASSWORD 后启用 Web 登录
       WEB_USER: ""
       WEB_PASSWORD: ""
+      # 版本检查与一键更新（设置页与侧边栏提醒）
+      # UPDATE_CHECK=0 关闭联网检查；=1（默认）在启动后与每 6 小时检查一次
+      UPDATE_CHECK: "1"
+      # 可选：自定义更新源。留空使用项目仓库；也可填 用户名/仓库、
+      # GitHub 仓库地址，或自建更新源前缀（读取 <前缀>/latest.json）
+      UPDATE_SOURCE: ""
+      # 可选：访问 GitHub API 的令牌（私有仓库或触发接口限额时使用）
+      GITHUB_TOKEN: ""
+      # 可选：仅更新流量使用的代理；留空沿用上面的 PROXY_URL
+      UPDATE_PROXY: ""
       # 如使用 Transmission，将 DOWNLOAD_MODE 改为 transmission
       TRANSMISSION_URL: ""
       TRANSMISSION_USER: ""
@@ -56,4 +70,6 @@ services:
       # TRANSMISSION_LOCAL_DIR 是 TRANSMISSION_DOWNLOAD_DIR 在本容器内的对应路径
       TRANSMISSION_LOCAL_DIR: ""
     volumes:
-      - ./data:/data
+      # 容器数据目录。刻意与本地开发用的 data/ 分开（README「本地开发」在 backend/ 下写入
+      # backend/data/），否则本机调试留下的数据库会被挂进容器，看起来像「没订阅却有一堆番」
+      - ./docker-data:/data

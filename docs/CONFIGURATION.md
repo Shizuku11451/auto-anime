@@ -25,6 +25,10 @@
 | `BANGUMI_API` | `https://api.bgm.tv` | Bangumi API 地址 |
 | `WEB_USER` / `WEB_PASSWORD` | 空 | 同时配置才启用登录，也可在向导或设置页配置 |
 | `WEBHOOK_URL` | 空 | 接收事件通知的 HTTP(S) 地址 |
+| `UPDATE_CHECK` | `1` | 设为 `0` 关闭联网检查新版本（一键更新也随之不可用） |
+| `UPDATE_SOURCE` | 空 | 更新源：留空用项目仓库；也可填 `用户名/仓库`、GitHub 仓库地址或自建更新源前缀 |
+| `GITHUB_TOKEN` | 空 | 访问 GitHub API 的令牌，用于私有仓库或提高接口限额；不写入日志与接口 |
+| `UPDATE_PROXY` | 空 | 仅更新流量使用的代理，留空沿用 `PROXY_URL` |
 
 | `DOWNLOAD_MODE` | 行为 |
 | --- | --- |
@@ -110,6 +114,51 @@ QBIT_LOCAL_DIR: /source-downloads
 
 订阅保存位置留空时按 3、4 的顺序回退，并跟随媒体库目录的设置变化；填写后在订阅弹窗中会直接显示实际落点。修改保存位置不会自动搬迁已归档的文件，已有文件需通过条目「纠错」勾选迁移。
 
+## 版本检查与一键更新
+
+服务启动后会检查一次新版本，之后每 6 小时复查；发现新版本时侧边栏出现提醒，也可在「设置 → 版本更新」手动检查。点「一键更新」后客户端会：下载与当前平台匹配的更新包 → 校验 SHA-256 → 替换程序文件 → 重启服务（同一进程原地重启，容器不会因此重建）。
+
+- **信息来源**：默认读取项目仓库的 GitHub Release（标签、更新说明、附件与 `checksums.txt`）。预发布版本标签的更新说明为空时，会回退读取 Release 页面正文。
+- **自建更新源**：把 `UPDATE_SOURCE` 设为前缀（例如 `https://dl.example.com/auto-anime`），服务读取 `<前缀>/latest.json`：
+  ```json
+  {
+    "version": "1.2.0",
+    "notes": "更新说明",
+    "published_at": "2026-01-01T00:00:00Z",
+    "html_url": "https://example.com/releases/1.2.0",
+    "assets": {
+      "linux-amd64": "https://dl.example.com/auto-anime/auto-anime-1.2.0-linux-amd64",
+      "linux-arm64": "https://dl.example.com/auto-anime/auto-anime-1.2.0-linux-arm64",
+      "sha256": "更新包的 SHA-256 十六进制值"
+    }
+  }
+  ```
+  也可以把 `sha256` 写成 `<更新包地址>.sha256`，内容按 `sha256sum` 的「哈希 文件名」格式。
+- **校验**：优先使用更新源提供的 SHA-256；GitHub 源缺少校验文件时只接受直接来自配置仓库地址的下载，自建更新源没有校验值会拒绝更新。
+- **更新内容**：Release 正文会显示在弹窗中，纯文本渲染（HTML 已转换为文本），不执行任何页面脚本。
+- **忽略版本**：可以「忽略此版本」，仅保存在浏览器本地，出现更高版本时再次提醒。
+- **关闭**：`UPDATE_CHECK=0` 后不再联网检查，接口返回 `enabled=false`。
+
+### Docker 部署的更新行为
+
+| 部署方式 | 一键更新后的结果 |
+| --- | --- |
+| 发布镜像（`ghcr.io/sssshj114/auto-anime`），`/app` 可写 | 更新包直接替换容器内可执行文件，并写入 `/data` 暂存副本，重启后即为新版本 |
+| 发布镜像，`/app` 只读（默认行为时通常可写，容器以 root 运行） | 更新包写入 `/data` 暂存；下次启动由容器入口与应用引导步骤替换程序文件并自动重启 |
+| 本地构建镜像（`docker compose up -d --build`） | 可正常更新，但**下次构建镜像会覆盖为新镜像里的旧版本**；把源码更新并重新构建，或把 `/app/auto-anime` 做成挂载卷 |
+| 源码运行 | 不提供自动更新（版本为 `dev`），设置页只提示有新版本 |
+
+容器被重建（`docker compose up -d --force-recreate`）时，如果镜像是旧版本，程序文件会回到旧版本，但 `/data` 中保留的暂存更新包会在启动引导阶段重新替换，重启一次即恢复新版本。因此升级镜像与一键更新可以并存：任一路径都能把版本推到最新。
+
+`/app` 不可写时，容器入口会把镜像版本写入 `/data/image-version`，应用据此提示「更新已下载但未能替换程序文件：请用新镜像重建容器」。
+
+### 维护者发布流程
+
+1. 提交并推送源码，打上语义化版本标签：`git tag -a v1.1.0 -m "更新说明" && git push origin v1.1.0`（标签注释会作为 Release 说明；留空则用两次 tag 之间的提交列表）。
+2. GitHub Actions 的 `release` 工作流会交叉编译 `linux/amd64`、`linux/arm64`、`windows/amd64` 三个可执行文件，生成 `checksums.txt` 并创建 Release。
+3. 同一工作流随后构建并推送 `ghcr.io/sssshj114/auto-anime:<版本>` 与 `:latest` 镜像；工作流也支持手动触发（`workflow_dispatch`）并填写已存在的 tag。
+4. 客户端的更新检查会立即看到该版本。本地构建镜像时可用 `--build-arg VERSION=v1.1.0` 写入版本号，否则镜像内版本为 `dev`。
+
 ## 网络与封面
 
 本程序默认显式直连，不读取系统代理。可通过设置页或 `PROXY_URL` 配置 `http://`、`https://`、`socks5://`、`socks5h://` 代理，例如：
@@ -120,7 +169,7 @@ socks5://192.168.1.10:1080
 http://用户名:密码@192.168.1.10:7890
 ```
 
-- **使用代理**：RSS 搜索、预览与同步，HTTP(S) 文件和种子获取，HTTP(S) tracker 探测，Bangumi 请求及 Webhook。
+- **使用代理**：RSS 搜索、预览与同步，HTTP(S) 文件和种子获取，HTTP(S) tracker 探测，Bangumi 请求、Webhook 以及版本检查与更新包下载。
 - **始终直连**：下载器 RPC / WebUI API、UDP tracker 探测。BT 下载流量由下载器自己的网络设置决定。
 - **认证信息**：界面隐藏代理账号密码；保存未变的地址会保留凭据，更换地址不会沿用旧凭据。清空地址恢复直连，清除凭据可使用页面中的专门选项。
 

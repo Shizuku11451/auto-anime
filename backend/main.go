@@ -1185,6 +1185,23 @@ func items(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, out)
 }
 func main() {
+	// -version：供容器启动脚本与脚本化部署查询版本，不触碰数据库。
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-version", "--version", "version":
+			fmt.Println(versionLabel())
+			return
+		}
+	}
+	// 启动引导：若上一次更新把新版本暂存在数据目录，先应用它再启动服务。
+	bootstrapStagedUpdate()
+	// 仅用于演练/联调：让重启后的新进程与旧进程错开端口释放时间。
+	if raw := os.Getenv("AUTO_ANIME_STARTUP_DELAY_SECONDS"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 60 {
+			log.Printf("启动延迟 %d 秒（AUTO_ANIME_STARTUP_DELAY_SECONDS）", n)
+			time.Sleep(time.Duration(n) * time.Second)
+		}
+	}
 	if err := runApplication(); err != nil {
 		log.Fatal(err)
 	}
@@ -1212,6 +1229,7 @@ func runApplication() error {
 		return err
 	}
 	defer stopEmbeddedQBittorrent()
+	startUpdateChecker()
 	if authEnabled() {
 		log.Println("Web 登录已启用")
 	} else if setupDone {
@@ -1267,6 +1285,8 @@ func runApplication() error {
 	http.HandleFunc("/api/discover/search", discoverSearchAPI)
 	http.HandleFunc("/api/discover/availability", discoverAvailabilityAPI)
 	http.HandleFunc("/api/health", healthStatus)
+	http.HandleFunc("/api/version", updateHandler)
+	http.HandleFunc("/api/update", updateHandler)
 	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
 	http.HandleFunc("/api/items/", itemsEntryAPI)

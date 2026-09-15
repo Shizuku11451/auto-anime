@@ -1,11 +1,16 @@
 .git/
 .gitignore
 data/
+docker-data/
 backend/data/
 __pycache__/
 *.test
 *.exe
 *.log
 docs/
-scripts/
+# 发布流程依赖的容器入口脚本要进构建上下文，其余本地脚本排除
+scripts/*
+!scripts/docker-entrypoint.sh
 web/
+.github/
+.gocache/

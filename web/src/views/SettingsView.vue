@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
-import { FolderTree, Globe, HardDrive, Save, UserRound } from '@lucide/vue'
+import { FolderTree, Globe, HardDrive, RefreshCw, Rocket, Save, UserRound } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { useAppStore } from '@/stores/app'
+import { useDialogs } from '@/stores/dialogs'
+import { useUpdateStore } from '@/stores/update'
 import { MODE_LABEL, type Settings, type SettingsInput } from '@/api/types'
 
 const store = useAppStore()
+const update = useUpdateStore()
+const { openUpdate } = useDialogs()
 const narrow = useMediaQuery('(max-width: 1000px)')
 
 const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
@@ -91,7 +95,10 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void update.checkNow()
+})
 
 async function save() {
   msg.value = ''
@@ -322,8 +329,53 @@ async function save() {
         </div>
       </section>
 
-      <!-- 网络与同步 -->
+      <!-- 版本更新 -->
       <section class="group card" style="--i: 3">
+        <header class="group-head">
+          <span class="group-ico"><Rocket aria-hidden="true" /></span>
+          <div>
+            <h2>版本更新</h2>
+            <p>启动后自动检查新版本；有新版本时侧边栏会出现提醒，可一键更新并重启服务</p>
+          </div>
+        </header>
+        <div class="meta-line update-meta">
+          <span>当前版本 <code>{{ update.info.value?.version || 'dev' }}</code></span>
+          <span v-if="update.info.value?.commit">提交 <code>{{ update.info.value.commit.slice(0, 7) }}</code></span>
+          <span v-if="update.info.value?.build_time">构建 {{ update.info.value.build_time }}</span>
+          <span v-if="update.info.value?.platform">{{ update.info.value.platform }}</span>
+          <span v-if="update.info.value?.source">更新源 {{ update.info.value.source }}</span>
+        </div>
+        <p class="field-hint">
+          {{
+            update.info.value?.enabled === false
+              ? '已通过 UPDATE_CHECK=0 关闭版本检查。'
+              : update.info.value?.latest
+                ? `最新版本 ${update.info.value.latest}`
+                : '尚未获取到版本信息。'
+          }}
+          <template v-if="update.info.value?.checked_at">（上次检查 {{ update.info.value.checked_at }}）</template>
+        </p>
+        <p v-if="update.updateAvailable.value" class="field-hint hot">
+          发现新版本 {{ update.info.value?.latest }}，可在弹窗中查看更新内容并一键更新。
+        </p>
+        <p v-else-if="update.pending.value" class="field-hint hot">
+          已下载的新版本正在等待生效：重启容器后即为新版本。
+        </p>
+        <p v-if="update.installHint.value" class="field-hint">{{ update.installHint.value }}</p>
+        <p v-if="update.checkError.value" class="form-msg" role="alert">{{ update.checkError.value }}</p>
+        <div class="update-actions">
+          <BaseButton :icon="RefreshCw" :loading="update.checking.value" @click="update.checkNow()">检查更新</BaseButton>
+          <BaseButton v-if="update.updateAvailable.value" variant="primary" :icon="Rocket" @click="openUpdate()">
+            查看更新内容
+          </BaseButton>
+          <BaseButton v-if="update.skipped.value" variant="ghost" size="sm" @click="update.restoreSkipped()">
+            恢复 {{ update.skipped.value }} 的提醒
+          </BaseButton>
+        </div>
+      </section>
+
+      <!-- 网络与同步 -->
+      <section class="group card" style="--i: 4">
         <header class="group-head">
           <span class="group-ico"><Globe aria-hidden="true" /></span>
           <div>
@@ -480,6 +532,24 @@ async function save() {
 .check.small {
   font-size: 13px;
   margin: 6px 0 4px;
+}
+.update-meta {
+  margin-bottom: 6px;
+}
+.update-meta code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.field-hint.hot {
+  color: var(--accent);
+  font-weight: 550;
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 16px;
 }
 
 .save-bar {

@@ -38,6 +38,8 @@ interface DialogState {
   bind: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
   animeManage: { open: boolean; action: 'delete' | 'merge'; animes: (AnimeDetail | AnimeSummary)[] }
   player: { open: boolean; items: PlayerEntry[]; index: number }
+  /** 新版本详情与一键更新 */
+  update: { open: boolean }
 }
 
 const state = reactive<DialogState>({
@@ -49,6 +51,7 @@ const state = reactive<DialogState>({
   bind: { open: false, anime: null },
   animeManage: { open: false, action: 'delete', animes: [] },
   player: { open: false, items: [], index: 0 },
+  update: { open: false },
 })
 
 function openFeed(feed: FeedPrefill | null = null) {
@@ -125,6 +128,15 @@ function closePlayer() {
   state.player.open = false
 }
 
+/** 打开发布详情与一键更新弹窗 */
+function openUpdate() {
+  state.update.open = true
+}
+
+function closeUpdate() {
+  state.update.open = false
+}
+
 export function useDialogs() {
   return {
     state,
@@ -138,5 +150,7 @@ export function useDialogs() {
     openAnimeManage,
     openPlayer,
     closePlayer,
+    openUpdate,
+    closeUpdate,
   }
 }

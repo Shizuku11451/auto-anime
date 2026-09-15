@@ -45,6 +45,12 @@ const countRows = computed(() => Object.entries(store.counts.value).sort((a, b) 
       <div class="run-row">
         <span>媒体库</span><b class="truncate" :title="libraryLabel">{{ libraryLabel }}</b>
       </div>
+      <div class="run-row">
+        <span>版本</span><b class="truncate" :title="s.version_label || s.version">{{ s.version || 'dev' }}</b>
+      </div>
+      <div v-if="s.install_ready" class="run-row">
+        <span>更新</span><b class="hot">待重启生效</b>
+      </div>
       <div v-if="s.proxy" class="run-row">
         <span>出站代理</span><b class="truncate" :title="s.proxy">{{ s.proxy }}</b>
       </div>
@@ -126,5 +132,8 @@ const countRows = computed(() => Object.entries(store.counts.value).sort((a, b) 
   height: 1px;
   background: var(--line);
   margin: 3px 0;
+}
+.run-row > b.hot {
+  color: var(--accent);
 }
 </style>
