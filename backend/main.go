@@ -81,6 +81,7 @@ type Feed struct {
 	LastSync    string `json:"last_sync"`
 	LastError   string `json:"last_error"`
 	TargetTitle string `json:"target_title"`
+	StorageDir  string `json:"storage_dir"`
 }
 type FeedInput struct {
 	Name        string  `json:"name"`
@@ -90,6 +91,7 @@ type FeedInput struct {
 	Auto        bool    `json:"auto_download"`
 	Enabled     *bool   `json:"enabled"`
 	TargetTitle *string `json:"target_title"`
+	StorageDir  *string `json:"storage_dir"`
 }
 type webhookEvent struct {
 	Event    string `json:"event"`
@@ -228,7 +230,7 @@ func initDB() {
 	if e != nil {
 		log.Fatal(e)
 	}
-	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''"} {
+	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''", "storage_dir TEXT DEFAULT ''"} {
 		name := strings.Fields(col)[0]
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('feeds') WHERE name=?", name).Scan(&count)
@@ -320,7 +322,7 @@ func syncFeed(id int) (int, error) {
 	defer animeCleanupMu.RUnlock()
 	var f Feed
 	var a int
-	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download,COALESCE(target_title,'') FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &f.TargetTitle)
+	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download,COALESCE(target_title,''),COALESCE(storage_dir,'') FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &f.TargetTitle, &f.StorageDir)
 	if e != nil {
 		return 0, e
 	}
@@ -358,6 +360,7 @@ func syncFeed(id int) (int, error) {
 		// 不再按本地识别标题另立门户。
 		animeID := int64(0)
 		animeTitle := info.Title
+		ownSeries := false // 番剧来自本订阅的目标或识别结果，而非归并规则
 		if f.TargetTitle != "" {
 			animeTitle = f.TargetTitle
 			animeID, e = ensureAnime(animeTitle)
@@ -365,10 +368,12 @@ func syncFeed(id int) (int, error) {
 				writeErr = fmt.Errorf("番剧写入失败: %w", e)
 				continue
 			}
+			ownSeries = true
 		} else if id, title := matchAnimeRule(it.Title); id > 0 {
 			animeID, animeTitle = id, title
 		} else if animeTitle != "" {
 			animeID, _ = ensureAnime(animeTitle)
+			ownSeries = true
 		}
 		r, e := db.Exec("INSERT OR IGNORE INTO items(feed_id,title,link,published,description,anime_title,anime_id,episode,quality,fansub_group,created_at,page_url) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", id, it.Title, it.Link, it.Pub, it.Description, animeTitle, animeID, info.Episode, info.Quality, info.Group, time.Now().Format(time.RFC3339), it.PageURL)
 		if e != nil {
@@ -382,6 +387,10 @@ func syncFeed(id int) (int, error) {
 		}
 		x, _ := r.RowsAffected()
 		n += int(x)
+		if x > 0 && ownSeries {
+			// 订阅选择的保存位置；只在番剧还没有指定位置时写入。
+			applyFeedStorageOnSync(f.StorageDir, animeTitle)
+		}
 		if x > 0 && f.Auto {
 			var itemID int
 			db.QueryRow("SELECT id FROM items WHERE link=?", it.Link).Scan(&itemID)
@@ -665,14 +674,14 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 
 func feeds(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,'') FROM feeds ORDER BY id DESC")
+		rows, _ := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,'') FROM feeds ORDER BY id DESC")
 		defer rows.Close()
 		out := []Feed{}
 		for rows.Next() {
 			var f Feed
 			var a int
 			var enabled int
-			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle)
+			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir)
 			f.Auto = a == 1
 			f.Enabled = enabled == 1
 			out = append(out, f)
@@ -689,13 +698,37 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 	if in.TargetTitle != nil {
 		target = sanitizeText(*in.TargetTitle, titleMaxLength)
 	}
-	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at,target_title) VALUES(?,?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339), target)
+	// 新建订阅没有旧值，选择的位置直接生效。
+	storage, err := feedStorageDir(in.StorageDir)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at,target_title,storage_dir) VALUES(?,?,?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339), target, storage)
 	if e != nil {
 		http.Error(w, "RSS 地址已经存在", 409)
 		return
 	}
 	newID, _ := result.LastInsertId()
-	jsonOut(w, map[string]any{"ok": true, "id": newID})
+	storagePath, warning := applySubscriptionStorage(storage, target, "")
+	jsonOut(w, map[string]any{"ok": true, "id": newID, "storage_path": storagePath, "storage_warning": warning})
+}
+
+// feedStorageDir validates the subscription save location (番剧根目录) of a
+// request: an absent field keeps the stored value, an empty one clears it and
+// lets archiving fall back to the media library directory.
+func feedStorageDir(field *string) (string, error) {
+	if field == nil {
+		return "", nil
+	}
+	clean, err := sanitizeStorageDir(*field)
+	if err != nil {
+		if strings.Contains(err.Error(), "..") {
+			return "", fmt.Errorf("保存位置不能包含 ..")
+		}
+		return "", fmt.Errorf("保存位置必须是绝对路径，例如 /vol1/1000/番剧")
+	}
+	return clean, nil
 }
 
 func preview(w http.ResponseWriter, r *http.Request) {
@@ -752,7 +785,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	feedRows, err := tx.QueryContext(r.Context(), "SELECT id,name,url,COALESCE(include_words,''),COALESCE(exclude_words,''),COALESCE(auto_download,0),COALESCE(enabled,1),COALESCE(last_sync,''),COALESCE(last_error,''),COALESCE(target_title,'') FROM feeds ORDER BY id")
+	feedRows, err := tx.QueryContext(r.Context(), "SELECT id,name,url,COALESCE(include_words,''),COALESCE(exclude_words,''),COALESCE(auto_download,0),COALESCE(enabled,1),COALESCE(last_sync,''),COALESCE(last_error,''),COALESCE(target_title,''),COALESCE(storage_dir,'') FROM feeds ORDER BY id")
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
@@ -760,7 +793,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 	for feedRows.Next() {
 		var f Feed
 		var auto, enabled int
-		if err = feedRows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &auto, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle); err != nil {
+		if err = feedRows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &auto, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir); err != nil {
 			feedRows.Close()
 			http.Error(w, "备份失败", 500)
 			return
@@ -866,7 +899,12 @@ func restore(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "备份包含无效订阅", 400)
 			return
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength))
+		// 保存位置非法时只丢弃该字段，订阅本身仍可恢复。
+		feedStorage, err := sanitizeStorageDir(f.StorageDir)
+		if err != nil {
+			feedStorage = ""
+		}
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title,storage_dir) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title,storage_dir=excluded.storage_dir`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength), feedStorage)
 		if err != nil {
 			tx.Rollback()
 			http.Error(w, "恢复失败", 500)
@@ -1039,16 +1077,32 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "订阅参数无效", 400)
 		return
 	}
+	storage, err := feedStorageDir(in.StorageDir)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	var previousStorage, previousTarget string
+	if err := db.QueryRow("SELECT COALESCE(storage_dir,''),COALESCE(target_title,'') FROM feeds WHERE id=?", id).Scan(&previousStorage, &previousTarget); err != nil {
+		http.Error(w, "订阅不存在", 404)
+		return
+	}
 	// 编辑弹窗不含启用开关：请求未携带 enabled 时保留原值，不能按零值把订阅停用
 	var enabled any
 	if in.Enabled != nil {
 		enabled = boolInt(*in.Enabled)
 	}
-	var target any
+	target := previousTarget
+	var targetValue any
 	if in.TargetTitle != nil {
 		target = sanitizeText(*in.TargetTitle, titleMaxLength)
+		targetValue = target
 	}
-	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, target, id)
+	var storageValue any
+	if in.StorageDir != nil {
+		storageValue = storage
+	}
+	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title),storage_dir=COALESCE(?,storage_dir) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, targetValue, storageValue, id)
 	if err != nil {
 		http.Error(w, "保存失败", 500)
 		return
@@ -1058,7 +1112,12 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "订阅不存在", 404)
 		return
 	}
-	jsonOut(w, map[string]bool{"ok": true})
+	// 保存位置变化时才动番剧记录：只改订阅名或规则不会覆盖已有的存储设置。
+	storagePath, warning := "", ""
+	if in.StorageDir != nil && storage != previousStorage {
+		storagePath, warning = applySubscriptionStorage(storage, target, previousStorage)
+	}
+	jsonOut(w, map[string]any{"ok": true, "storage_path": storagePath, "storage_warning": warning})
 }
 func boolInt(v bool) int {
 	if v {

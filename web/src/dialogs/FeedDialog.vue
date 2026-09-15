@@ -14,7 +14,7 @@ const store = useAppStore()
 const s = state.feed
 
 const editing = computed(() => !!(s.feed && s.feed.id))
-const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '' })
+const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '', storage: '' })
 const preview = ref('')
 const previewing = ref(false)
 const saving = ref(false)
@@ -26,6 +26,19 @@ const previewReady = computed(() => previewKey.value === filterKey.value && prev
 let previewRequest = 0
 let previewController: AbortController | undefined
 let enabledAtOpen = true
+
+// 保存位置是「番剧根目录」：归档时在其下按番剧名建立子文件夹。留空表示使用默认
+// 位置（设置页的媒体库目录，未设置时为下载目录），所以界面要写出实际落点。
+const trimSlash = (value: string) => value.trim().replace(/[\\/]+$/, '')
+const defaultBase = computed(() => trimSlash(store.status?.value?.library_dir || store.status?.value?.download_dir || ''))
+const defaultBaseSource = computed(() => (store.status?.value?.library_dir ? '媒体库目录' : '下载目录'))
+const saveBase = computed(() => trimSlash(form.storage))
+// 与服务端 safeComponent 一致地替换非法字符，预览里不显示会逃出目录的名字。
+const folderName = computed(() => form.target.trim().replace(/[\\/:*?"<>|]/g, '_').replace(/^[ .]+|[ .]+$/g, ''))
+const storagePreview = computed(() => {
+  const base = saveBase.value || defaultBase.value
+  return base && folderName.value ? `${base}/${folderName.value}` : ''
+})
 
 // 资源可用性检测（找番添加流程）
 const previewItems = ref<PreviewResult['items']>([])
@@ -95,6 +108,7 @@ watch(
     form.exclude = f?.exclude_words ?? ''
     form.auto = f ? f.auto_download !== false : true
     form.target = f?.target_title ?? ''
+    form.storage = f?.storage_dir ?? ''
     enabledAtOpen = f ? f.enabled !== false : true
     preview.value = ''
     previewKey.value = ''
@@ -181,6 +195,13 @@ async function runAvailability() {
   }
 }
 
+type FeedSaveResult = { storage_path?: string; storage_warning?: string }
+
+// 与后端一致的绝对路径判断：容器内是 /...，Windows 本机可能是盘符。
+function isAbsolutePath(value: string) {
+  return /^([/\\]|[a-zA-Z]:[\\/])/.test(value)
+}
+
 async function save() {
   if (saving.value) return
   msg.value = ''
@@ -192,6 +213,15 @@ async function save() {
     msg.value = '请填写归入的番剧名称，或选择番剧库中已有的番剧'
     return
   }
+  const storage = form.storage.trim()
+  if (storage && !isAbsolutePath(storage)) {
+    msg.value = '保存位置必须是绝对路径，例如 /vol1/1000/番剧'
+    return
+  }
+  if (storage.split(/[\\/]+/).includes('..')) {
+    msg.value = '保存位置不能包含 ..'
+    return
+  }
   const body = {
     name: form.name.trim(),
     url: form.url.trim(),
@@ -200,6 +230,7 @@ async function save() {
     auto_download: form.auto,
     enabled: enabledAtOpen,
     target_title: form.target.trim(),
+    storage_dir: storage,
   }
   if (!body.name) {
     msg.value = '请填写订阅名称'
@@ -212,13 +243,21 @@ async function save() {
   saving.value = true
   try {
     let feedId: number
+    let storagePath = ''
+    let storageWarning = ''
     if (editing.value) {
       feedId = (s.feed as Feed).id
-      await http.put('/api/feeds/' + feedId, body)
+      const saved = await http.put<FeedSaveResult>('/api/feeds/' + feedId, body)
+      storagePath = saved?.storage_path ?? ''
+      storageWarning = saved?.storage_warning ?? ''
     } else {
-      const created = await http.post<{ ok: boolean; id: number }>('/api/feeds', body)
+      const created = await http.post<FeedSaveResult & { id: number }>('/api/feeds', body)
       feedId = created.id
+      storagePath = created.storage_path ?? ''
+      storageWarning = created.storage_warning ?? ''
     }
+    if (storageWarning) toast.error('订阅已保存，但保存位置需要确认：' + storageWarning)
+    else if (storagePath) toast.info('番剧文件夹：' + storagePath + '/')
     if (feedId && (!editing.value || s.feed?.from_discover)) {
       try {
         const r = await http.post<{ added: number }>('/api/sync/' + feedId)
@@ -271,6 +310,19 @@ async function save() {
           <option v-for="anime in store.animes.value" :key="anime.id" :value="anime.title" />
         </datalist>
         <p class="field-hint">选择已有番剧或填写统一名称，让不同标题的后续集数进入同一张番剧卡片；不会合并已有记录。</p>
+      </div>
+      <div class="field">
+        <label for="f-storage">保存位置（番剧根目录）</label>
+        <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" placeholder="留空使用默认位置，例如 /vol1/1000/番剧" />
+        <p class="field-hint">
+          归档时在此目录下按番剧名建立文件夹，文件按 <code>番剧名/Season 01/番剧名 - S01E01.mkv</code> 存放，不会把集数直接堆在根目录。
+        </p>
+        <p v-if="storagePreview" class="field-hint">
+          实际保存到：<code>{{ storagePreview }}/</code>
+          <span v-if="!saveBase">（默认位置，来自设置页「{{ defaultBaseSource }}」）</span>
+        </p>
+        <p v-else-if="saveBase" class="field-hint">填写「归入番剧」后，会在该目录下建立同名番剧文件夹。</p>
+        <p v-else class="field-hint">未读取到默认位置，请填写绝对路径，或先在设置页配置媒体库目录。</p>
       </div>
       <label class="check">
         <input v-model="form.auto" type="checkbox" />

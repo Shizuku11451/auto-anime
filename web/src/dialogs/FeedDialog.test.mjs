@@ -10,17 +10,18 @@ import * as vue from 'vue'
 // responses, including late responses from a request whose signal was aborted.
 const source = readFileSync(new URL('./FeedDialog.vue', import.meta.url), 'utf8')
 const setup = parse(source).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(setup + '\nexport { form, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview };', {
+const compiled = ts.transpileModule(setup + '\nexport { form, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase };', {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 const item = (link, title = link) => ({ title, link, published: '', description: '' })
 const result = (url, seeds = 3) => ({ url, verdict: 'available', seeds })
 
-function dialog(t, initiallyOpen = true) {
+function dialog(t, initiallyOpen = true, status = null) {
   const state = vue.reactive({ feed: { open: initiallyOpen, feed: {
     from_discover: true, name: '测试版本', url: 'https://feed.example/rss', include_words: '',
   } } })
+  const statusRef = vue.ref(status)
   const requests = []
   const errors = []
   let items = []
@@ -36,7 +37,7 @@ function dialog(t, initiallyOpen = true) {
   const modules = {
     vue,
     '@/stores/dialogs': { useDialogs: () => ({ state }) },
-    '@/stores/app': { useAppStore: () => ({ refresh: async () => {} }) },
+    '@/stores/app': { useAppStore: () => ({ status: statusRef, refresh: async () => {} }) },
     '@/api/client': { api, http: {}, errorMessage: (e) => e.message },
     '@/stores/toast': { toast: { error: (message) => errors.push(message) } },
   }
@@ -53,7 +54,7 @@ function dialog(t, initiallyOpen = true) {
     scope.stop()
   })
   return {
-    state, component, requests, errors,
+    state, component, requests, errors, status: statusRef,
     setItems: (value) => { items = value },
     failPreview: () => { previewError = new Error('RSS unavailable') },
     async preview(value, include = '') {
@@ -158,4 +159,40 @@ test('新预览失败时清除旧检测内容', async (t) => {
   assert.equal(h.component.btLinks.value.length, 0)
   assert.equal(h.component.availabilityDone.value, false)
   assert.match(h.component.preview.value, /预览失败/)
+})
+
+test('保存位置留空时预览默认番剧文件夹', async (t) => {
+  const h = dialog(t, true, { library_dir: '/vol1/1000/番剧/', download_dir: '/downloads' })
+  assert.equal(h.component.form.storage, '')
+  assert.equal(h.component.defaultBase.value, '/vol1/1000/番剧')
+  h.component.form.target = '葬送的芙莉莲'
+  await vue.nextTick()
+  assert.equal(h.component.storagePreview.value, '/vol1/1000/番剧/葬送的芙莉莲')
+})
+
+test('没有媒体库目录时按下载目录预览，填写保存位置后改用所选目录', async (t) => {
+  const h = dialog(t, true, { library_dir: '', download_dir: '/downloads' })
+  assert.equal(h.component.defaultBase.value, '/downloads')
+  h.component.form.target = '夏日动画'
+  await vue.nextTick()
+  assert.equal(h.component.storagePreview.value, '/downloads/夏日动画')
+  h.component.form.storage = '/vol1/1000/新番/'
+  await vue.nextTick()
+  assert.equal(h.component.storagePreview.value, '/vol1/1000/新番/夏日动画')
+})
+
+test('番剧名里的路径分隔符不会出现在预览目录中', async (t) => {
+  const h = dialog(t, true, { library_dir: '/vol1/1000/番剧', download_dir: '/downloads' })
+  h.component.form.target = '夏日动画 / Summer'
+  await vue.nextTick()
+  assert.equal(h.component.storagePreview.value, '/vol1/1000/番剧/夏日动画 _ Summer')
+})
+
+test('打开编辑订阅时回填已保存的保存位置', async (t) => {
+  const h = dialog(t, false)
+  h.state.feed.feed = { ...h.state.feed.feed, id: 7, storage_dir: '/vol1/1000/番剧', target_title: '夏日动画' }
+  h.state.feed.open = true
+  await flush()
+  assert.equal(h.component.form.storage, '/vol1/1000/番剧')
+  assert.equal(h.component.storagePreview.value, '/vol1/1000/番剧/夏日动画')
 })

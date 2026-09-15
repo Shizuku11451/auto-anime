@@ -22,7 +22,7 @@ git clone https://github.com/sssshj114/auto-anime.git
 cd auto-anime
 ```
 
-默认将当前目录的 `./data` 挂载到容器 `/data`。在 [docker-compose.yml](docker-compose.yml) 中改为你的 NAS 数据目录，并确保可写，例如：
+默认将当前目录的 `./docker-data` 挂载到容器 `/data`。该目录与本地开发写入的 `data/`、`backend/data/` 刻意分开，避免本机调试留下的数据库被挂进容器。在 [docker-compose.yml](docker-compose.yml) 中改为你的 NAS 数据目录，并确保可写，例如：
 
 ```yaml
 volumes:
@@ -48,7 +48,7 @@ docker compose up -d --build
 
 ## 开始追番
 
-1. 在「找番」搜索番名，选择字幕组与版本，核对过滤规则并预览后保存；也可在「订阅管理」直接添加 RSS。
+1. 在「找番」搜索番名，选择字幕组与版本，核对过滤规则并预览后保存；也可在「订阅管理」直接添加 RSS。添加订阅时可填写**保存位置**（番剧根目录，例如 `/vol1/1000/番剧`），留空则使用默认位置；两种情况下都会在该目录下按番剧名建立文件夹。
 2. 开启订阅的自动下载，在「最近条目」查看进度。**「已保存」表示文件已完成归档**；提交到下载器后仍需等待下载和归档。
 3. 在「番剧库」查看各季、各集。识别有误时可纠错，封面不对时可重新绑定 Bangumi；绑定成功后卡片显示 Bangumi 评分，点「简介」可展开查看。
 
@@ -68,9 +68,9 @@ docker compose up -d --build
 
 ## 文件与播放
 
-默认媒体库位于 `/data/downloads`，对应 NAS 数据目录下的 `downloads/`。可在设置页指定另一个已挂载的「媒体库目录」，也可为单部番设置独立位置。
+默认媒体库位于 `/data/downloads`，对应 NAS 数据目录下的 `downloads/`。可在设置页指定另一个已挂载的「媒体库目录」，也可为单部番设置独立位置。添加订阅时填写的「保存位置」优先级高于媒体库目录，只对该订阅对应的番剧生效，不会改动其它番剧。
 
-识别到集数的单文件资源按以下结构归档：
+识别到集数的单文件资源按以下结构归档（番剧文件夹建立在上面的目录之下，不会把集数直接堆在根目录）：
 
 ```text
 番剧名/
@@ -115,7 +115,7 @@ CGO_ENABLED=0 go build -o auto-anime .
 DB_PATH=./data/auto-anime.db DOWNLOAD_DIR=./data/downloads COVERS_DIR=./data/covers ./auto-anime
 ```
 
-请在 `backend/` 下运行，程序从当前目录读取 `static/`。源码运行默认使用 `direct` 直链模式；磁力和种子下载需配置下载器。若选择 `builtin`，先安装 `qbittorrent-nox`，或通过 `QBITTORRENT_PATH` 指定可执行文件。
+请在 `backend/` 下运行，程序从当前目录读取 `static/`，数据也落在 `backend/data/`。从仓库根目录执行会把数据写进仓库根的 `data/`，与容器数据目录同级，排查「容器里有没订阅过的番」时容易混淆。源码运行默认使用 `direct` 直链模式；磁力和种子下载需配置下载器。若选择 `builtin`，先安装 `qbittorrent-nox`，或通过 `QBITTORRENT_PATH` 指定可执行文件。
 
 前端使用 Vue 3 + Vite + TypeScript，构建产物已随仓库提供。修改界面时，在另一个终端从仓库根目录执行（建议 Node.js 22.12+）：
 

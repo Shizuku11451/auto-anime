@@ -2,6 +2,8 @@
 
 export interface Feed {
   target_title: string
+  /* 订阅保存位置：番剧根目录，归档时在其下按番剧名建立文件夹；空表示默认位置。 */
+  storage_dir: string
   id: number
   name: string
   url: string
@@ -15,6 +17,7 @@ export interface Feed {
 
 export interface FeedInput {
   target_title?: string
+  storage_dir?: string
   name: string
   url: string
   include_words: string
