@@ -42,7 +42,7 @@
 
 ## 内置 qBittorrent
 
-Docker 部署无需填写下载器连接信息。源码运行时需自行安装下载器，程序会为它创建独立配置，不使用桌面客户端的默认配置。
+Docker 部署无需填写下载器连接信息。源码运行时需自行安装下载器，程序会为它创建独立配置，不使用桌面客户端的默认配置。Windows Release `.exe` 不包含 qBittorrent 程序；Windows 上请选择 `direct` 或外部下载器，或者自行安装 qBittorrent 并设置 `QBITTORRENT_PATH`。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |

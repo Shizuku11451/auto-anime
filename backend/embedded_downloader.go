@@ -63,6 +63,9 @@ func embeddedQbitExecutable() (string, error) {
 	}
 	exe, err := exec.LookPath(name)
 	if err != nil {
+		if runtime.GOOS == "windows" && strings.TrimSpace(env("QBITTORRENT_PATH", "")) == "" {
+			return "", fmt.Errorf("Windows Release 程序不包含 qBittorrent；请安装 qBittorrent 并设置 QBITTORRENT_PATH，或改用 direct/外部下载器模式")
+		}
 		return "", fmt.Errorf("找不到 qbittorrent-nox，请使用包含内置下载器的镜像，或设置 QBITTORRENT_PATH")
 	}
 	return exe, nil
