@@ -1,79 +1,68 @@
-# Auto-Anime
+<div align="center">
+  <img src="web/public/logo.svg" alt="Auto-Anime" width="360">
+  <p><strong>面向 NAS 的 RSS 自动追番与媒体库整理服务</strong></p>
+  <p>订阅 RSS · 自动下载 · 识别归档 · 浏览播放</p>
+  <p>
+    <a href="https://github.com/Shizuku11451/auto-anime/actions/workflows/release.yml">构建与发布</a>
+    · <a href="docs/CONFIGURATION.md">配置参考</a>
+    · <a href="LICENSE">MIT License</a>
+  </p>
+</div>
 
-面向 NAS 的 RSS 自动追番服务。使用 Go + SQLite，提供中文 Web 界面，通过 Docker 部署，镜像内置 qBittorrent。
+Auto-Anime 把追番过程中重复的工作交给服务完成：从 RSS 或搜索结果订阅资源，按规则过滤并交给下载器，下载完成后整理成媒体服务器可以直接识别的目录、NFO 和封面。
 
-**订阅 RSS → 识别与过滤 → 自动下载 → 整理到媒体库**
+## 适合什么场景
 
-## 功能
+- 想在 NAS 上长期订阅番剧，不想手动盯 RSS 和搬运文件。
+- 使用飞牛影视、Emby、Jellyfin 等媒体服务器管理本地收藏。
+- 需要一个中文、手机可用，并且能在浏览器里查看下载状态的管理界面。
 
-- **找番与订阅**：内置 ACG.RIP、蜜柑计划、动漫花园搜索，支持 RSS / Atom、OPML 导入、关键词过滤与定时同步。
-- **下载与跟踪**：支持内置 qBittorrent、HTTP(S) 直链及外部 Aria2 / qBittorrent / Transmission，展示进度与失败原因，重启后恢复任务跟踪。
-- **下载控制**：在「最近条目」调整并发数量，单条或批量暂停、继续任务，按「已暂停」筛选查看。
-- **番剧库管理**：按番剧、季、集整理资源，支持多来源归并、Bangumi 封面、评分与简介展示、手动绑定与识别纠错。
-- **媒体库归档**：生成标准季集目录、NFO 与本地封面，供飞牛影视、Emby、Jellyfin 等媒体服务器读取。
-- **网页管理**：首次设置向导、手机适配、亮暗主题、内置播放器、订阅备份与 Webhook 通知。
-- **版本更新**：启动后自动检查新版本，侧边栏提醒并展示更新内容，可一键更新并自动重启；Docker 部署同样适用。
+## 功能一览
+
+| 订阅与发现 | 下载与归档 | 管理体验 |
+| --- | --- | --- |
+| ACG.RIP、蜜柑计划、动漫花园搜索 | 内置 qBittorrent（Docker） | 首次设置向导 |
+| RSS / Atom、OPML 导入 | 直链、Aria2、qBittorrent、Transmission | 手机适配与亮暗主题 |
+| 包含 / 排除关键词与定时同步 | 自动识别番剧、季、集并整理文件 | 内置播放器与断点续播 |
+| 资源去重、可用性检测 | NFO、封面和标准 Season 目录 | 备份、Webhook 与版本更新 |
 
 ## Docker 部署
 
-准备好 Docker 和 Docker Compose，获取源码：
+需要 Docker 和 Docker Compose。默认数据目录为当前仓库下的 `docker-data/`，会持久化数据库、下载器状态、源文件和封面。
 
 ```bash
 git clone https://github.com/Shizuku11451/auto-anime.git
 cd auto-anime
+docker compose up -d --build
 ```
 
-> 仓库曾用名 `sssshj114/auto-anime`，旧地址会重定向到新仓库；已克隆的本地副本无需改动。
+打开 `http://NAS地址:8000`，按设置向导创建账户。Docker 模式默认使用内置 qBittorrent，不需要填写下载器地址或密码。
 
-默认将当前目录的 `./docker-data` 挂载到容器 `/data`。该目录与本地开发写入的 `data/`、`backend/data/` 刻意分开，避免本机调试留下的数据库被挂进容器。在 [docker-compose.yml](docker-compose.yml) 中改为你的 NAS 数据目录，并确保可写，例如：
+部署到 NAS 时，把 `docker-compose.yml` 里的数据卷改成 NAS 上的持久化目录，例如：
 
 ```yaml
 volumes:
   - /volume1/docker/auto-anime:/data
 ```
 
-启动服务：
-
-```bash
-docker compose up -d --build
-```
-
-浏览器访问 `http://NAS地址:8000`，按向导设置管理员账户，下载方式保留「内置 qBittorrent」即可，无需填写下载器地址或凭据。
-
 | 端口 | 用途 |
 | --- | --- |
-| `8000/TCP` | Auto-Anime 管理页面 |
-| `6881/TCP + UDP` | BT 下载与 DHT |
+| `8000/tcp` | Web 管理页面 |
+| `6881/tcp`、`6881/udp` | BT / DHT |
 
-内置 qBittorrent 的 WebUI 只监听容器内部，无需映射 `8080`。更改 BT 端口时，须同时调整端口映射和 `QBITTORRENT_BT_PORT`。
+> 使用发布镜像时，可执行 `docker compose pull && docker compose up -d`。本地构建和发布镜像的差异见[配置参考](docs/CONFIGURATION.md)。
 
-镜像在本地构建，需要访问基础镜像仓库、Go 模块源和 Alpine 软件源。运行时页面资源随镜像提供，默认直连；RSS、下载来源和可选 Bangumi 服务仍需能从 NAS 访问。当前尚未完成 Docker / NAS 实机验收。
+## 三步开始追番
 
-## 开始追番
+1. 在「找番」搜索番名，或在「订阅管理」添加 RSS；设置字幕组、关键词和保存位置。
+2. 开启自动下载，在「最近条目」查看队列、进度和失败原因。
+3. 在「番剧库」查看已归档的季集；需要时重新识别、绑定 Bangumi 或迁移文件。
 
-1. 在「找番」搜索番名，选择字幕组与版本，核对过滤规则并预览后保存；也可在「订阅管理」直接添加 RSS。添加订阅时可填写**保存位置**（番剧根目录，例如 `/vol1/1000/番剧`），留空则使用默认位置；两种情况下都会在该目录下按番剧名建立文件夹。
-2. 开启订阅的自动下载，在「最近条目」查看进度。**「已保存」表示文件已完成归档**；提交到下载器后仍需等待下载和归档。
-3. 在「番剧库」查看各季、各集。识别有误时可纠错，封面不对时可重新绑定 Bangumi；绑定成功后卡片显示 Bangumi 评分，点「简介」可展开查看。
+默认每 30 分钟同步一次 RSS，同时下载 2 个任务。两项都可以在网页「设置」或「最近条目 → 下载控制」中调整。
 
-默认每 **30 分钟**同步 RSS，可在「设置」调整；同时下载最多 **2 个任务**，在「最近条目 → 下载控制」调整。网页保存的配置优先于对应环境变量；完整参数与外部下载器接入见 [配置参考](docs/CONFIGURATION.md)。
+## 文件归档
 
-搜索结果受来源的历史范围限制，不代表全集；资源可用性检测仅反映 tracker 汇报。去重按资源 URL，同一集的不同版本可能同时保留。
-
-## 下载控制
-
-「最近条目」顶部集中设置同时下载数量（1–32，默认 2），保存后立即生效，原设置值和重启后的配置均保留。降低数量不打断当前下载；暂停成功、完成归档或失败后释放名额。
-
-- **暂停与继续**：支持内置 / 外部 qBittorrent、Aria2、Transmission 及本程序直链下载。下载器任务保留 ID、已知进度和分片，继续复用原任务并等待名额，期间显示「排队中 · 继续」。下载器自身的队列限制仍然有效。
-- **直链下载**：本程序暂停 HTTP(S) 下载时清理未完成的临时文件，继续时**从头下载**，暂不支持 HTTP Range 续传。完整归档文件保留。
-- **批量控制**：进入「批量管理」并选择条目，按钮显示可操作数量；结果分别报告成功数量和每条失败原因。
-- **重启与同步**：「已暂停」状态在重启、RSS 同步后保留；已点击继续的下载器任务恢复后仍按原任务排队。qBittorrent 异步接收的新任务尚未出现时，会提示稍后重试。
-- **请求未确认**：继续请求超时或返回异常时显示「继续中」并保留名额，后台查询确认下载器的实际状态，避免把已经恢复的下载误报为暂停。
-
-## 文件与播放
-
-默认媒体库位于 `/data/downloads`，对应 NAS 数据目录下的 `downloads/`。可在设置页指定另一个已挂载的「媒体库目录」，也可为单部番设置独立位置。添加订阅时填写的「保存位置」优先级高于媒体库目录，只对该订阅对应的番剧生效，不会改动其它番剧。
-
-识别到集数的单文件资源按以下结构归档（番剧文件夹建立在上面的目录之下，不会把集数直接堆在根目录）：
+默认媒体库位于容器内的 `/data/downloads`。识别到集数的资源会整理为：
 
 ```text
 番剧名/
@@ -81,69 +70,62 @@ docker compose up -d --build
 ├── poster.jpg
 └── Season 01/
     ├── 番剧名 - S01E01.mp4
-    ├── 番剧名 - S01E01.nfo
-    └── 番剧名 - S01E01-info.json
+    └── 番剧名 - S01E01.nfo
 ```
 
-封面匹配成功后生成图片，扩展名随来源格式。BT 多文件资源会多一层集目录，保留附属文件；未识别到集数时保留原始文件名。
+BT 下载器会保留源文件用于做种，再复制一份到媒体库，请预留足够空间。媒体服务器扫描媒体库根目录即可读取本地 NFO 和封面。
 
-- **空间**：下载器完成的文件会复制到媒体库，源文件保留供做种，请预留两份文件的空间。内置下载器源文件位于 `/data/qbittorrent/downloads`。
-- **删除与迁移**：删除订阅或条目默认保留媒体文件；删除内置任务会停止该任务并保留源文件。修改存储位置后，已有文件需通过条目「纠错」勾选迁移。
-- **播放**：已保存条目可在浏览器播放，支持断点续播。格式兼容性取决于浏览器，播放器不转码、不渲染内嵌或外挂字幕；需要这些能力时使用媒体服务器。
+## 下载模式
 
-媒体服务器扫描媒体库根目录，并优先读取本地 NFO 与图片即可。
+Docker 默认使用 `builtin`，适合直接开箱使用。也可以在设置页或环境变量中切换：
 
-## 更新版本
+| 模式 | 适用情况 |
+| --- | --- |
+| `builtin` | 使用镜像内置 qBittorrent，支持磁力和种子 |
+| `direct` | 只由 Auto-Anime 下载 HTTP(S) 文件 |
+| `qbittorrent` | 连接外部 qBittorrent |
+| `aria2` | 连接外部 Aria2 |
+| `transmission` | 连接外部 Transmission |
 
-服务启动后会自动检查新版本（之后每 6 小时一次），有新版本时侧边栏出现提醒，也可在「设置 → 版本更新」手动检查。点开提醒即可看到本次更新内容，点「一键更新」后自动下载、校验并重启到新版本，**数据库与媒体文件不受影响**。
-
-Docker 部署的三种情况：
-
-- **使用发布镜像**：`docker compose pull && docker compose up -d` 拉取新镜像；或直接在页面里一键更新，容器内的程序文件会被替换并在 `/data` 留一份暂存，容器重建后也能自动回到新版本。
-- **本地构建镜像**（`docker compose up -d --build`）：一键更新同样有效，但下次重建镜像会覆盖回旧版本；用 `git pull && docker compose up -d --build` 一起更新源码即可。
-- **`/app` 只读或更新包下载成功却提示未生效**：更新包会在下次启动时替换程序文件，重启容器即可；提示持续出现说明镜像层只读，需要重建容器。
-
-源码运行（版本为 `dev`）只提示有新版本，不自动替换文件。更新源、代理与关闭开关见[配置参考](docs/CONFIGURATION.md#版本检查与一键更新)，维护者发版流程也在同一节。
-
-仓库当前是**私有**仓库，因此版本检查需要凭据：在 `docker-compose.yml` 的 `GITHUB_TOKEN` 填入一个能读取本仓库的令牌（细粒度令牌只需 `Contents: Read-only`），否则检查会返回 404 并在界面提示更新源不可用。令牌只存在你的本机配置里，不会写入日志、状态接口或备份。仓库改为公开后可直接去掉该变量。
-
-## 维护与备份
-
-查看容器健康状态和日志：
-
-```bash
-docker compose ps
-docker compose logs --tail=100 -f
-```
-
-Compose 已配置 `/api/health` 健康检查。更新源码后，再次执行 `docker compose up -d --build` 重建服务。
-
-- **完整备份**：升级前停止容器，备份整个 `/data` 对应的 NAS 目录，其中包含数据库、封面及内置下载器配置、续传数据和源文件。另行挂载的媒体库或外部下载器数据需单独备份；一个数据库只运行一个服务实例。
-- **JSON 备份**：用于恢复订阅、番剧规则、存储设置和元数据绑定，不恢复历史条目、下载任务、媒体文件或封面，不含管理员与下载器凭据或 Webhook 地址。RSS 地址可能含令牌，请妥善保存备份。
-- **旧版升级**：已有数据库保留原下载模式，切换内置 qBittorrent 需在设置页操作。旧内置 Aria2 任务不会自动转入新下载器，处理方式见 [升级说明](docs/CONFIGURATION.md#旧内置-aria2-升级)。
+Windows Release 不包含 qBittorrent；Windows 上请选择 `direct` 或外部下载器。完整环境变量、外部下载目录映射、代理、备份和更新源说明见[配置参考](docs/CONFIGURATION.md)。
 
 ## 本地开发
 
-后端需要 **Go 1.23+**，首次构建需下载 Go 模块。以下为 Bash 示例，数据写入 `backend/data/`：
+后端需要 Go 1.23+。前端使用 Vue 3、Vite 和 TypeScript，建议 Node.js 22.12+。
 
 ```bash
+# 终端 1：启动后端，默认使用 direct 下载模式
 cd backend
-CGO_ENABLED=0 go build -o auto-anime .
-DB_PATH=./data/auto-anime.db DOWNLOAD_DIR=./data/downloads COVERS_DIR=./data/covers ./auto-anime
+go run .
 ```
 
-请在 `backend/` 下运行，源码运行时程序从当前目录读取 `static/`，数据也落在 `backend/data/`。Release 提供的 Windows `.exe` 已内置前端资源，可从快捷方式或任意工作目录启动。Windows Release 不包含 qBittorrent；磁力和种子请使用外部下载器或安装 qBittorrent 后设置 `QBITTORRENT_PATH`。源码运行从仓库根目录执行会把数据写进仓库根的 `data/`，与容器数据目录同级，排查「容器里有没订阅过的番」时容易混淆。源码运行默认使用 `direct` 直链模式；Docker 发布镜像才提供内置 qBittorrent。
+```bash
+# 终端 2：启动前端开发服务器
+cd web
+npm ci
+npm run dev
+```
 
-前端使用 Vue 3 + Vite + TypeScript，构建产物已随仓库提供。修改界面时，在另一个终端从仓库根目录执行（建议 Node.js 22.12+）：
+访问 <http://127.0.0.1:5173/>。前端开发服务器会把 API 转发到本机 `8000` 端口。构建前端资源：
 
 ```bash
 cd web
-npm ci
 npm run build
 ```
 
-产物输出到 `backend/static/`，需与源码一并提交。开发时运行 `npm run dev`，访问 [本地开发页面](http://127.0.0.1:5173/)，API 代理到本机 `8000` 端口的 Go 服务。运行后端和构建 Docker 镜像无需 Node.js。
+构建产物输出到 `backend/static/`。后端数据默认写入 `backend/data/`，与 Docker 的 `docker-data/` 相互独立。
 
----
+## 数据与维护
 
-[MIT License](LICENSE) · 请仅订阅和下载有权访问、保存的内容。
+- 完整备份：停止容器后备份挂载到 `/data` 的整个目录。
+- 网页 JSON 备份：用于恢复订阅、规则、存储设置和元数据绑定，不包含历史条目、下载任务和媒体文件。
+- 健康检查：`GET /api/health`。
+- 查看状态：`docker compose ps`；查看日志：`docker compose logs --tail=100 -f`。
+
+更细的迁移、旧版升级和一键更新说明，请查看[配置参考](docs/CONFIGURATION.md)。
+
+## 许可证
+
+[MIT License](LICENSE)
+
+请仅订阅和下载你有权访问、保存的内容。
