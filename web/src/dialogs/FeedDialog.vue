@@ -315,7 +315,7 @@ async function save() {
         <label for="f-storage">保存位置（番剧根目录）</label>
         <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" placeholder="留空使用默认位置，例如 /vol1/1000/番剧" />
         <p class="field-hint">
-          归档时在此目录下按番剧名建立文件夹，文件按 <code>番剧名/Season 01/番剧名 - S01E01.mkv</code> 存放，不会把集数直接堆在根目录。
+          归档时在此目录下按番剧名建立文件夹，文件按 <code>番剧名/Season 01/番剧名 - S01E01.mkv</code> 存放，不会把集数直接堆在根目录。该目录需已映射进容器，否则文件写进容器内部、NAS 上看不到。
         </p>
         <p v-if="storagePreview" class="field-hint">
           实际保存到：<code>{{ storagePreview }}/</code>

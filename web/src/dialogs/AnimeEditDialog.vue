@@ -7,7 +7,7 @@ import { useDialogs } from '@/stores/dialogs'
 import { useAppStore } from '@/stores/app'
 import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
-import type { AnimeUpdateInput } from '@/api/types'
+import type { AnimeSummary, AnimeUpdateInput } from '@/api/types'
 
 const { state, reloadAnimeDetail } = useDialogs()
 const store = useAppStore()
@@ -66,9 +66,11 @@ async function save() {
   }
   saving.value = true
   try {
-    if (a.value) await http.put('/api/animes/' + a.value.id, body())
-    else await http.post('/api/animes', body())
-    toast.success(a.value ? '番剧已保存' : '番剧已创建')
+    const saved = a.value
+      ? await http.put<AnimeSummary>('/api/animes/' + a.value.id, body())
+      : await http.post<AnimeSummary>('/api/animes', body())
+    if (saved?.storage_warning) toast.error('番剧已保存，但存储位置需要确认：' + saved.storage_warning)
+    else toast.success(a.value ? '番剧已保存' : '番剧已创建')
     s.open = false
     await afterChange()
   } catch (e) {

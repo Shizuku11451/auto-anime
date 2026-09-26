@@ -28,8 +28,11 @@ func subscriptionSeriesRoot(base, title string) string {
 	return path.Join(path.Clean(filepath.ToSlash(base)), safeComponent(title))
 }
 
-// appendWarning 拼接多条给用户看的提示，避免后一条覆盖前一条。
+// appendWarning 拼接多条给用户看的提示，避免后一条覆盖前一条；空提示忽略。
 func appendWarning(existing, message string) string {
+	if message == "" {
+		return existing
+	}
 	if existing == "" {
 		return message
 	}
@@ -77,6 +80,7 @@ func applySubscriptionStorage(base, title, previousBase string) (string, string)
 	if err := checkSeriesRoot(root); err != nil {
 		warning = appendWarning(warning, "保存位置暂时不可用："+err.Error()+"；下载归档时会重试")
 	}
+	warning = appendWarning(warning, unmappedPathWarning(root))
 	return root, warning
 }
 

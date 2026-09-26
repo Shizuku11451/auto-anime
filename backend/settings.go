@@ -506,7 +506,12 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				warning = "设置已保存，但本次清理失败，将在后台重试"
 			}
 		}
-		jsonOut(w, map[string]any{"ok": true, "reauth_required": in.WebPassword != nil && *in.WebPassword != "", "cleaned_anime": cleaned, "cleanup_warning": warning})
+		// 媒体库目录同样可能落在容器未映射的路径上，保存时一并提示。
+		libraryWarning := ""
+		if in.LibraryDir != nil {
+			libraryWarning = unmappedPathWarning(libraryDir)
+		}
+		jsonOut(w, map[string]any{"ok": true, "reauth_required": in.WebPassword != nil && *in.WebPassword != "", "cleaned_anime": cleaned, "cleanup_warning": warning, "library_warning": libraryWarning})
 	default:
 		http.Error(w, "方法不支持", 405)
 	}

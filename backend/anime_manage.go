@@ -58,6 +58,7 @@ func animeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.ID, _ = result.LastInsertId()
+	a.StorageWarning = unmappedPathWarning(a.StorageDir)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)

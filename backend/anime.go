@@ -32,6 +32,8 @@ type animeRow struct {
 	IncludeRules string `json:"include_rules"`
 	ExcludeRules string `json:"exclude_rules"`
 	UpdatedAt    string `json:"updated_at"`
+	// StorageWarning 只用于写入目录的响应：目录没映射进容器时提示，读取接口不返回。
+	StorageWarning string `json:"storage_warning,omitempty"`
 }
 
 // ensureAnime returns the animes row id for a title, creating it on demand so
@@ -559,6 +561,7 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 		http.Error(w, "保存失败", 500)
 		return
 	}
+	updated.StorageWarning = unmappedPathWarning(storageDir)
 	writeTvshowNFO(updated)
 	if bangumiEnabled && (newTitle != a.Title || searchName != a.SearchName) {
 		select {

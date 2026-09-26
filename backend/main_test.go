@@ -81,10 +81,15 @@ func testDatabase(t *testing.T) {
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "state.db"))
 	initDB()
 	oldDir, oldMode, oldURL, oldToken := downloadDir, downloadMode, aria2URL, aria2Token
+	// 挂载检测读取运行环境的 /proc；测试固定用不存在的挂载表，
+	// 需要验证提示的测试自行调用 useMountInfo 替换。
+	oldMountInfo := mountInfoPath
+	mountInfoPath = filepath.Join(t.TempDir(), "mountinfo")
 	downloadDir, downloadMode = t.TempDir(), "direct"
 	t.Cleanup(func() {
 		db.Close()
 		downloadDir, downloadMode, aria2URL, aria2Token = oldDir, oldMode, oldURL, oldToken
+		mountInfoPath = oldMountInfo
 	})
 }
 

@@ -140,13 +140,14 @@ async function save() {
   }
   saving.value = true
   try {
-    const r = await http.put<{ ok: boolean; reauth_required: boolean; cleaned_anime: number; cleanup_warning: string }>('/api/settings', body)
+    const r = await http.put<{ ok: boolean; reauth_required: boolean; cleaned_anime: number; cleanup_warning: string; library_warning: string }>('/api/settings', body)
     if (r.reauth_required) {
       toast.info('密码已更新，请重新登录')
       location.href = '/login'
       return
     }
-    if (r.cleanup_warning) toast.error(r.cleanup_warning)
+    if (r.library_warning) toast.error('设置已保存，但媒体库目录需要确认：' + r.library_warning)
+    else if (r.cleanup_warning) toast.error(r.cleanup_warning)
     else toast.success(r.cleaned_anime > 0 ? `设置已保存，已清理 ${r.cleaned_anime} 部空番剧` : '设置已保存并立即生效')
     await Promise.all([load(), store.refresh()])
   } catch (e) {
@@ -317,7 +318,7 @@ async function save() {
           <label for="st-library">媒体库目录（番剧文件夹的根目录；留空使用下载目录）</label>
           <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" placeholder="例如 /vol1/1000/番剧" />
           <p class="field-hint">
-            媒体服务器扫描该目录即可。当前下载目录：<code>{{ info?.download_dir || '未知' }}</code>
+            媒体服务器扫描该目录即可。目录需已映射进容器（docker-compose.yml 的 volumes），否则文件写进容器内部、NAS 上看不到。当前下载目录：<code>{{ info?.download_dir || '未知' }}</code>
           </p>
         </div>
         <div class="field">

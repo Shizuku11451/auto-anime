@@ -49,11 +49,12 @@ async function save() {
   const season = Number(form.season)
   saving.value = true
   try {
-    await http.put('/api/anime/' + encodeURIComponent(s.title) + '/storage', {
+    const r = await http.put<{ storage_warning?: string }>('/api/anime/' + encodeURIComponent(s.title) + '/storage', {
       storage_dir: form.dir.trim(),
       season: Number.isInteger(season) && season > 0 ? season : 1,
     })
-    toast.success('存储位置已保存，之后归档的集数使用新位置')
+    if (r?.storage_warning) toast.error('存储位置已保存，但需要确认：' + r.storage_warning)
+    else toast.success('存储位置已保存，之后归档的集数使用新位置')
     close()
     await Promise.all([store.refresh(), reloadAnimeDetail()])
   } catch (e) {

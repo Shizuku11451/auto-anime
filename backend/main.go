@@ -666,7 +666,7 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "保存失败", 500)
 			return
 		}
-		jsonOut(w, map[string]bool{"ok": true})
+		jsonOut(w, map[string]any{"ok": true, "storage_warning": unmappedPathWarning(clean)})
 	default:
 		http.Error(w, "方法不支持", 405)
 	}

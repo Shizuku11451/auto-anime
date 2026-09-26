@@ -58,6 +58,8 @@ export interface AnimeSummary {
   include_rules: string
   exclude_rules: string
   updated_at: string
+  /* 仅写入接口返回：目录未映射进容器时的提示。 */
+  storage_warning?: string
   cover: string
   meta_name: string
   meta_name_cn: string
@@ -108,6 +110,8 @@ export interface AnimeDetail {
   include_rules: string
   exclude_rules: string
   updated_at: string
+  /* 仅写入接口返回：目录未映射进容器时的提示。 */
+  storage_warning?: string
   cover: string
   meta_name: string
   meta_name_cn: string

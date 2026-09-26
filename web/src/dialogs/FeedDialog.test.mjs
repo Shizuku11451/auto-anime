@@ -10,14 +10,14 @@ import * as vue from 'vue'
 // responses, including late responses from a request whose signal was aborted.
 const source = readFileSync(new URL('./FeedDialog.vue', import.meta.url), 'utf8')
 const setup = parse(source).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(setup + '\nexport { form, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase };', {
+const compiled = ts.transpileModule(setup + '\nexport { form, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase };', {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 const item = (link, title = link) => ({ title, link, published: '', description: '' })
 const result = (url, seeds = 3) => ({ url, verdict: 'available', seeds })
 
-function dialog(t, initiallyOpen = true, status = null) {
+function dialog(t, initiallyOpen = true, status = null, saveResponse = null) {
   const state = vue.reactive({ feed: { open: initiallyOpen, feed: {
     from_discover: true, name: '测试版本', url: 'https://feed.example/rss', include_words: '',
   } } })
@@ -34,12 +34,24 @@ function dialog(t, initiallyOpen = true, status = null) {
     assert.equal(url, '/api/discover/availability')
     return new Promise((resolve, reject) => requests.push({ ...options, resolve, reject }))
   }
+  const saved = []
+  const http = {
+    post: async (url, options) => {
+      saved.push({ url, body: options })
+      // 保存订阅后会自动同步一次；这里只关心订阅本身的响应。
+      return url.startsWith('/api/sync/') ? { added: 0 } : (saveResponse ?? {})
+    },
+    put: async (url, options) => {
+      saved.push({ url, body: options })
+      return saveResponse ?? {}
+    },
+  }
   const modules = {
     vue,
     '@/stores/dialogs': { useDialogs: () => ({ state }) },
     '@/stores/app': { useAppStore: () => ({ status: statusRef, refresh: async () => {} }) },
-    '@/api/client': { api, http: {}, errorMessage: (e) => e.message },
-    '@/stores/toast': { toast: { error: (message) => errors.push(message) } },
+    '@/api/client': { api, http, errorMessage: (e) => e.message },
+    '@/stores/toast': { toast: { error: (message) => errors.push(message), info: () => {}, success: () => {} } },
   }
   const context = { exports: {}, URL, AbortController, require: (id) => {
     assert.ok(id in modules, `unmocked setup import: ${id}`)
@@ -54,7 +66,7 @@ function dialog(t, initiallyOpen = true, status = null) {
     scope.stop()
   })
   return {
-    state, component, requests, errors, status: statusRef,
+    state, component, requests, errors, saved, status: statusRef,
     setItems: (value) => { items = value },
     failPreview: () => { previewError = new Error('RSS unavailable') },
     async preview(value, include = '') {
@@ -195,4 +207,25 @@ test('打开编辑订阅时回填已保存的保存位置', async (t) => {
   await flush()
   assert.equal(h.component.form.storage, '/vol1/1000/番剧')
   assert.equal(h.component.storagePreview.value, '/vol1/1000/番剧/夏日动画')
+})
+
+test('后端报告保存位置未映射时，订阅仍保存并提示确认', async (t) => {
+  const h = dialog(t, true, null, {
+    ok: true,
+    id: 9,
+    storage_path: '/vol1/1000/番剧/夏日动画',
+    storage_warning: '/vol1/1000/番剧 没有映射进容器：归档会写进容器自身的文件系统',
+  })
+  h.state.feed.feed = { name: '夏日动画', url: 'https://feed.example/rss', target_title: '夏日动画' }
+  h.state.feed.open = true
+  await flush()
+  h.component.form.name = '夏日动画'
+  h.component.form.url = 'https://feed.example/rss'
+  h.component.form.storage = '/vol1/1000/番剧'
+  await vue.nextTick()
+
+  await h.component.save()
+
+  assert.deepEqual(h.saved.map((request) => request.url), ['/api/feeds', '/api/sync/9'])
+  assert.match(h.errors.join('\n'), /保存位置需要确认.*没有映射进容器/s)
 })
