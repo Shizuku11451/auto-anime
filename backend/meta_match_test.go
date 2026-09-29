@@ -83,8 +83,10 @@ func TestCoverLookupRepairsOldBracketedMiss(t *testing.T) {
 		Scan(&title, &season, &name, &source, &cover); err != nil {
 		t.Fatal(err)
 	}
-	if title != bracketedMushokuTitle || season != 0 || name != nameCN || source != "bangumi" || !coverFilePattern.MatchString(cover) {
-		t.Fatalf("matched metadata or original identity changed: %q %d %q %q %q", title, season, name, source, cover)
+	// 资料匹配成功后番剧名会被规范成官方中文名（剥掉季标记），元数据键随之改名。
+	wantTitle := "无职转生 ～到了异世界就拿出真本事～"
+	if title != wantTitle || season != 0 || name != nameCN || source != "bangumi" || !coverFilePattern.MatchString(cover) {
+		t.Fatalf("规范化后的番剧名或资料不符: %q %d %q %q %q", title, season, name, source, cover)
 	}
 	rec := httptest.NewRecorder()
 	animeEntryAPI(rec, httptest.NewRequest("GET", fmt.Sprintf("/api/animes/%d", id), nil))
@@ -94,7 +96,8 @@ func TestCoverLookupRepairsOldBracketedMiss(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil || detail.Cover != coverPath(cover) {
 		t.Fatalf("detail did not expose cached cover: %s (%v)", rec.Body.String(), err)
 	}
-	lookupAndCacheMeta(bracketedMushokuTitle)
+	// 番剧名已规范成官方名，再次查询用新名字验证封面只下载一次。
+	lookupAndCacheMeta(animeTitleByID(t, id))
 	if *imageHits != 1 {
 		t.Fatalf("cover downloaded %d times", *imageHits)
 	}
@@ -273,7 +276,7 @@ func TestMetaSearchNameCanCorrectSeason(t *testing.T) {
 	}
 	lookupAndCacheMeta("测试动画 第二季")
 	var name string
-	if err := db.QueryRow("SELECT name_cn FROM anime_meta WHERE anime_title='测试动画 第二季'").Scan(&name); err != nil || name != searchName {
+	if err := db.QueryRow("SELECT name_cn FROM anime_meta").Scan(&name); err != nil || name != searchName {
 		t.Fatalf("explicit season correction ignored: %q %v", name, err)
 	}
 	aliases := metaLookupAliases(bracketedMushokuTitle, "无职转生")

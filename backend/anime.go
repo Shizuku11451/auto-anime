@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -154,7 +155,8 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id),
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id AND items.status='已保存'),
 		(SELECT COUNT(DISTINCT
-			CAST(CASE WHEN items.season>0 THEN items.season WHEN animes.season>0 THEN animes.season ELSE 1 END AS TEXT) || ':' ||
+			-- 与 resolveSeason 的优先级一致：条目季 > 番剧设置 > 标题解析出的季 > 第 1 季。
+			CAST(CASE WHEN items.season>0 THEN items.season WHEN animes.season>0 THEN animes.season WHEN items.season_auto>0 THEN items.season_auto ELSE 1 END AS TEXT) || ':' ||
 			CASE WHEN trim(items.episode) NOT GLOB '*[^0-9]*' THEN COALESCE(NULLIF(ltrim(trim(items.episode),'0'),''),'0') ELSE trim(items.episode) END)
 		 FROM items WHERE items.anime_id=animes.id AND trim(COALESCE(items.episode,''))!='')
 		FROM animes LEFT JOIN anime_meta ON anime_meta.anime_title=animes.title
@@ -267,6 +269,7 @@ type resourceItem struct {
 	Status        string `json:"status"`
 	Episode       string `json:"episode"`
 	Season        int    `json:"season"`
+	SeasonAuto    int    `json:"season_auto"`
 	Quality       string `json:"quality"`
 	Group         string `json:"fansub_group"`
 	Feed          string `json:"feed_name"`
@@ -303,7 +306,7 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		voices = "[]"
 	}
 	rows, err := db.Query(`SELECT items.id,COALESCE(items.anime_id,0),COALESCE(items.title,''),COALESCE(items.status,'待下载'),COALESCE(items.episode,''),
-		COALESCE(items.season,0),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),
+		COALESCE(items.season,0),COALESCE(items.season_auto,0),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),
 		COALESCE(items.file_path,''),COALESCE(items.link,''),COALESCE(items.manual,0),COALESCE(items.progress,0)
 		FROM items LEFT JOIN feeds ON feeds.id=items.feed_id
 		WHERE items.anime_id=? ORDER BY items.id ASC`, id)
@@ -318,7 +321,7 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	for rows.Next() {
 		var it resourceItem
 		var manual int
-		if err := rows.Scan(&it.ID, &it.AnimeID, &it.Title, &it.Status, &it.Episode, &it.Season, &it.Quality, &it.Group, &it.Feed, &it.FilePath, &it.Link, &manual, &it.Progress); err != nil {
+		if err := rows.Scan(&it.ID, &it.AnimeID, &it.Title, &it.Status, &it.Episode, &it.Season, &it.SeasonAuto, &it.Quality, &it.Group, &it.Feed, &it.FilePath, &it.Link, &manual, &it.Progress); err != nil {
 			http.Error(w, "查询失败", 500)
 			return
 		}
@@ -338,6 +341,10 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		season := it.Season
 		if season < 1 {
 			season = a.Season
+		}
+		if season < 1 {
+			// 标题分析出的季（3期、S3、第三季）决定资源落在哪一季。
+			season = it.SeasonAuto
 		}
 		if season < 1 {
 			season = 1
@@ -508,6 +515,27 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 		}
 		storageDir = clean
 	}
+	// 番剧改名时目录名跟着改，避免番剧名与目录名不一致；只有空目录或只含本应用产物
+	// （poster/tvshow.nfo）时才移动，有媒体内容的目录保持不动、由用户手动迁移。
+	movedFromDir, movedToDir := "", ""
+	if in.StorageDir == nil && newTitle != a.Title {
+		if target := retargetSeriesDirPath(storageDir, a.Title, newTitle); target != "" {
+			if moveSeriesDirIfDisposable(storageDir, target) {
+				movedFromDir, movedToDir, storageDir = storageDir, target, target
+			}
+		}
+	}
+	saved := false
+	if movedFromDir != "" {
+		defer func() {
+			// 保存失败时把目录挪回原名，避免目录与番剧记录不一致。
+			if !saved {
+				if err := os.Rename(movedToDir, movedFromDir); err != nil {
+					log.Printf("番剧目录回滚失败 %q → %q: %v", movedToDir, movedFromDir, err)
+				}
+			}
+		}()
+	}
 	include, exclude := a.IncludeRules, a.ExcludeRules
 	if in.IncludeRules != nil {
 		include = sanitizeText(*in.IncludeRules, rulesMaxLength)
@@ -531,20 +559,9 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 			http.Error(w, "已存在同名番剧", 409)
 			return
 		}
-		for _, update := range []struct {
-			query string
-			args  []any
-		}{
-			{"DELETE FROM anime_meta WHERE anime_title=?", []any{newTitle}},
-			{"UPDATE anime_meta SET anime_title=? WHERE anime_title=?", []any{newTitle, a.Title}},
-			{"UPDATE animes SET title=? WHERE id=?", []any{newTitle, id}},
-			{"UPDATE items SET anime_title=? WHERE anime_id=?", []any{newTitle, id}},
-			{"UPDATE feeds SET target_title=? WHERE target_title=?", []any{newTitle, a.Title}},
-		} {
-			if _, err := tx.Exec(update.query, update.args...); err != nil {
-				http.Error(w, "保存失败，操作已回滚", 500)
-				return
-			}
+		if err := renameAnimeTx(tx, id, a.Title, newTitle); err != nil {
+			http.Error(w, "保存失败，操作已回滚", 500)
+			return
 		}
 	}
 	if _, err := tx.Exec(`UPDATE animes SET search_name=?,season=?,storage_dir=?,include_rules=?,exclude_rules=?,updated_at=? WHERE id=?`,
@@ -556,6 +573,7 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 		http.Error(w, "保存失败", 500)
 		return
 	}
+	saved = true
 	updated, err := getAnime(id)
 	if err != nil {
 		http.Error(w, "保存失败", 500)

@@ -47,7 +47,7 @@ func TestCoverContentHashAndPosterRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	refreshSeriesPoster("测试动画")
-	root, _, _ := archiveTarget("测试动画", "", "", 0)
+	root, _, _ := archiveTarget("测试动画", "", "", 0, 0)
 	if data, err := os.ReadFile(filepath.Join(root, "poster.jpg")); err != nil || string(data) != "legacy-picture" {
 		t.Fatalf("legacy poster: %q %v", data, err)
 	}

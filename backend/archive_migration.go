@@ -29,7 +29,7 @@ func rearchiveSavedItem(id int64, oldPath string, animeID int64, title, episode 
 	if err != nil {
 		return "", err
 	}
-	root, seasonDir, base := archiveTarget(title, episode, m.Title, season)
+	root, seasonDir, base := archiveTarget(title, episode, m.Title, season, m.AutoSeason)
 	finalDir := filepath.Join(root, seasonDir)
 	if err := checkMigrationParents(finalDir); err != nil {
 		return "", err
@@ -59,7 +59,7 @@ func rearchiveSavedItem(id int64, oldPath string, animeID int64, title, episode 
 	}()
 	oldFiles, oldDirs := []string{}, []string{}
 	m.AnimeID, m.AnimeTitle, m.Episode = animeID, title, episode
-	m.Season, m.SavedAt = resolveSeason(title, season), time.Now().UTC().Format(time.RFC3339)
+	m.Season, m.SavedAt = resolveSeason(title, season, m.AutoSeason), time.Now().UTC().Format(time.RFC3339)
 	metaDir, finalBase, newPath := finalDir, base, ""
 	if rel == "" {
 		work := filepath.Join(stage, "media")

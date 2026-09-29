@@ -183,7 +183,7 @@ func TestArchiveTargetUsesLibraryDir(t *testing.T) {
 	t.Cleanup(func() { libraryDir = old })
 	libraryDir = filepath.Join(t.TempDir(), "番剧")
 
-	root, seasonDir, base := archiveTarget("夏日动画", "7", "[组] 夏日动画 [07]", 0)
+	root, seasonDir, base := archiveTarget("夏日动画", "7", "[组] 夏日动画 [07]", 0, 0)
 	if seasonDir != "Season 01" || base != "夏日动画 - S01E07" {
 		t.Fatalf("target names: %q %q", seasonDir, base)
 	}
@@ -196,13 +196,13 @@ func TestArchiveTargetUsesLibraryDir(t *testing.T) {
 	if rec := putSeriesStorage(t, "夏日动画", custom, 2); rec.Code != 200 {
 		t.Fatalf("put storage: %d %s", rec.Code, rec.Body.String())
 	}
-	if root, _, _ = archiveTarget("夏日动画", "7", "x", 0); filepath.ToSlash(root) != filepath.ToSlash(custom) {
+	if root, _, _ = archiveTarget("夏日动画", "7", "x", 0, 0); filepath.ToSlash(root) != filepath.ToSlash(custom) {
 		t.Fatalf("override ignored: %s", root)
 	}
 
 	// 清空媒体库目录后回退 DOWNLOAD_DIR（用没有自定义位置的番剧验证）。
 	libraryDir = ""
-	if root, _, _ = archiveTarget("其他故事", "7", "x", 0); !strings.HasPrefix(filepath.ToSlash(root), filepath.ToSlash(downloadDir)+"/") {
+	if root, _, _ = archiveTarget("其他故事", "7", "x", 0, 0); !strings.HasPrefix(filepath.ToSlash(root), filepath.ToSlash(downloadDir)+"/") {
 		t.Fatalf("fallback to downloadDir failed: %s", root)
 	}
 }
@@ -315,5 +315,83 @@ func TestMigrateAnimeDataUnifiesLegacyRows(t *testing.T) {
 	db.QueryRow("SELECT COUNT(*) FROM items").Scan(&items)
 	if animes != 1 || items != 1 {
 		t.Fatalf("migration not idempotent: animes=%d items=%d", animes, items)
+	}
+}
+
+// 标题里解析出的季（items.season_auto）决定归档目录与 NFO；番剧设置能覆盖它。
+func TestArchiveUsesParsedSeason(t *testing.T) {
+	testDatabase(t)
+	server := mediaServer(t)
+	result, _ := db.Exec("INSERT INTO items(title,link,anime_title,episode,season_auto) VALUES(?,?,?,?,?)",
+		"[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 01", server.URL+"/e01.mp4", "无职转生 3期", "01", 3)
+	id, _ := result.LastInsertId()
+	path, err := fetchArchive(int(id), server.URL+"/e01.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.ToSlash(downloadDir) + "/无职转生 3期/Season 03/无职转生 3期 - S03E01.mp4"
+	if filepath.ToSlash(path) != want {
+		t.Fatalf("archive path: %s", path)
+	}
+	nfo, err := os.ReadFile(filepath.Join(filepath.Dir(path), "无职转生 3期 - S03E01.nfo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(nfo), "<season>3</season>") || !strings.Contains(string(nfo), "<episode>01</episode>") {
+		t.Fatalf("NFO 未写入解析出的季集：%s", nfo)
+	}
+	// 番剧设置指定季号后压过标题解析结果，但用户在该条目上的指定仍然最优先。
+	if _, err := ensureAnime("无职转生 3期"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE animes SET season=5 WHERE title='无职转生 3期'"); err != nil {
+		t.Fatal(err)
+	}
+	result, _ = db.Exec("INSERT INTO items(title,link,anime_title,episode,season_auto) VALUES(?,?,?,?,?)",
+		"[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 02", server.URL+"/e02.mp4", "无职转生 3期", "02", 3)
+	id, _ = result.LastInsertId()
+	path, err = fetchArchive(int(id), server.URL+"/e02.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.ToSlash(path); got != filepath.ToSlash(downloadDir)+"/无职转生 3期/Season 05/无职转生 3期 - S05E02.mp4" {
+		t.Fatalf("番剧设置未压过标题解析季：%s", got)
+	}
+}
+
+// 标题解析结果直接决定归档目录与季集目录：噪声标签不进番剧文件夹名，
+// 英文序数季写进 Season 目录。
+func TestArchiveUsesParsedTitleTags(t *testing.T) {
+	testDatabase(t)
+	server := mediaServer(t)
+	cases := []struct {
+		title string
+		want  string
+	}{
+		{
+			"[Moozzi2] 呪術廻戦 - 01 (BD 1920x1080 x265-10Bit FLAC)",
+			"呪術廻戦/Season 01/呪術廻戦 - S01E01.mp4",
+		},
+		{
+			"[sakurato.sub] Tensei shitara Slime Datta Ken 3rd Season - 02 [1080P][CHS]",
+			"Tensei shitara Slime Datta Ken/Season 03/Tensei shitara Slime Datta Ken - S03E02.mp4",
+		},
+	}
+	for i, c := range cases {
+		info := extractAnimeInfo(c.title)
+		link := fmt.Sprintf("%s/case%d.mp4", server.URL, i)
+		result, err := db.Exec("INSERT INTO items(title,link,anime_title,episode,season_auto) VALUES(?,?,?,?,?)",
+			c.title, link, info.Title, info.Episode, info.Season)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := result.LastInsertId()
+		path, err := fetchArchive(int(id), link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := filepath.ToSlash(downloadDir) + "/" + c.want; filepath.ToSlash(path) != want {
+			t.Fatalf("archive path = %s, want %s", path, want)
+		}
 	}
 }

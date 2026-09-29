@@ -70,7 +70,7 @@ func TestSubscriptionStorageCreatesSeriesFolder(t *testing.T) {
 	if got := archiveRootFor("夏日动画"); !samePath(got, want) {
 		t.Fatalf("归档目录=%q want=%q", got, want)
 	}
-	seriesRoot, seasonDir, fileBase := archiveTarget("夏日动画", "7", "[目标组] 夏日动画 [07] [1080p]", 0)
+	seriesRoot, seasonDir, fileBase := archiveTarget("夏日动画", "7", "[目标组] 夏日动画 [07] [1080p]", 0, 0)
 	if !samePath(seriesRoot, want) || seasonDir != "Season 01" || fileBase != "夏日动画 - S01E07" {
 		t.Fatalf("归档目标=%q %q %q", seriesRoot, seasonDir, fileBase)
 	}

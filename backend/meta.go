@@ -265,7 +265,9 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source, matchK
 		WHERE excluded.source='manual' OR COALESCE(anime_meta.source,'')!='manual'`,
 		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices, matchKey)
 	if err == nil && changed {
+		// 先按旧名字刷新封面，再用官方名规范化番剧名与目录（见 anime_naming.go）。
 		refreshSeriesPoster(animeTitle)
+		standardizeAnimeTitle(animeTitle)
 	}
 	return err
 }

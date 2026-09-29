@@ -17,7 +17,6 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -52,23 +51,6 @@ var listenPort = env("PORT", "8000")
 var webUser = env("WEB_USER", "")
 var webPassword = env("WEB_PASSWORD", "")
 var httpClient = newClient(60 * time.Second)
-var qualityPattern = regexp.MustCompile(`(?i)(2160p|1080p|720p|480p|4k|8k)`)
-var groupPattern = regexp.MustCompile(`^\s*[\[【（(]([^\]】）)]+)[\]】）)]\s*`)
-var separatorPattern = regexp.MustCompile(`\s+[-–—]\s*`)
-
-// Ordered from the most explicit to the most ambiguous episode marker; the
-// first match wins. Season markers like 第三季 or S01 never satisfy the
-// episode suffixes, and 4-digit runs such as 1080 or years never match.
-var episodePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`第\s*([0-9]{1,3})\s*(?:话|集|話)`),
-	regexp.MustCompile(`(?i)(?:^|[\s._\-\[])\s*s[0-9]{1,3}\s*e([0-9]{1,3})(?:[^0-9a-z]|$)`),
-	regexp.MustCompile(`[\[【(]\s*([0-9]{1,3})(?:v[0-9]{1,2})?\s*[\]】)]`),
-	regexp.MustCompile(`(?:^|[\s._-])([0-9]{1,3})(?:v[0-9]{1,2})?(?:\s*(?:话|集|話)|[^0-9a-z]|$)`),
-}
-
-// Season markers (第三季, 3期) are part of the series name, never the episode;
-// they are masked out before episode matching but kept in the title.
-var seasonPattern = regexp.MustCompile(`第\s*[0-9一二三四五六七八九十]{1,3}\s*[季期]|[0-9]{1,2}\s*[季期]`)
 
 type Feed struct {
 	ID          int    `json:"id"`
@@ -240,7 +222,7 @@ func initDB() {
 			}
 		}
 	}
-	for _, col := range []string{"anime_title TEXT DEFAULT ''", "episode TEXT DEFAULT ''", "quality TEXT DEFAULT ''", "fansub_group TEXT DEFAULT ''", "downloader TEXT DEFAULT ''", "task_id TEXT DEFAULT ''", "task_error TEXT DEFAULT ''", "progress INTEGER DEFAULT 0", "anime_id INTEGER DEFAULT 0", "season INTEGER DEFAULT 0", "manual INTEGER DEFAULT 0", "task_submitted_at INTEGER DEFAULT 0", "page_url TEXT DEFAULT ''"} {
+	for _, col := range []string{"anime_title TEXT DEFAULT ''", "episode TEXT DEFAULT ''", "quality TEXT DEFAULT ''", "fansub_group TEXT DEFAULT ''", "downloader TEXT DEFAULT ''", "task_id TEXT DEFAULT ''", "task_error TEXT DEFAULT ''", "progress INTEGER DEFAULT 0", "anime_id INTEGER DEFAULT 0", "season INTEGER DEFAULT 0", "season_auto INTEGER DEFAULT 0", "manual INTEGER DEFAULT 0", "task_submitted_at INTEGER DEFAULT 0", "page_url TEXT DEFAULT ''"} {
 		name := strings.Fields(col)[0]
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('items') WHERE name=?", name).Scan(&count)
@@ -283,32 +265,6 @@ func allowed(t, in, ex string) bool {
 }
 
 type feedItem struct{ Title, Link, Pub, Description, PageURL string }
-
-type animeInfo struct{ Title, Episode, Quality, Group string }
-
-func extractAnimeInfo(raw string) animeInfo {
-	info := animeInfo{Title: strings.TrimSpace(raw)}
-	clean := strings.TrimSpace(raw)
-	if m := groupPattern.FindStringSubmatch(clean); len(m) > 1 {
-		info.Group = strings.TrimSpace(m[1])
-		clean = strings.TrimSpace(clean[len(m[0]):])
-	}
-	if m := qualityPattern.FindString(clean); m != "" {
-		info.Quality = strings.ToUpper(m)
-	}
-	// Season markers stay in the title but must never become the episode.
-	scoped := seasonPattern.ReplaceAllString(clean, " ")
-	for _, pattern := range episodePatterns {
-		if m := pattern.FindStringSubmatch(scoped); len(m) > 1 {
-			info.Episode = m[1]
-			clean = strings.TrimSpace(strings.Replace(clean, m[0], " ", 1))
-			break
-		}
-	}
-	clean = separatorPattern.ReplaceAllString(clean, " ")
-	info.Title = strings.Trim(strings.TrimSpace(clean), "- _·")
-	return info
-}
 
 func parseFeed(r io.Reader) ([]feedItem, error) {
 	page, err := decodeFeedPage(r)
@@ -375,7 +331,9 @@ func syncFeed(id int) (int, error) {
 			animeID, _ = ensureAnime(animeTitle)
 			ownSeries = true
 		}
-		r, e := db.Exec("INSERT OR IGNORE INTO items(feed_id,title,link,published,description,anime_title,anime_id,episode,quality,fansub_group,created_at,page_url) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", id, it.Title, it.Link, it.Pub, it.Description, animeTitle, animeID, info.Episode, info.Quality, info.Group, time.Now().Format(time.RFC3339), it.PageURL)
+		// 标题里解析出的季写进 season_auto：items.season 留给用户（0 = 跟随番剧设置），
+		// 归档时季号优先级见 resolveSeason。
+		r, e := db.Exec("INSERT OR IGNORE INTO items(feed_id,title,link,published,description,anime_title,anime_id,episode,quality,fansub_group,season_auto,created_at,page_url) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", id, it.Title, it.Link, it.Pub, it.Description, animeTitle, animeID, info.Episode, info.Quality, info.Group, info.Season, time.Now().Format(time.RFC3339), it.PageURL)
 		if e != nil {
 			// Keep processing the remaining entries, but make sure the
 			// failure is visible on the feed and returned to the caller.
@@ -808,7 +766,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "备份失败", 500)
 		return
 	}
-	rows, err := tx.QueryContext(r.Context(), "SELECT id,COALESCE(feed_id,0),COALESCE(title,''),COALESCE(link,''),COALESCE(published,''),COALESCE(description,''),COALESCE(status,'待下载'),COALESCE(file_path,''),COALESCE(anime_title,''),COALESCE(episode,''),COALESCE(quality,''),COALESCE(fansub_group,''),COALESCE(anime_id,0),COALESCE(season,0),COALESCE(created_at,'') FROM items ORDER BY id")
+	rows, err := tx.QueryContext(r.Context(), "SELECT id,COALESCE(feed_id,0),COALESCE(title,''),COALESCE(link,''),COALESCE(published,''),COALESCE(description,''),COALESCE(status,'待下载'),COALESCE(file_path,''),COALESCE(anime_title,''),COALESCE(episode,''),COALESCE(quality,''),COALESCE(fansub_group,''),COALESCE(anime_id,0),COALESCE(season,0),COALESCE(season_auto,0),COALESCE(created_at,'') FROM items ORDER BY id")
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
@@ -818,12 +776,12 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		var id, feedID int
 		var title, link, published, description, status, filePath, animeTitle, episode, quality, group, created string
 		var animeID int64
-		var season int
-		if err = rows.Scan(&id, &feedID, &title, &link, &published, &description, &status, &filePath, &animeTitle, &episode, &quality, &group, &animeID, &season, &created); err != nil {
+		var season, seasonAuto int
+		if err = rows.Scan(&id, &feedID, &title, &link, &published, &description, &status, &filePath, &animeTitle, &episode, &quality, &group, &animeID, &season, &seasonAuto, &created); err != nil {
 			http.Error(w, "备份失败", 500)
 			return
 		}
-		data.Items = append(data.Items, map[string]any{"id": id, "feed_id": feedID, "title": title, "link": link, "published": published, "description": description, "status": status, "file_path": filePath, "anime_title": animeTitle, "anime_id": animeID, "season": season, "episode": episode, "quality": quality, "fansub_group": group, "created_at": created})
+		data.Items = append(data.Items, map[string]any{"id": id, "feed_id": feedID, "title": title, "link": link, "published": published, "description": description, "status": status, "file_path": filePath, "anime_title": animeTitle, "anime_id": animeID, "season": season, "season_auto": seasonAuto, "episode": episode, "quality": quality, "fansub_group": group, "created_at": created})
 	}
 	err = rows.Err()
 	rows.Close()
@@ -1137,7 +1095,7 @@ func items(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "items.status=?")
 		args = append(args, status)
 	}
-	query := "SELECT items.id,COALESCE(items.title,''),COALESCE(items.link,''),COALESCE(items.published,''),COALESCE(items.status,'待下载'),COALESCE(items.anime_title,''),COALESCE(items.episode,''),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),COALESCE(items.downloader,''),COALESCE(items.task_error,''),COALESCE(items.progress,0),COALESCE(items.file_path,''),COALESCE(items.anime_id,0),COALESCE(items.season,0),COALESCE(items.manual,0),COALESCE(anime_meta.cover_file,'') FROM items LEFT JOIN feeds ON feeds.id=items.feed_id LEFT JOIN anime_meta ON anime_meta.anime_title=items.anime_title"
+	query := "SELECT items.id,COALESCE(items.title,''),COALESCE(items.link,''),COALESCE(items.published,''),COALESCE(items.status,'待下载'),COALESCE(items.anime_title,''),COALESCE(items.episode,''),COALESCE(items.quality,''),COALESCE(items.fansub_group,''),COALESCE(feeds.name,''),COALESCE(items.downloader,''),COALESCE(items.task_error,''),COALESCE(items.progress,0),COALESCE(items.file_path,''),COALESCE(items.anime_id,0),COALESCE(items.season,0),COALESCE(items.season_auto,0),COALESCE(items.manual,0),COALESCE(anime_meta.cover_file,'') FROM items LEFT JOIN feeds ON feeds.id=items.feed_id LEFT JOIN anime_meta ON anime_meta.anime_title=items.anime_title"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -1166,6 +1124,7 @@ func items(w http.ResponseWriter, r *http.Request) {
 		FilePath      string `json:"file_path"`
 		AnimeID       int64  `json:"anime_id"`
 		Season        int    `json:"season"`
+		SeasonAuto    int    `json:"season_auto"`
 		Manual        bool   `json:"manual"`
 		CoverFile     string `json:"-"`
 		Cover         string `json:"cover"`
@@ -1174,7 +1133,7 @@ func items(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var x item
 		var manual int
-		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.FilePath, &x.AnimeID, &x.Season, &manual, &x.CoverFile)
+		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.FilePath, &x.AnimeID, &x.Season, &x.SeasonAuto, &manual, &x.CoverFile)
 		x.DownloadSpeed, x.Progress = transferSnapshot(x.ID, x.Status, x.Progress)
 		x.Manual = manual == 1
 		if x.CoverFile != "" {

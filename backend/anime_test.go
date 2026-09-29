@@ -29,6 +29,16 @@ func animeIDByTitle(t *testing.T, title string) int64 {
 	return id
 }
 
+// animeTitleByID 读当前番剧名：资料匹配后番剧名会被规范成官方名，测试需要跟着走。
+func animeTitleByID(t *testing.T, id int64) string {
+	t.Helper()
+	var title string
+	if err := db.QueryRow("SELECT title FROM animes WHERE id=?", id).Scan(&title); err != nil {
+		t.Fatalf("anime %d missing: %v", id, err)
+	}
+	return title
+}
+
 func TestSyncMergesItemsByAnimeRules(t *testing.T) {
 	testDatabase(t)
 	var server *httptest.Server
@@ -50,7 +60,9 @@ func TestSyncMergesItemsByAnimeRules(t *testing.T) {
 		t.Fatalf("first sync: %d %v", n, err)
 	}
 	// 建立番剧 + 多来源规则，"应用规则"应把两个字幕组的星海物语都归并进来。
-	if _, err := db.Exec(`INSERT INTO animes(title,include_rules,exclude_rules) VALUES('星海物语','星海物语','')`); err != nil {
+	// 标题分析已把两个字幕组的识别名归一成同一部番，这里只补上多来源归并规则。
+	if _, err := db.Exec(`INSERT INTO animes(title,include_rules,exclude_rules) VALUES('星海物语','星海物语','')
+		ON CONFLICT(title) DO UPDATE SET include_rules=excluded.include_rules`); err != nil {
 		t.Fatal(err)
 	}
 	id := animeIDByTitle(t, "星海物语")
@@ -205,6 +217,57 @@ func TestAnimeListAndDetailGrouping(t *testing.T) {
 	}
 	if len(detail.Sources) != 0 {
 		t.Fatalf("sources should skip empty feed names: %v", detail.Sources)
+	}
+}
+
+// 标题解析出的季（items.season_auto）既进详情页分组，也进番剧卡片的集数统计，
+// 两边口径必须一致：解析出的季不能被算成第 1 季。
+func TestAnimeListEpisodeCountUsesParsedSeason(t *testing.T) {
+	testDatabase(t)
+	if _, err := db.Exec(`INSERT INTO animes(title,season) VALUES('季番',0)`); err != nil {
+		t.Fatal(err)
+	}
+	id := animeIDByTitle(t, "季番")
+	for _, it := range []struct {
+		link, ep string
+		auto     int
+	}{
+		{"https://example.test/s1e01", "01", 1},
+		{"https://example.test/s2e01", "01", 2},
+		{"https://example.test/s2e02", "02", 2},
+	} {
+		if _, err := db.Exec(`INSERT INTO items(title,link,anime_title,anime_id,episode,season_auto,status)
+			VALUES('x',?,'季番',?,?,?,'已保存')`, it.link, id, it.ep, it.auto); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	animesAPI(rec, httptest.NewRequest("GET", "/api/animes", nil))
+	if rec.Code != 200 {
+		t.Fatalf("animes list: %d", rec.Code)
+	}
+	var list []struct {
+		Epis int `json:"episode_count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || len(list) != 1 {
+		t.Fatalf("list payload: %s %v", rec.Body.String(), err)
+	}
+	// 第 1 季第 1 集 + 第 2 季两集：三个不同条目，不能被并成一季里的重复集。
+	if list[0].Epis != 3 {
+		t.Fatalf("episode_count = %d, want 3", list[0].Epis)
+	}
+	rec = httptest.NewRecorder()
+	animeEntryAPI(rec, httptest.NewRequest("GET", fmt.Sprintf("/api/animes/%d", id), nil))
+	var detail struct {
+		Seasons []struct {
+			Season int `json:"season"`
+		} `json:"seasons"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Seasons) != 2 || detail.Seasons[0].Season != 1 || detail.Seasons[1].Season != 2 {
+		t.Fatalf("detail seasons: %+v", detail.Seasons)
 	}
 }
 

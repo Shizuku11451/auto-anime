@@ -144,7 +144,7 @@ func TestMikanSubjectLinkPrecedesTextSearch(t *testing.T) {
 			<a href="/Home/Bangumi/123#episodes">重复链接</a>`,
 		seriesHTML: mikanTestSeriesHTML + `<a href="//bgm.tv/subject/4242?from=mikan">同一条目</a>`, searchHit: true,
 	})
-	seedMikanAnime(t)
+	seedID := seedMikanAnime(t)
 	lookupAndCacheMeta("测试动画")
 	var id, binding int64
 	var source, key string
@@ -155,7 +155,8 @@ func TestMikanSubjectLinkPrecedesTextSearch(t *testing.T) {
 	if id != 4242 || source != "bangumi" || binding != 0 || key != "mikan-link:"+metaLookupKey("测试动画", "") {
 		t.Fatalf("wrong exact match: id=%d source=%q key=%q binding=%d", id, source, key, binding)
 	}
-	lookupAndCacheMeta("测试动画")
+	// 第二次查询用规范化后的番剧名：缓存命中就不该再发请求。
+	lookupAndCacheMeta(animeTitleByID(t, seedID))
 	if counts.pages.Load() != 2 || counts.subjects.Load() != 1 || counts.searches.Load() != 0 {
 		t.Fatalf("request budget/priority: pages=%d subjects=%d searches=%d", counts.pages.Load(), counts.subjects.Load(), counts.searches.Load())
 	}
@@ -242,7 +243,7 @@ func TestMikanSkippedForSearchNameAndKnownSubject(t *testing.T) {
 			lookupAndCacheMeta("测试动画")
 			var subjectID int
 			var source string
-			if err := db.QueryRow(`SELECT subject_id,source FROM anime_meta WHERE anime_title='测试动画'`).Scan(&subjectID, &source); err != nil {
+			if err := db.QueryRow(`SELECT subject_id,source FROM anime_meta`).Scan(&subjectID, &source); err != nil {
 				t.Fatal(err)
 			}
 			if subjectID != wantID || source != wantSource || counts.pages.Load() != 0 {
@@ -268,7 +269,7 @@ func TestMikanLookupRetriesV1NegativeCache(t *testing.T) {
 		t.Fatal("fresh v1 miss was not queued after matcher upgrade")
 	}
 	var source string
-	if err := db.QueryRow(`SELECT source FROM anime_meta WHERE anime_title='测试动画'`).Scan(&source); err != nil || source != "bangumi" {
+	if err := db.QueryRow(`SELECT source FROM anime_meta`).Scan(&source); err != nil || source != "bangumi" {
 		t.Fatalf("legacy negative not repaired: %q %v", source, err)
 	}
 }

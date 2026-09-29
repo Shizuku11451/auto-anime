@@ -93,7 +93,7 @@ func TestMigrationFailurePreservesSourceAndDatabase(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			root, season, base := archiveTarget("Target", "07", "unused", 2)
+			root, season, base := archiveTarget("Target", "07", "unused", 2, 0)
 			conflict := filepath.Join(root, season, base+"-info.json")
 			if failure == "metadata" {
 				if err := os.MkdirAll(conflict, 0755); err != nil {
@@ -137,7 +137,7 @@ func TestNestedMigrationRetainsAllFilesAcrossConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, season, base := archiveTarget("Target", "07", "unused", 2)
+	root, season, base := archiveTarget("Target", "07", "unused", 2, 0)
 	conflict := filepath.Join(root, season, base)
 	if err := os.MkdirAll(conflict, 0755); err != nil {
 		t.Fatal(err)

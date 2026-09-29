@@ -15,6 +15,13 @@ const item = computed(() => s.item)
 
 const form = reactive({ animeId: '', newTitle: '', season: 0, episode: '', move: false })
 const saving = ref(false)
+
+/** 标题分析解析出的季（3期 / S3 / 第三季）；解析到时提示，季号填 0 也可以用它归档。 */
+const parsedSeason = computed(() => {
+  const it = item.value
+  if (!it || !('season_auto' in it)) return 0
+  return it.season_auto > 0 ? it.season_auto : 0
+})
 const msg = ref('')
 
 /** 下拉里保证当前番剧在列表内（即使番剧库列表尚未刷新） */
@@ -93,6 +100,9 @@ async function save() {
         <div class="field">
           <label for="cd-season">季号（0 = 跟随番剧设置）</label>
           <input id="cd-season" v-model.number="form.season" type="number" min="0" max="999" />
+          <p v-if="parsedSeason" class="field-hint">
+            标题识别为第 {{ parsedSeason }} 季；季号填 0 时按「条目 > 番剧设置 > 标题识别」取季。
+          </p>
         </div>
         <div class="field">
           <label for="cd-episode">集数（留空表示无集数资源）</label>

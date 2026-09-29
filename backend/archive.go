@@ -32,12 +32,14 @@ type archiveMetadata struct {
 	AnimeTitle  string `json:"anime_title"`
 	AnimeID     int64  `json:"anime_id"`
 	Season      int    `json:"season"`
-	Episode     string `json:"episode"`
-	Quality     string `json:"quality"`
-	Group       string `json:"fansub_group"`
-	File        string `json:"file"`
-	Size        int64  `json:"size_bytes"`
-	SavedAt     string `json:"saved_at"`
+	// AutoSeason 是标题分析出的季（items.season_auto）；用户没在条目上指定季时用它归档。
+	AutoSeason int    `json:"-"`
+	Episode    string `json:"episode"`
+	Quality    string `json:"quality"`
+	Group      string `json:"fansub_group"`
+	File       string `json:"file"`
+	Size       int64  `json:"size_bytes"`
+	SavedAt    string `json:"saved_at"`
 }
 type episodeNFO struct {
 	XMLName   xml.Name `xml:"episodedetails"`
@@ -73,9 +75,9 @@ var errTorrentResource = errors.New("资源是种子文件")
 func archiveInfo(id int) (archiveMetadata, error) {
 	m := archiveMetadata{ID: id}
 	err := db.QueryRow(`SELECT COALESCE(items.feed_id,0),COALESCE(feeds.name,''),items.title,
-        COALESCE(published,''),COALESCE(description,''),COALESCE(anime_title,''),COALESCE(items.anime_id,0),COALESCE(items.season,0),COALESCE(episode,''),COALESCE(quality,''),COALESCE(fansub_group,'')
+        COALESCE(published,''),COALESCE(description,''),COALESCE(anime_title,''),COALESCE(items.anime_id,0),COALESCE(items.season,0),COALESCE(items.season_auto,0),COALESCE(episode,''),COALESCE(quality,''),COALESCE(fansub_group,'')
         FROM items LEFT JOIN feeds ON feeds.id=items.feed_id WHERE items.id=?`, id).
-		Scan(&m.FeedID, &m.FeedName, &m.Title, &m.Published, &m.Description, &m.AnimeTitle, &m.AnimeID, &m.Season, &m.Episode, &m.Quality, &m.Group)
+		Scan(&m.FeedID, &m.FeedName, &m.Title, &m.Published, &m.Description, &m.AnimeTitle, &m.AnimeID, &m.Season, &m.AutoSeason, &m.Episode, &m.Quality, &m.Group)
 	return m, err
 }
 
@@ -138,14 +140,20 @@ func queryAnimeStorage(animeTitle string) (dir string, season int, ok bool) {
 	return dir, season, err == nil
 }
 
-// resolveSeason picks the effective season: an explicit item override wins,
-// then the series setting, then Season 1.
-func resolveSeason(animeTitle string, override int) int {
-	if override >= 1 && override <= 999 {
-		return override
+// resolveSeason 选出生效的季号，优先级：
+//  1. 用户在条目上显式指定的季（items.season，0 表示跟随番剧设置）；
+//  2. 番剧设置里的季（animes.season）；
+//  3. 标题分析解析出的季（items.season_auto，例如「3期」「S3」「第三季」）；
+//  4. 第 1 季。
+func resolveSeason(animeTitle string, itemSeason, autoSeason int) int {
+	if itemSeason >= 1 && itemSeason <= 999 {
+		return itemSeason
 	}
 	if _, season, ok := queryAnimeStorage(animeTitle); ok && season >= 1 && season <= 999 {
 		return season
+	}
+	if autoSeason >= 1 && autoSeason <= 999 {
+		return autoSeason
 	}
 	return 1
 }
@@ -177,12 +185,12 @@ func archiveRootFor(series string) string {
 // episodes, and the media-library main name "番剧名 - S01E07". Resources
 // without a recognized episode stay in the series root under their original
 // name so media servers do not mistake them for specials.
-func archiveTarget(animeTitle, episode, rawTitle string, seasonOverride int) (seriesRoot, seasonDir, base string) {
+func archiveTarget(animeTitle, episode, rawTitle string, itemSeason, autoSeason int) (seriesRoot, seasonDir, base string) {
 	series := strings.TrimSpace(animeTitle)
 	if series == "" {
 		series = "未分类番剧"
 	}
-	season := resolveSeason(series, seasonOverride)
+	season := resolveSeason(series, itemSeason, autoSeason)
 	seriesRoot = archiveRootFor(series)
 	ep := strings.TrimSpace(episode)
 	if ep == "" {
@@ -298,7 +306,7 @@ func writeTvshowNFO(a *animeRow) {
 	if a == nil || strings.TrimSpace(a.Title) == "" {
 		return
 	}
-	seriesRoot, _, _ := archiveTarget(a.Title, "", "", 0)
+	seriesRoot, _, _ := archiveTarget(a.Title, "", "", 0, 0)
 	var nameCN string
 	var bangumiID int64
 	db.QueryRow(`SELECT COALESCE(animes.bangumi_id,0),COALESCE(anime_meta.name_cn,'') FROM animes
@@ -332,7 +340,7 @@ func refreshSeriesPoster(animeTitle string) {
 	if strings.TrimSpace(animeTitle) == "" {
 		return
 	}
-	seriesRoot, _, _ := archiveTarget(animeTitle, "", "", 0)
+	seriesRoot, _, _ := archiveTarget(animeTitle, "", "", 0, 0)
 	var coverFile string
 	db.QueryRow(`SELECT COALESCE(cover_file,'') FROM anime_meta WHERE anime_title=?`, animeTitle).Scan(&coverFile)
 	coverFile = strings.TrimSpace(coverFile)
@@ -370,7 +378,7 @@ func saveArchive(m archiveMetadata, res *http.Response) (string, error) {
 }
 
 func saveArchiveContext(ctx context.Context, m archiveMetadata, res *http.Response) (string, error) {
-	m.Season = resolveSeason(m.AnimeTitle, m.Season)
+	m.Season = resolveSeason(m.AnimeTitle, m.Season, m.AutoSeason)
 	if res.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("资源返回 HTTP %d", res.StatusCode)
 	}
@@ -381,7 +389,7 @@ func saveArchiveContext(ctx context.Context, m archiveMetadata, res *http.Respon
 	if ext == ".torrent" {
 		return "", errTorrentResource
 	}
-	seriesRoot, seasonDir, base := archiveTarget(m.AnimeTitle, m.Episode, m.Title, m.Season)
+	seriesRoot, seasonDir, base := archiveTarget(m.AnimeTitle, m.Episode, m.Title, m.Season, m.AutoSeason)
 	if err := checkSeriesRoot(seriesRoot); err != nil {
 		return "", err
 	}
@@ -517,7 +525,7 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m.Season = resolveSeason(m.AnimeTitle, m.Season)
+	m.Season = resolveSeason(m.AnimeTitle, m.Season, m.AutoSeason)
 	for _, f := range files {
 		if safeRelPath(f.Rel) == "" {
 			return "", fmt.Errorf("文件名无效：%s", f.Rel)
@@ -529,7 +537,7 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 			return "", fmt.Errorf("下载器文件不可读：%s", f.Src)
 		}
 	}
-	seriesRoot, seasonDir, base := archiveTarget(m.AnimeTitle, m.Episode, m.Title, m.Season)
+	seriesRoot, seasonDir, base := archiveTarget(m.AnimeTitle, m.Episode, m.Title, m.Season, m.AutoSeason)
 	if err := checkSeriesRoot(seriesRoot); err != nil {
 		return "", err
 	}

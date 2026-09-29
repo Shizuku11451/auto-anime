@@ -209,7 +209,8 @@ func TestAutomaticDownloadAndDeduplication(t *testing.T) {
 		t.Fatalf("download bytes: %q %v", data, err)
 	}
 	// 无识别集数的资源归档在番剧根目录，文件名保留原始标题。
-	if want := filepath.Join(downloadDir, "动画 1080p 简中", "动画 1080p 简中.mp4"); filepath.ToSlash(path) != filepath.ToSlash(want) {
+	// 番剧文件夹用清理掉技术标签后的识别名，文件名仍保留原始标题。
+	if want := filepath.Join(downloadDir, "动画", "动画 1080p 简中.mp4"); filepath.ToSlash(path) != filepath.ToSlash(want) {
 		t.Fatalf("archive layout: %s, want %s", path, want)
 	}
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
@@ -316,7 +317,7 @@ func TestAllowedKeywords(t *testing.T) {
 
 func TestExtractAnimeInfo(t *testing.T) {
 	info := extractAnimeInfo("[字幕组] 夏日番外篇 - 03 [1080p]")
-	if info.Group != "字幕组" || info.Episode != "03" || info.Quality != "1080P" || info.Title != "夏日番外篇 [1080p]" {
+	if info.Group != "字幕组" || info.Episode != "03" || info.Quality != "1080P" || info.Title != "夏日番外篇" {
 		t.Fatalf("unexpected info: %+v", info)
 	}
 	cases := []struct{ title, episode string }{

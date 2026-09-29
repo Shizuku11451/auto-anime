@@ -44,6 +44,8 @@ export interface Item {
   file_path: string
   anime_id: number
   season: number
+  // season_auto 是标题分析解析出的季（3期 / S3 / 第三季），用户没在条目上指定季号时用它归档。
+  season_auto: number
   manual: boolean
   cover: string
 }
@@ -79,6 +81,7 @@ export interface ResourceItem {
   status: string
   episode: string
   season: number
+  season_auto: number
   quality: string
   fansub_group: string
   feed_name: string

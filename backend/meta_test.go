@@ -352,7 +352,7 @@ func TestSyncTriggersMetaEnqueueWithoutBlocking(t *testing.T) {
 	}
 	select {
 	case title := <-metaQueue:
-		if title != "测试动画 [1080p]" {
+		if title != "测试动画" {
 			t.Fatalf("queued title: %q", title)
 		}
 	case <-time.After(time.Second):

@@ -47,7 +47,7 @@ func TestAnimeRematchClearsAndQueues(t *testing.T) {
 		t.Fatal(err)
 	}
 	refreshSeriesPoster(before.Title)
-	root, _, _ := archiveTarget(before.Title, "", "", 0)
+	root, _, _ := archiveTarget(before.Title, "", "", 0, 0)
 	media := filepath.Join(root, "episode.mp4")
 	if err := os.WriteFile(media, []byte("preserve-media"), 0644); err != nil {
 		t.Fatal(err)
