@@ -23,7 +23,10 @@ import (
 // a slow or unreachable metadata source never blocks syncing or downloading.
 var bangumiAPI = strings.TrimRight(env("BANGUMI_API", "https://api.bgm.tv"), "/")
 var bangumiEnabled = env("BANGUMI_ENABLED", "true") == "true"
-var coversDir = env("COVERS_DIR", "/data/covers")
+
+// 封面缓存默认放在数据库同级（与内置下载器的数据目录同一约定），Windows 本机因此
+// 跟着数据库落到程序同级的 data\，而不是盘根的 C:\data。
+var coversDir = env("COVERS_DIR", filepath.Join(filepath.Dir(env("DB_PATH", defaultDBPath())), "covers"))
 var metaClient = newClient(15 * time.Second)
 var metaQueue = make(chan string, 256)
 

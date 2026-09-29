@@ -43,7 +43,7 @@ var embeddedQbitFailure = make(chan error, 1)
 func embeddedQbitRoot() (string, error) {
 	root := strings.TrimSpace(env("QBITTORRENT_DATA_DIR", ""))
 	if root == "" {
-		root = filepath.Join(filepath.Dir(env("DB_PATH", "/data/auto-anime.db")), "qbittorrent")
+		root = filepath.Join(filepath.Dir(env("DB_PATH", defaultDBPath())), "qbittorrent")
 	}
 	return filepath.Abs(root)
 }
@@ -231,6 +231,21 @@ func startEmbeddedQBittorrent() error {
 			return err
 		}
 		if count == 0 {
+			return nil
+		}
+	}
+	// Windows Release 不带 qBittorrent。找不到可执行文件时（没设 QBITTORRENT_PATH，或指到了
+	// 不存在的路径）不能让整个服务拉不起来：启动即退出会让界面进不去、设置也改不回来，
+	// 所以降级到 direct 并明确告警。其它失败（端口被占、进程退出）仍然照常报错退出。
+	if runtime.GOOS == "windows" {
+		if _, err := embeddedQbitExecutable(); err != nil {
+			log.Printf("内置 qBittorrent 在 Windows 上不可用：%v", err)
+			if downloadMode == "builtin" {
+				log.Printf("已临时改用 direct 下载模式；可在设置页改用 direct/外部下载器，或安装 qBittorrent 并设置 QBITTORRENT_PATH 后重启")
+				downloadMode = "direct"
+			} else {
+				log.Printf("库中 %d 个内置下载器条目无法继续跟踪，请在设置页改用可用下载器后重新提交", count)
+			}
 			return nil
 		}
 	}

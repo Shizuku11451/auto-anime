@@ -1209,7 +1209,7 @@ func updateStageDir() string {
 
 // dataDir mirrors the DB location, the one path a container always persists.
 func dataDir() string {
-	dir := filepath.Dir(env("DB_PATH", "/data/auto-anime.db"))
+	dir := filepath.Dir(env("DB_PATH", defaultDBPath()))
 	if dir == "" || dir == "." {
 		return ""
 	}

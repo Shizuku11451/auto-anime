@@ -111,7 +111,7 @@ Docker 默认使用 `builtin`，适合直接开箱使用。也可以在设置页
 | `aria2` | 连接外部 Aria2 |
 | `transmission` | 连接外部 Transmission |
 
-Windows Release 不包含 qBittorrent；Windows 上请选择 `direct` 或外部下载器。完整环境变量、外部下载目录映射、代理、备份和更新源说明见[配置参考](docs/CONFIGURATION.md)。
+Windows Release 不包含 qBittorrent；Windows 上请选择 `direct` 或外部下载器。若配置里仍是 `builtin` 且没有 `QBITTORRENT_PATH`，Windows 版会**告警并临时降级成 `direct`**（不再启动即退出），可在设置页改成 `direct` 或外部下载器。Windows 直接运行 Release `.exe` 时默认数据目录是程序同级的 `data\`。完整环境变量、外部下载目录映射、代理、备份和更新源说明见[配置参考](docs/CONFIGURATION.md)。
 
 ## 本地开发
 

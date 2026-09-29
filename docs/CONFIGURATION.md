@@ -13,10 +13,10 @@
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DOWNLOAD_MODE` | Docker：`builtin`；源码：`direct` | 下载方式，见下表 |
-| `DOWNLOAD_DIR` | `/data/downloads` | 默认归档目录 |
+| `DOWNLOAD_DIR` | `/data/downloads`（Windows：程序同级 `data\downloads`） | 默认归档目录 |
 | `LIBRARY_DIR` | 空 | 媒体库根目录；空时使用 `DOWNLOAD_DIR`，单部番的存储位置优先 |
-| `DB_PATH` | `/data/auto-anime.db` | SQLite 数据库路径 |
-| `COVERS_DIR` | `/data/covers` | 本地封面缓存目录 |
+| `DB_PATH` | `/data/auto-anime.db`（Windows：程序同级 `data\auto-anime.db`） | SQLite 数据库路径 |
+| `COVERS_DIR` | 数据库同级的 `covers` | 本地封面缓存目录 |
 | `PORT` | `8000` | Web 监听端口；修改时同步调整端口映射和健康检查 |
 | `POLL_MINUTES` | `30` | RSS 同步周期，单位分钟，最小 5 |
 | `DOWNLOADER_POLL_SECONDS` | `10` | 下载器进度轮询间隔，单位秒，最小 5 |
@@ -30,6 +30,10 @@
 | `GITHUB_TOKEN` | 空 | 访问 GitHub API 的令牌，用于私有仓库或提高接口限额；不写入日志与接口 |
 | `UPDATE_PROXY` | 空 | 仅更新流量使用的代理，留空沿用 `PROXY_URL` |
 
+容器与 Linux 的数据目录默认是 `/data`，与镜像、compose 一致。**Windows 直接运行 Release `.exe` 时**默认用程序同级的 `data\`（数据库、`downloads\`、`covers\` 都在里面）；用 `go run` 调试时该目录在当前工作目录下，避免写进 `go run` 的临时构建目录。程序启动时会打印实际使用的数据库、下载与封面路径。
+
+早期 Windows 版本把数据写在 `<盘根>:\data`（例如 `C:\data`、`E:\data`）：这些数据不会自动搬迁，想继续用就设置 `DB_PATH`（以及需要时的 `DOWNLOAD_DIR`、`COVERS_DIR`）指回原目录。
+
 | `DOWNLOAD_MODE` | 行为 |
 | --- | --- |
 | `builtin` | 镜像内置 qBittorrent 处理磁力与种子，普通 HTTP(S) 文件由本程序下载 |
@@ -42,7 +46,7 @@
 
 ## 内置 qBittorrent
 
-Docker 部署无需填写下载器连接信息。源码运行时需自行安装下载器，程序会为它创建独立配置，不使用桌面客户端的默认配置。Windows Release `.exe` 不包含 qBittorrent 程序；Windows 上请选择 `direct` 或外部下载器，或者自行安装 qBittorrent 并设置 `QBITTORRENT_PATH`。
+Docker 部署无需填写下载器连接信息。源码运行时需自行安装下载器，程序会为它创建独立配置，不使用桌面客户端的默认配置。Windows Release `.exe` 不包含 qBittorrent 程序；Windows 上请选择 `direct` 或外部下载器，或者自行安装 qBittorrent 并设置 `QBITTORRENT_PATH`。如果数据库或环境变量里仍是 `builtin` 而没有 `QBITTORRENT_PATH`，Windows 版启动时会明确告警并临时降级成 `direct`（老的配置因此不再导致启动即退出，可在设置页改成 `direct`/外部下载器，或装好 qBittorrent 后重启）；库里已有的内置条目会提示重新提交。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |

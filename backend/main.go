@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,7 +25,8 @@ import (
 )
 
 var db *sql.DB
-var downloadDir = env("DOWNLOAD_DIR", "/data/downloads")
+var downloadDir = env("DOWNLOAD_DIR", filepath.Join(defaultDataDir(), "downloads"))
+var dbFile = defaultDBPath()
 var libraryDir = env("LIBRARY_DIR", "")
 var pollMinutes = 30
 var downloadMode = env("DOWNLOAD_MODE", "direct")
@@ -151,6 +153,55 @@ type rssLink struct {
 	Rel  string `xml:"rel,attr"`
 }
 
+// defaultDataDir 是未配置环境变量时数据目录的默认值：容器与 Linux 服务器沿用 /data
+// （与镜像、compose 和文档一致），Windows 本机改成程序同级的 data\——「/data」这类有根
+// 无盘符的路径在 Windows 上按当前盘解析成 <盘根>:\data，既反直觉，盘根不可写时还会
+// 直接启动失败。
+func defaultDataDir() string {
+	if runtime.GOOS == "windows" {
+		if dir := windowsDataDir(); dir != "" {
+			return dir
+		}
+	}
+	return "/data"
+}
+
+// windowsDataDir 给出 Windows 本机的默认数据目录：程序同级的 data\。
+// `go run`/`go test` 的程序在临时构建目录里（退出即清理），此时退回当前目录，
+// 否则开发时的订阅与条目会跟着临时目录一起消失。
+func windowsDataDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+	if isTemporaryBuildDir(dir) {
+		cwd, err := os.Getwd()
+		if err != nil || cwd == "" {
+			return ""
+		}
+		dir = cwd
+	}
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "data")
+}
+
+// isTemporaryBuildDir 判断目录是不是 go 工具的临时构建目录。
+func isTemporaryBuildDir(dir string) bool {
+	if strings.HasPrefix(filepath.Base(dir), "go-build") {
+		return true
+	}
+	tmp := os.TempDir()
+	return tmp != "" && strings.HasPrefix(filepath.Clean(dir), filepath.Clean(tmp))
+}
+
+// defaultDBPath 是未设置 DB_PATH 时的数据库路径，跟着数据目录走。
+func defaultDBPath() string {
+	return filepath.Join(defaultDataDir(), "auto-anime.db")
+}
+
 func env(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -200,17 +251,22 @@ func initDB() {
 		downloaderPollSeconds = n
 	}
 	var e error
-	p := env("DB_PATH", "/data/auto-anime.db")
-	os.MkdirAll(filepath.Dir(p), 0755)
-	db, e = sql.Open("sqlite", p)
+	// dbFile 是最终使用的数据库路径：启动日志用它说明在读哪个库；封面、内置下载器与更新
+	// 暂存的默认目录同样按「数据库同级」计算（各自用 DB_PATH + defaultDBPath() 推导）。
+	dbFile = env("DB_PATH", defaultDBPath())
+	if err := os.MkdirAll(filepath.Dir(dbFile), 0755); err != nil {
+		// 目录建不出来时 sqlite 只会给出难以理解的错误，这里先把原因说清楚。
+		log.Printf("数据目录不可用 %s: %v", filepath.Dir(dbFile), err)
+	}
+	db, e = sql.Open("sqlite", dbFile)
 	if e != nil {
-		log.Fatal(e)
+		log.Fatalf("打开数据库失败 %s: %v", dbFile, e)
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS feeds(id INTEGER PRIMARY KEY,name TEXT NOT NULL,url TEXT UNIQUE NOT NULL,include_words TEXT DEFAULT '',exclude_words TEXT DEFAULT '',auto_download INTEGER DEFAULT 0,enabled INTEGER DEFAULT 1,last_sync TEXT DEFAULT '',last_error TEXT DEFAULT '',created_at TEXT);CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,feed_id INTEGER,title TEXT,link TEXT UNIQUE,published TEXT,description TEXT,status TEXT DEFAULT '待下载',file_path TEXT,created_at TEXT);CREATE TABLE IF NOT EXISTS anime_meta(anime_title TEXT PRIMARY KEY,subject_id INTEGER DEFAULT 0,name TEXT DEFAULT '',name_cn TEXT DEFAULT '',cover_url TEXT DEFAULT '',cover_file TEXT DEFAULT '',source TEXT DEFAULT '',updated_at TEXT);CREATE TABLE IF NOT EXISTS web_sessions(token_hash TEXT PRIMARY KEY,user TEXT NOT NULL,created_at TEXT DEFAULT '',expires_at TEXT NOT NULL);CREATE TABLE IF NOT EXISTS anime_storage(anime_title TEXT PRIMARY KEY,storage_dir TEXT DEFAULT '',season INTEGER DEFAULT 1,updated_at TEXT);CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);CREATE TABLE IF NOT EXISTS animes(id INTEGER PRIMARY KEY,title TEXT UNIQUE NOT NULL,search_name TEXT DEFAULT '',bangumi_id INTEGER DEFAULT 0,season INTEGER DEFAULT 0,storage_dir TEXT DEFAULT '',include_rules TEXT DEFAULT '',exclude_rules TEXT DEFAULT '',created_at TEXT DEFAULT '',updated_at TEXT DEFAULT '');`)
 	if e != nil {
-		log.Fatal(e)
+		log.Fatalf("初始化数据库失败 %s: %v", dbFile, e)
 	}
 	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''", "storage_dir TEXT DEFAULT ''"} {
 		name := strings.Fields(col)[0]
@@ -1184,6 +1240,13 @@ func runApplication() error {
 	}
 	// 数据库里保存的用户设置优先于环境变量，最后加载。
 	loadSettings()
+	// 用户经常搞不清程序在用哪个库、往哪写，把生效路径直接打进启动日志。
+	log.Printf("数据目录：数据库 %s；下载 %s；封面 %s", dbFile, downloadDir, coversDir)
+	if strings.TrimSpace(libraryDir) == "" {
+		log.Printf("媒体库目录未设置：归档到下载目录 %s", downloadDir)
+	} else {
+		log.Printf("媒体库目录：%s", libraryDir)
+	}
 	if err := startEmbeddedQBittorrent(); err != nil {
 		return err
 	}
