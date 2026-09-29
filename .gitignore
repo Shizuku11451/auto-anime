@@ -38,3 +38,6 @@ start-dev.bat
 
 # 本地验证用临时数据（不属于产品源码）
 backend/tmp_veil_seed/
+
+# 本地笔记与凭据（含明文密码，不纳入版本控制）
+fnos ssh.md
