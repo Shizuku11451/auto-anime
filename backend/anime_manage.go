@@ -15,6 +15,13 @@ func animeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := animeRow{Title: sanitizeText(in.Title, titleMaxLength), Season: 1}
+	if in.UpdateWeekday != nil {
+		a.UpdateWeekday = *in.UpdateWeekday
+	}
+	if a.UpdateWeekday < 0 || a.UpdateWeekday > 7 {
+		http.Error(w, "更新日必须是 0-7（0 未设置，1-7 周一至周日）", 400)
+		return
+	}
 	if a.Title == "" {
 		http.Error(w, "请填写番剧名称", 400)
 		return
@@ -46,8 +53,8 @@ func animeCreate(w http.ResponseWriter, r *http.Request) {
 	animeCleanupMu.Lock()
 	defer animeCleanupMu.Unlock()
 	a.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	result, err := db.Exec(`INSERT INTO animes(title,search_name,season,storage_dir,include_rules,exclude_rules,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(title) DO NOTHING`, a.Title, a.SearchName, a.Season, a.StorageDir, a.IncludeRules, a.ExcludeRules, a.UpdatedAt, a.UpdatedAt)
+	result, err := db.Exec(`INSERT INTO animes(title,search_name,season,storage_dir,include_rules,exclude_rules,created_at,updated_at,update_weekday)
+		VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(title) DO NOTHING`, a.Title, a.SearchName, a.Season, a.StorageDir, a.IncludeRules, a.ExcludeRules, a.UpdatedAt, a.UpdatedAt, a.UpdateWeekday)
 	if err != nil {
 		http.Error(w, "创建失败", 500)
 		return
@@ -59,6 +66,12 @@ func animeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	a.ID, _ = result.LastInsertId()
 	a.StorageWarning = unmappedPathWarning(a.StorageDir)
+	if bangumiEnabled {
+		select {
+		case metaQueue <- a.Title:
+		default:
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)

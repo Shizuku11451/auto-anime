@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CircleCheck, Film, Star, ChevronDown } from '@lucide/vue'
+import { CircleCheck, Film, Star, ChevronDown, CalendarDays } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import type { AnimeSummary } from '@/api/types'
+import { scheduleLabel } from '@/components/library/schedule'
 
-const props = defineProps<{ anime: AnimeSummary; selecting?: boolean; selected?: boolean }>()
+const props = defineProps<{ anime: AnimeSummary; selecting?: boolean; selected?: boolean; compact?: boolean }>()
 const emit = defineEmits<{ open: [id: number]; toggle: [id: number] }>()
 
 const displayName = computed(() => props.anime.meta_name_cn || props.anime.title)
@@ -16,10 +17,12 @@ const ratio = computed(() =>
 </script>
 
 <template>
-  <article class="anime-card" :class="{ selected }">
+  <article class="anime-card" :class="{ selected, compact }" :style="{ '--cover-tone': ['var(--accent)', 'var(--blue)', 'var(--amber)'][anime.id % 3] }">
     <button class="card-open" type="button" :aria-label="`${selecting ? '选择' : '打开'} ${displayName}`" :aria-pressed="selecting ? !!selected : undefined" @click="selecting ? emit('toggle', anime.id) : emit('open', anime.id)">
     <div class="poster-wrap">
-      <CoverImage :src="anime.cover" :alt="displayName" radius="0" class="poster" />
+      <CoverImage :src="anime.cover" :alt="displayName" radius="0" class="poster">
+        <div v-if="!anime.cover" class="poster-fallback" aria-hidden="true"><span>{{ displayName.slice(0, 2) }}</span><small>暂无封面</small></div>
+      </CoverImage>
       <div v-if="anime.cover" class="poster-shade" aria-hidden="true" />
       <span v-if="anime.rating > 0" class="rating-badge" :title="`Bangumi 评分 ${anime.rating.toFixed(1)}`">
         <Star aria-hidden="true" />{{ anime.rating.toFixed(1) }}
@@ -35,6 +38,7 @@ const ratio = computed(() =>
     <div class="body">
       <h3 class="title" :title="displayName">{{ displayName }}</h3>
       <p v-if="showSub" class="sub truncate" :title="anime.title">{{ anime.title }}</p>
+      <p class="schedule"><CalendarDays aria-hidden="true" />{{ scheduleLabel(anime) }}</p>
       <div class="stats">
         <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
         <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>
@@ -76,6 +80,23 @@ const ratio = computed(() =>
 .card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); min-height: 47px; }
 .select-label { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 13px; cursor: pointer; }
 .anime-card.selected { border-color: var(--accent); }
+.anime-card:focus-within { border-color: var(--accent-border); }
+.poster-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; color: var(--cover-tone); background: linear-gradient(150deg, color-mix(in srgb, var(--cover-tone) 18%, var(--surface)), var(--surface-2)); }
+.poster-fallback::before { content: ''; position: absolute; width: 120%; aspect-ratio: 1; border: 1px solid color-mix(in srgb, var(--cover-tone) 14%, transparent); border-radius: 50%; left: 25%; top: 45%; }
+.poster-fallback > span { font-size: 28px; font-weight: 650; letter-spacing: .08em; }
+.poster-fallback small { font-size: 10px; opacity: .7; }
+.compact { padding: 12px; position: relative; }
+.compact .card-open { flex-direction: row; gap: 14px; align-items: center; }
+.compact .poster-wrap { width: 100px; flex: none; border-radius: var(--r-sm); overflow: hidden; }
+.compact .body { flex: 1; min-width: 0; width: auto; padding: 2px 0; gap: 8px; }
+.compact .title { font-size: 15px; line-height: 1.5; }
+.compact .rating-badge { top: 5px; right: 5px; padding: 3px 5px; font-size: 10px; }
+.compact .poster-tags { left: 5px; right: 5px; bottom: 5px; }
+.compact .poster-tags .tag { font-size: 9px; }
+.compact .summary-toggle { margin-top: 8px; padding: 4px 0 0; border: 0; justify-content: flex-end; gap: 6px; }
+.compact .summary-panel { padding: 10px 0 0; margin-top: 8px; }
+.compact .card-actions { padding: 8px 0 0; margin-top: 8px; min-height: 32px; }
+.compact .ratio { margin-top: 2px; }
 .anime-card:hover,
 .anime-card:focus-visible {
   transform: translateY(-2px);
@@ -249,6 +270,9 @@ const ratio = computed(() =>
   color: var(--text-2);
   font-size: 12px;
 }
+.schedule { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
+.schedule svg { width: 13px; height: 13px; color: var(--accent); }
+.schedule svg { flex: none; }
 .stats span {
   display: inline-flex;
   align-items: center;

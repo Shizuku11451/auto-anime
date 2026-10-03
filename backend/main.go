@@ -291,12 +291,24 @@ func initDB() {
 			}
 		}
 	}
+	var weekdayColumn int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('animes') WHERE name='update_weekday'").Scan(&weekdayColumn); err != nil {
+		log.Fatal(err)
+	}
+	if weekdayColumn == 0 {
+		if _, err := db.Exec("ALTER TABLE animes ADD COLUMN update_weekday INTEGER NOT NULL DEFAULT 0 CHECK(update_weekday BETWEEN 0 AND 7)"); err != nil {
+			log.Fatal(err)
+		}
+	}
 	// Add columns only when upgrading an older database; avoid noisy duplicate-column errors.
 	for _, spec := range []struct{ name, ddl string }{
 		{"rating", "rating REAL DEFAULT 0"},
 		{"summary", "summary TEXT DEFAULT ''"},
 		{"voices", "voices TEXT DEFAULT '[]'"},
 		{"match_key", "match_key TEXT DEFAULT ''"},
+		{"broadcast_weekday", "broadcast_weekday INTEGER NOT NULL DEFAULT 0"},
+		{"broadcast_subject_id", "broadcast_subject_id INTEGER NOT NULL DEFAULT 0"},
+		{"broadcast_checked_at", "broadcast_checked_at TEXT NOT NULL DEFAULT ''"},
 	} {
 		var exists int
 		if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('anime_meta') WHERE name=?", spec.name).Scan(&exists); err == nil && exists == 0 {
@@ -874,14 +886,14 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "备份失败", 500)
 		return
 	}
-	animeRows, err := tx.QueryContext(r.Context(), `SELECT id,title,COALESCE(search_name,''),COALESCE(bangumi_id,0),COALESCE(season,0),COALESCE(storage_dir,''),COALESCE(include_rules,''),COALESCE(exclude_rules,''),COALESCE(updated_at,'') FROM animes ORDER BY id`)
+	animeRows, err := tx.QueryContext(r.Context(), `SELECT id,title,COALESCE(search_name,''),COALESCE(bangumi_id,0),COALESCE(season,0),COALESCE(storage_dir,''),COALESCE(include_rules,''),COALESCE(exclude_rules,''),COALESCE(updated_at,''),COALESCE(update_weekday,0) FROM animes ORDER BY id`)
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
 	}
 	for animeRows.Next() {
 		var a animeRow
-		if err = animeRows.Scan(&a.ID, &a.Title, &a.SearchName, &a.BangumiID, &a.Season, &a.StorageDir, &a.IncludeRules, &a.ExcludeRules, &a.UpdatedAt); err != nil {
+		if err = animeRows.Scan(&a.ID, &a.Title, &a.SearchName, &a.BangumiID, &a.Season, &a.StorageDir, &a.IncludeRules, &a.ExcludeRules, &a.UpdatedAt, &a.UpdateWeekday); err != nil {
 			animeRows.Close()
 			http.Error(w, "备份失败", 500)
 			return
@@ -965,6 +977,10 @@ func restore(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		season := a.Season
+		if a.UpdateWeekday < 0 || a.UpdateWeekday > 7 {
+			http.Error(w, "备份包含无效番剧更新日", 400)
+			return
+		}
 		if season < 0 || season > 999 {
 			tx.Rollback()
 			http.Error(w, "备份包含无效番剧季号", 400)
@@ -980,15 +996,16 @@ func restore(w http.ResponseWriter, r *http.Request) {
 		if bangumiID < 0 {
 			bangumiID = 0
 		}
-		if _, err = tx.ExecContext(r.Context(), `INSERT INTO animes(title,search_name,bangumi_id,season,storage_dir,include_rules,exclude_rules,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+		if _, err = tx.ExecContext(r.Context(), `INSERT INTO animes(title,search_name,bangumi_id,season,storage_dir,include_rules,exclude_rules,created_at,updated_at,update_weekday) VALUES(?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(title) DO UPDATE SET search_name=excluded.search_name,
 				bangumi_id=CASE WHEN excluded.bangumi_id>0 THEN excluded.bangumi_id ELSE animes.bangumi_id END,
 				season=excluded.season,
+				update_weekday=excluded.update_weekday,
 				storage_dir=CASE WHEN COALESCE(excluded.storage_dir,'')!='' THEN excluded.storage_dir ELSE animes.storage_dir END,
 				include_rules=excluded.include_rules,exclude_rules=excluded.exclude_rules`,
 			title, sanitizeText(a.SearchName, searchNameLimit), bangumiID, season, clean,
 			sanitizeText(a.IncludeRules, rulesMaxLength), sanitizeText(a.ExcludeRules, rulesMaxLength),
-			time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339)); err != nil {
+			time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), a.UpdateWeekday); err != nil {
 			tx.Rollback()
 			http.Error(w, "恢复失败", 500)
 			return

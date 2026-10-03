@@ -51,6 +51,9 @@ export interface Item {
 }
 
 export interface AnimeSummary {
+	/* Bangumi 明确标注的放送星期，0 表示未获取；手动 update_weekday 优先。 */
+	broadcast_weekday?: number
+	update_weekday: number
   id: number
   title: string
   search_name: string
@@ -104,6 +107,8 @@ export interface SeasonGroup {
 }
 
 export interface AnimeDetail {
+	broadcast_weekday?: number
+	update_weekday: number
   id: number
   title: string
   search_name: string
@@ -136,6 +141,7 @@ export interface MetaRematchResult {
 export interface VoiceActor { character: string; character_image: string; person: string; person_image: string }
 
 export interface AnimeUpdateInput {
+	update_weekday?: number
   title: string
   search_name: string
   season: number

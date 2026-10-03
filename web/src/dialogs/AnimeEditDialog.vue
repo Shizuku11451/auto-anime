@@ -14,7 +14,8 @@ const store = useAppStore()
 const s = state.animeEdit
 const a = computed(() => s.anime)
 
-const form = reactive({ title: '', search_name: '', season: 1, storage_dir: '', include_rules: '', exclude_rules: '' })
+const weekdays = ['自动获取（Bangumi）', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const form = reactive({ title: '', search_name: '', season: 1, update_weekday: 0, storage_dir: '', include_rules: '', exclude_rules: '' })
 const saving = ref(false)
 const applying = ref(false)
 const msg = ref('')
@@ -26,6 +27,7 @@ watch(
     form.title = a.value?.title || ''
     form.search_name = a.value?.search_name || ''
     form.season = a.value?.season || 1
+    form.update_weekday = a.value?.update_weekday || 0
     form.storage_dir = a.value?.storage_dir || ''
     form.include_rules = a.value?.include_rules || ''
     form.exclude_rules = a.value?.exclude_rules || ''
@@ -43,6 +45,7 @@ function body(): AnimeUpdateInput {
     title: form.title.trim(),
     search_name: form.search_name.trim(),
     season: Number(form.season),
+    update_weekday: Number(form.update_weekday),
     storage_dir: form.storage_dir.trim(),
     include_rules: form.include_rules.trim(),
     exclude_rules: form.exclude_rules.trim(),
@@ -129,6 +132,13 @@ async function apply() {
           <label for="ae-season">默认季号（用于 Season XX 目录与文件名）</label>
           <input id="ae-season" v-model.number="form.season" type="number" min="1" max="999" />
         </div>
+      </div>
+      <div class="field">
+        <label for="ae-weekday">每周更新日</label>
+        <select id="ae-weekday" v-model.number="form.update_weekday">
+          <option v-for="(day, index) in weekdays" :key="index" :value="index">{{ day }}</option>
+        </select>
+        <p class="field-hint">{{ a?.broadcast_weekday ? `Bangumi 标注每${weekdays[a.broadcast_weekday]}放送。` : '尚未获取明确的放送星期，可绑定 Bangumi 资料或手动选择。' }}手动选择优先；改回自动后跟随资料。放送日不保证字幕组当天出片，不改变 RSS 同步或下载时间。</p>
       </div>
       <div class="field">
         <label for="ae-dir">存储位置（留空使用默认位置）</label>

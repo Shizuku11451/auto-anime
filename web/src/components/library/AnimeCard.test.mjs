@@ -16,7 +16,12 @@ const compiled = ts.transpileModule(scriptBlock.content, {
 }).outputText
 
 const stub = { render: () => null }
+const scheduleContext = { exports: {} }
+runInNewContext(ts.transpileModule(readFileSync(new URL('./schedule.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText, scheduleContext)
 const modules = {
+  '@/components/library/schedule': scheduleContext.exports,
   vue,
   '@lucide/vue': new Proxy({}, { get: () => stub }),
   '@/components/ui/BaseButton.vue': stub,

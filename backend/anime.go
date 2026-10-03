@@ -24,15 +24,16 @@ const (
 )
 
 type animeRow struct {
-	ID           int64  `json:"id"`
-	Title        string `json:"title"`
-	SearchName   string `json:"search_name"`
-	BangumiID    int64  `json:"bangumi_id"`
-	Season       int    `json:"season"`
-	StorageDir   string `json:"storage_dir"`
-	IncludeRules string `json:"include_rules"`
-	ExcludeRules string `json:"exclude_rules"`
-	UpdatedAt    string `json:"updated_at"`
+	ID            int64  `json:"id"`
+	Title         string `json:"title"`
+	SearchName    string `json:"search_name"`
+	BangumiID     int64  `json:"bangumi_id"`
+	Season        int    `json:"season"`
+	UpdateWeekday int    `json:"update_weekday"`
+	StorageDir    string `json:"storage_dir"`
+	IncludeRules  string `json:"include_rules"`
+	ExcludeRules  string `json:"exclude_rules"`
+	UpdatedAt     string `json:"updated_at"`
 	// StorageWarning 只用于写入目录的响应：目录没映射进容器时提示，读取接口不返回。
 	StorageWarning string `json:"storage_warning,omitempty"`
 }
@@ -56,9 +57,9 @@ func ensureAnime(title string) (int64, error) {
 func getAnime(id int64) (*animeRow, error) {
 	var a animeRow
 	err := db.QueryRow(`SELECT id,title,COALESCE(search_name,''),COALESCE(bangumi_id,0),COALESCE(season,0),
-		COALESCE(storage_dir,''),COALESCE(include_rules,''),COALESCE(exclude_rules,''),COALESCE(updated_at,'')
+		COALESCE(storage_dir,''),COALESCE(include_rules,''),COALESCE(exclude_rules,''),COALESCE(updated_at,''),COALESCE(update_weekday,0)
 		FROM animes WHERE id=?`, id).
-		Scan(&a.ID, &a.Title, &a.SearchName, &a.BangumiID, &a.Season, &a.StorageDir, &a.IncludeRules, &a.ExcludeRules, &a.UpdatedAt)
+		Scan(&a.ID, &a.Title, &a.SearchName, &a.BangumiID, &a.Season, &a.StorageDir, &a.IncludeRules, &a.ExcludeRules, &a.UpdatedAt, &a.UpdateWeekday)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +152,9 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`SELECT animes.id,animes.title,COALESCE(animes.search_name,''),COALESCE(animes.bangumi_id,0),
 		COALESCE(animes.season,0),COALESCE(animes.storage_dir,''),COALESCE(animes.include_rules,''),COALESCE(animes.exclude_rules,''),
 		COALESCE(anime_meta.cover_file,''),COALESCE(anime_meta.name,''),COALESCE(anime_meta.name_cn,''),
-		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),
+		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(animes.update_weekday,0),
+		CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0 AND anime_meta.broadcast_subject_id=anime_meta.subject_id
+		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN COALESCE(anime_meta.broadcast_weekday,0) ELSE 0 END,
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id),
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id AND items.status='已保存'),
 		(SELECT COUNT(DISTINCT
@@ -168,21 +171,22 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	type animeCard struct {
 		animeRow
-		Cover      string  `json:"cover"`
-		MetaName   string  `json:"meta_name"`
-		MetaNameCN string  `json:"meta_name_cn"`
-		Rating     float64 `json:"rating"`
-		Summary    string  `json:"summary"`
-		ItemCount  int     `json:"item_count"`
-		SavedCount int     `json:"saved_count"`
-		Episodes   int     `json:"episode_count"`
+		Cover            string  `json:"cover"`
+		MetaName         string  `json:"meta_name"`
+		MetaNameCN       string  `json:"meta_name_cn"`
+		Rating           float64 `json:"rating"`
+		Summary          string  `json:"summary"`
+		ItemCount        int     `json:"item_count"`
+		SavedCount       int     `json:"saved_count"`
+		Episodes         int     `json:"episode_count"`
+		BroadcastWeekday int     `json:"broadcast_weekday"`
 	}
 	out := []animeCard{}
 	for rows.Next() {
 		var c animeCard
 		var coverFile string
 		if err := rows.Scan(&c.ID, &c.Title, &c.SearchName, &c.BangumiID, &c.Season, &c.StorageDir, &c.IncludeRules, &c.ExcludeRules,
-			&coverFile, &c.MetaName, &c.MetaNameCN, &c.Rating, &c.Summary, &c.ItemCount, &c.SavedCount, &c.Episodes); err != nil {
+			&coverFile, &c.MetaName, &c.MetaNameCN, &c.Rating, &c.Summary, &c.UpdateWeekday, &c.BroadcastWeekday, &c.ItemCount, &c.SavedCount, &c.Episodes); err != nil {
 			http.Error(w, "查询失败", 500)
 			return
 		}
@@ -300,8 +304,10 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	coverFile, metaName, metaNameCN := "", "", ""
 	var rating float64
 	var summary, voices, metaSource string
-	db.QueryRow(`SELECT COALESCE(cover_file,''),COALESCE(name,''),COALESCE(name_cn,''),COALESCE(rating,0),COALESCE(summary,''),COALESCE(voices,'[]'),COALESCE(source,'') FROM anime_meta WHERE anime_title=?`, a.Title).
-		Scan(&coverFile, &metaName, &metaNameCN, &rating, &summary, &voices, &metaSource)
+	var broadcastWeekday int
+	db.QueryRow(`SELECT COALESCE(cover_file,''),COALESCE(name,''),COALESCE(name_cn,''),COALESCE(rating,0),COALESCE(summary,''),COALESCE(voices,'[]'),COALESCE(source,''),
+		CASE WHEN source IN ('bangumi','manual') AND subject_id>0 AND broadcast_subject_id=subject_id AND (?=0 OR subject_id=?) THEN COALESCE(broadcast_weekday,0) ELSE 0 END FROM anime_meta WHERE anime_title=?`, a.BangumiID, a.BangumiID, a.Title).
+		Scan(&coverFile, &metaName, &metaNameCN, &rating, &summary, &voices, &metaSource, &broadcastWeekday)
 	if !json.Valid([]byte(voices)) {
 		voices = "[]"
 	}
@@ -396,7 +402,9 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	jsonOut(w, map[string]any{
 		"id": a.ID, "title": a.Title, "search_name": a.SearchName, "bangumi_id": a.BangumiID,
 		"season": a.Season, "storage_dir": a.StorageDir, "include_rules": a.IncludeRules, "exclude_rules": a.ExcludeRules,
-		"cover": coverPath(coverFile), "meta_name": metaName, "meta_name_cn": metaNameCN, "meta_source": metaSource,
+		"update_weekday":    a.UpdateWeekday,
+		"broadcast_weekday": broadcastWeekday,
+		"cover":             coverPath(coverFile), "meta_name": metaName, "meta_name_cn": metaNameCN, "meta_source": metaSource,
 		"item_count": total, "saved_count": saved, "sources": feeds, "rating": rating, "summary": summary, "voices": json.RawMessage(voices),
 		"seasons": seasonList,
 	})
@@ -465,12 +473,13 @@ func sortStrings(list []string) {
 }
 
 type animeUpdateInput struct {
-	Title        string  `json:"title"`
-	SearchName   *string `json:"search_name"`
-	Season       *int    `json:"season"`
-	StorageDir   *string `json:"storage_dir"`
-	IncludeRules *string `json:"include_rules"`
-	ExcludeRules *string `json:"exclude_rules"`
+	Title         string  `json:"title"`
+	SearchName    *string `json:"search_name"`
+	Season        *int    `json:"season"`
+	UpdateWeekday *int    `json:"update_weekday"`
+	StorageDir    *string `json:"storage_dir"`
+	IncludeRules  *string `json:"include_rules"`
+	ExcludeRules  *string `json:"exclude_rules"`
 }
 
 // animeUpdate edits series-level fields. A rename cascades to items and the
@@ -505,6 +514,14 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 			return
 		}
 		season = *in.Season
+	}
+	weekday := a.UpdateWeekday
+	if in.UpdateWeekday != nil {
+		if *in.UpdateWeekday < 0 || *in.UpdateWeekday > 7 {
+			http.Error(w, "更新日必须是 0-7（0 未设置，1-7 周一至周日）", 400)
+			return
+		}
+		weekday = *in.UpdateWeekday
 	}
 	storageDir := a.StorageDir
 	if in.StorageDir != nil {
@@ -564,8 +581,8 @@ func animeUpdate(w http.ResponseWriter, r *http.Request, id int64) {
 			return
 		}
 	}
-	if _, err := tx.Exec(`UPDATE animes SET search_name=?,season=?,storage_dir=?,include_rules=?,exclude_rules=?,updated_at=? WHERE id=?`,
-		searchName, season, storageDir, include, exclude, time.Now().UTC().Format(time.RFC3339), id); err != nil {
+	if _, err := tx.Exec(`UPDATE animes SET search_name=?,season=?,storage_dir=?,include_rules=?,exclude_rules=?,updated_at=?,update_weekday=? WHERE id=?`,
+		searchName, season, storageDir, include, exclude, time.Now().UTC().Format(time.RFC3339), weekday, id); err != nil {
 		http.Error(w, "保存失败", 500)
 		return
 	}
@@ -632,12 +649,13 @@ func animeMetadataBind(w http.ResponseWriter, r *http.Request, id int64) {
 			}
 		}
 		voices := fetchBangumiVoices(subject.ID)
-		if _, err := db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		if _, err := db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices,broadcast_weekday,broadcast_subject_id,broadcast_checked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,
 			cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at,
-			rating=excluded.rating,summary=excluded.summary,voices=excluded.voices`,
+			rating=excluded.rating,summary=excluded.summary,voices=excluded.voices,
+			broadcast_weekday=excluded.broadcast_weekday,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at`,
 			a.Title, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, "manual", time.Now().UTC().Format(time.RFC3339),
-			subject.Rating.Score, subject.Summary, voices); err != nil {
+			subject.Rating.Score, subject.Summary, voices, subjectBroadcastWeekday(subject), subject.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
 			http.Error(w, "保存元数据失败", 500)
 			return
 		}

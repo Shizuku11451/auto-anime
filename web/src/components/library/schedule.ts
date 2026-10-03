@@ -1,0 +1,26 @@
+export const weekdays = ['待补充', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+type Schedule = { update_weekday?: number; broadcast_weekday?: number }
+export function effectiveWeekday(anime: Schedule): number {
+  const day = anime.update_weekday || anime.broadcast_weekday || 0
+  return Number.isInteger(day) && day >= 1 && day <= 7 ? day : 0
+}
+export function scheduleLabel(anime: Schedule): string {
+  const day = effectiveWeekday(anime)
+  return day ? (anime.update_weekday ? `每${weekdays[day]}更新 · 手动` : `每${weekdays[day]}放送 · Bangumi`) : '更新日待补充'
+}
+
+// 用本地日历日期，不经 UTC 转换，避免午夜前后偏移一天。
+export function localDate(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function weekdayOfDate(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(0)
+  date.setFullYear(year, month - 1, day)
+  date.setHours(12, 0, 0, 0)
+  if (localDate(date) !== value) return null
+  return date.getDay() || 7
+}
