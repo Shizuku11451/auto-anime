@@ -400,6 +400,7 @@ func TestBuiltinControlUsesPrivateConnection(t *testing.T) {
 	embeddedQbit.Lock()
 	oldProcess, oldStopping := embeddedQbit.process, embeddedQbit.stopping
 	embeddedQbit.process = &managedQBittorrent{config: qbitConnection{URL: fake.server.URL}, done: make(chan struct{})}
+	embeddedQbit.process.ready.Store(true)
 	embeddedQbit.stopping = false
 	embeddedQbit.Unlock()
 	t.Cleanup(func() {

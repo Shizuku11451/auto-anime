@@ -24,7 +24,7 @@ func recoverDownloads(database *sql.DB) ([]int, error) {
 	if err = retireLegacyAria2Tasks(tx, legacyTasks); err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec("UPDATE items SET status='下载失败' WHERE status='下载中' AND COALESCE(task_id,'')=''"); err != nil {
+	if _, err = tx.Exec("UPDATE items SET status='下载失败' WHERE status='下载中' AND COALESCE(task_id,'')='' AND COALESCE(downloader,'') NOT IN ('builtin','qbittorrent')"); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(`SELECT items.id FROM items LEFT JOIN feeds ON feeds.id=items.feed_id
@@ -83,10 +83,11 @@ func resumeDownloads(ids []int) {
 }
 
 func validateDownloadTarget() error {
-	if downloadMode != "builtin" && downloadMode != "direct" && downloadMode != "aria2" && downloadMode != "qbittorrent" && downloadMode != "transmission" {
+	cfg := runtimeConfig()
+	if cfg.downloadMode != "builtin" && cfg.downloadMode != "direct" && cfg.downloadMode != "aria2" && cfg.downloadMode != "qbittorrent" && cfg.downloadMode != "transmission" {
 		return fmt.Errorf("未知下载模式")
 	}
-	if (downloadMode == "aria2" && aria2URL == "") || (downloadMode == "qbittorrent" && qbitURL == "") || (downloadMode == "transmission" && transmissionURL == "") {
+	if (cfg.downloadMode == "aria2" && cfg.aria2URL == "") || (cfg.downloadMode == "qbittorrent" && cfg.qbitURL == "") || (cfg.downloadMode == "transmission" && cfg.transmissionURL == "") {
 		return fmt.Errorf("未配置下载器地址")
 	}
 	return nil

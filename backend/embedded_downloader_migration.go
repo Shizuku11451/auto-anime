@@ -18,25 +18,26 @@ import (
 // explicitly configured external endpoint or a different download directory
 // is not evidence of ownership, even if an old private session still exists.
 func legacyEmbeddedAria2Tasks(values map[string]string) ([]string, error) {
+	cfg := runtimeConfig()
 	setting := func(key, fallback string) string {
 		if value, ok := values[key]; ok {
 			return strings.TrimSpace(value)
 		}
 		return strings.TrimSpace(fallback)
 	}
-	if setting("download_mode", downloadMode) != "builtin" || strings.TrimSpace(os.Getenv("ARIA2_URL")) != "" {
+	if setting("download_mode", cfg.downloadMode) != "builtin" || strings.TrimSpace(os.Getenv("ARIA2_URL")) != "" {
 		return nil, nil
 	}
 	root, err := filepath.Abs(filepath.Join(downloadDir, ".aria2"))
 	if err != nil {
 		return nil, err
 	}
-	if endpoint := setting("aria2_url", aria2URL); endpoint != "" {
+	if endpoint := setting("aria2_url", cfg.aria2URL); endpoint != "" {
 		u, err := url.Parse(endpoint)
 		if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.Path != "/jsonrpc" || u.RawQuery != "" || u.User != nil {
 			return nil, nil
 		}
-		for key, fallback := range map[string]string{"aria2_dir": aria2Dir, "aria2_local_dir": aria2LocalDir} {
+		for key, fallback := range map[string]string{"aria2_dir": cfg.aria2Dir, "aria2_local_dir": cfg.aria2LocalDir} {
 			dir := setting(key, fallback)
 			absolute, err := filepath.Abs(dir)
 			if dir == "" || err != nil || absolute != root {

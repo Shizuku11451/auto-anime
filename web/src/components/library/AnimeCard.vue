@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CircleCheck, Film, Tv, Pencil, Merge, Trash2, Star, ChevronDown } from '@lucide/vue'
-import BaseButton from '@/components/ui/BaseButton.vue'
+import { CircleCheck, Film, Star, ChevronDown } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import type { AnimeSummary } from '@/api/types'
 
-const props = defineProps<{ anime: AnimeSummary; selecting?: boolean; selected?: boolean; canMerge?: boolean }>()
-const emit = defineEmits<{ open: [id: number]; toggle: [id: number]; edit: []; merge: []; remove: [] }>()
+const props = defineProps<{ anime: AnimeSummary; selecting?: boolean; selected?: boolean }>()
+const emit = defineEmits<{ open: [id: number]; toggle: [id: number] }>()
 
 const displayName = computed(() => props.anime.meta_name_cn || props.anime.title)
 const showSub = computed(() => displayName.value !== props.anime.title)
@@ -21,13 +20,12 @@ const ratio = computed(() =>
     <button class="card-open" type="button" :aria-label="`${selecting ? '选择' : '打开'} ${displayName}`" :aria-pressed="selecting ? !!selected : undefined" @click="selecting ? emit('toggle', anime.id) : emit('open', anime.id)">
     <div class="poster-wrap">
       <CoverImage :src="anime.cover" :alt="displayName" radius="0" class="poster" />
-      <div class="poster-shade" aria-hidden="true" />
+      <div v-if="anime.cover" class="poster-shade" aria-hidden="true" />
       <span v-if="anime.rating > 0" class="rating-badge" :title="`Bangumi 评分 ${anime.rating.toFixed(1)}`">
         <Star aria-hidden="true" />{{ anime.rating.toFixed(1) }}
       </span>
       <div class="poster-tags">
-        <span v-if="anime.bangumi_id" class="tag accent">已绑定</span>
-        <span v-else-if="anime.include_rules" class="tag">多来源</span>
+        <span v-if="anime.include_rules" class="tag">多来源</span>
         <span v-if="anime.season > 1" class="tag">第 {{ anime.season }} 季</span>
       </div>
       <div v-if="anime.summary" class="poster-veil" aria-hidden="true">
@@ -40,7 +38,6 @@ const ratio = computed(() =>
       <div class="stats">
         <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
         <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>
-        <span v-if="anime.episode_count"><Tv aria-hidden="true" />{{ anime.episode_count }} 集</span>
       </div>
       <div class="ratio" :title="`已保存 ${ratio}%`" aria-hidden="true">
         <i :style="{ width: ratio + '%' }" />
@@ -52,13 +49,8 @@ const ratio = computed(() =>
       <ChevronDown aria-hidden="true" class="chev" :class="{ open: expanded }" />
     </button>
     <div v-if="anime.summary" v-show="expanded" class="summary-panel">{{ anime.summary }}</div>
-    <div class="card-actions">
-      <label v-if="selecting" class="select-label"><input type="checkbox" :checked="selected" :aria-label="`选择 ${displayName}`" @change="emit('toggle', anime.id)" />{{ selected ? '已选择' : '选择' }}</label>
-      <template v-else>
-        <BaseButton :icon="Pencil" icon-only size="sm" variant="ghost" title="编辑番剧" aria-label="编辑番剧" @click="emit('edit')" />
-        <BaseButton :icon="Merge" icon-only size="sm" variant="ghost" :disabled="!canMerge" title="合并番剧" aria-label="合并番剧" @click="emit('merge')" />
-        <BaseButton :icon="Trash2" icon-only size="sm" variant="danger" title="删除番剧" aria-label="删除番剧" @click="emit('remove')" />
-      </template>
+    <div v-if="selecting" class="card-actions">
+      <label class="select-label"><input type="checkbox" :checked="selected" :aria-label="`选择 ${displayName}`" @change="emit('toggle', anime.id)" />{{ selected ? '已选择' : '选择' }}</label>
     </div>
   </article>
 </template>
@@ -86,9 +78,9 @@ const ratio = computed(() =>
 .anime-card.selected { border-color: var(--accent); }
 .anime-card:hover,
 .anime-card:focus-visible {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   border-color: var(--accent-border);
-  box-shadow: var(--shadow-md), 0 0 0 1px var(--accent-border);
+  box-shadow: var(--shadow-sm);
 }
 .anime-card:active {
   transform: translateY(-1px) scale(0.995);
@@ -105,11 +97,10 @@ const ratio = computed(() =>
     transform 900ms var(--ease-out),
     filter var(--t-med) var(--ease-out);
 }
-/* 悬浮封面：封面高斯模糊放大，简介浮层淡入；键盘聚焦卡片时同样生效 */
+/* 简介轻量淡入，保留封面轮廓；键盘聚焦时同样生效。 */
 .poster-wrap:hover .poster :deep(img.loaded),
 .card-open:focus-visible .poster :deep(img.loaded) {
-  transform: scale(1.12);
-  filter: blur(14px) brightness(0.68) saturate(1.1);
+  transform: scale(1.025);
 }
 .poster-shade {
   position: absolute;
@@ -171,7 +162,7 @@ const ratio = computed(() =>
   border-color: rgba(255, 255, 255, 0.14);
 }
 .poster-tags .tag.accent {
-  background: rgba(139, 124, 255, 0.55);
+  background: rgba(22, 116, 81, 0.85);
   border-color: rgba(255, 255, 255, 0.22);
   color: #fff;
 }
@@ -216,7 +207,7 @@ const ratio = computed(() =>
   cursor: pointer;
   transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
 }
-.summary-toggle:hover { color: var(--text-1); background: var(--surface-2); }
+.summary-toggle:hover { color: var(--text); background: var(--surface-2); }
 .summary-toggle:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
 .summary-toggle .chev { width: 14px; height: 14px; flex: none; transition: transform var(--t-med) var(--ease-out); }
 .summary-toggle .chev.open { transform: rotate(180deg); }

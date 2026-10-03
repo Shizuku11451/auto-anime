@@ -3,8 +3,8 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import BrandMark from '@/components/ui/BrandMark.vue'
 import ThemeToggle from '@/components/ui/ThemeToggle.vue'
-import RuntimeCard from './RuntimeCard.vue'
-import SideActions from './SideActions.vue'
+import ServiceTools from './ServiceTools.vue'
+import { useAppStore } from '@/stores/app'
 import UpdateNotice from './UpdateNotice.vue'
 import { NAV_ITEMS } from '@/nav'
 import { useDialogs } from '@/stores/dialogs'
@@ -12,6 +12,7 @@ import { useUpdateStore } from '@/stores/update'
 import { isDevVersion } from '@/utils/update'
 
 const route = useRoute()
+const store = useAppStore()
 const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name === route.name)))
 
 const update = useUpdateStore()
@@ -51,10 +52,9 @@ function showRelease() {
 
     <UpdateNotice />
 
-    <RuntimeCard />
-
     <div class="side-foot">
-      <SideActions layout="grid" />
+      <div class="connection" role="status"><i :class="{ off: store.runtimeError.value, pending: !store.status.value }" />{{ store.runtimeError.value ? '服务连接异常' : store.status.value ? '服务已连接' : '正在连接服务' }}</div>
+      <ServiceTools />
       <div class="foot-row">
         <button type="button" class="foot-ver" :class="{ hot: update.updateAvailable.value }" @click="showRelease">
           {{ versionText }}
@@ -74,20 +74,18 @@ function showRelease() {
   flex: none;
   display: flex;
   flex-direction: column;
-  padding: 22px 16px 16px;
-  background: var(--surface-glass);
+  padding: 30px 16px 20px;
+  background: var(--surface);
   border-right: 1px solid var(--line);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
   overflow: hidden auto;
 }
 .sidebar-brand {
-  padding: 2px 8px 22px;
+  padding: 2px 8px 38px;
 }
 
 .nav {
-  --row: 42px;
-  --gap: 4px;
+  --row: 46px;
+  --gap: 6px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -101,9 +99,8 @@ function showRelease() {
   height: var(--row);
   border-radius: var(--r-md);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent-border);
   transform: translateY(calc(var(--active) * (var(--row) + var(--gap))));
-  transition: transform 460ms var(--ease-spring);
+  transition: transform var(--t-med) var(--ease-out);
   pointer-events: none;
 }
 .nav-link {
@@ -155,10 +152,16 @@ function showRelease() {
   min-height: 16px;
 }
 .side-foot {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
   margin-top: 12px;
   display: grid;
   gap: 10px;
 }
+.connection { display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--text-2); font-size: 12px; }
+.connection i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.connection i.pending { background: var(--text-3); }
+.connection i.off { background: var(--red); }
 .foot-row {
   display: flex;
   align-items: center;

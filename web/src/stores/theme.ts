@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 export type Theme = 'light' | 'dark'
 
 const THEME_KEY = 'theme'
-const META_COLOR: Record<Theme, string> = { light: '#f4f5f8', dark: '#0b0d12' }
+const META_COLOR: Record<Theme, string> = { light: '#f6f8f6', dark: '#111615' }
 
 const theme = ref<Theme>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
 
@@ -62,7 +62,7 @@ export function useTheme() {
       .then(() => {
         document.documentElement.animate(
           { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-          { duration: 560, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' },
+          { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' },
         )
       })
       .catch(() => {

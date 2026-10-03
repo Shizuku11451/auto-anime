@@ -1078,6 +1078,9 @@ func verifyDownload(rel *releaseInfo, path string) (string, error) {
 	expected := strings.ToLower(strings.TrimSpace(rel.SHA256))
 	if expected == "" && rel.SumURL != "" {
 		expected = lookupChecksum(rel.SumURL, rel.AssetName, rel.SumUseAPI)
+		if expected == "" {
+			return "", errors.New("无法取得更新包的 SHA-256 校验值，请重试；已中止更新")
+		}
 	}
 	if expected != "" {
 		if !strings.EqualFold(expected, sum) {
@@ -1133,10 +1136,11 @@ func lookupChecksum(sumURL, assetName string, sumUseAPI bool) string {
 	if sum := sums[assetName]; sum != "" {
 		return sum
 	}
-	// 有些发布只写一个校验和，不带文件名。
-	if len(sums) == 1 {
-		for _, sum := range sums {
-			return sum
+	// A bare digest is allowed; a digest naming another asset is not.
+	bare := strings.TrimSpace(string(body))
+	if len(bare) == 64 {
+		if _, err := hex.DecodeString(bare); err == nil {
+			return strings.ToLower(bare)
 		}
 	}
 	return ""

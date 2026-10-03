@@ -102,6 +102,9 @@ func activeTaskRefs() ([]taskRef, error) {
 }
 
 func pollDownloaderTasks() {
+	if err := recoverArchiveCommits(); err != nil {
+		log.Printf("恢复归档提交失败: %v", err)
+	}
 	refs, err := activeTaskRefs()
 	if err != nil {
 		log.Println("查询下载任务失败:", err)
@@ -222,7 +225,10 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 	}
 	if len(s.Files) > 0 {
 		clearTransfer(t.ID)
-		path, err := archiveFromFiles(t.ID, s.Files)
+		path, err := pendingArchivePath(t.ID)
+		if err == nil && path == "" {
+			path, err = archiveFromFiles(t.ID, s.Files)
+		}
 		if err != nil {
 			// Completion state is re-observed every round, so the archive
 			// retries automatically once the user fixes the mapping or mount.
@@ -230,8 +236,9 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 			db.Exec("UPDATE items SET status='下载中',task_error=? WHERE id=? AND status IN ("+activeTaskStatusSQL+")", "归档失败："+err.Error(), t.ID)
 			return
 		}
-		db.Exec("UPDATE items SET status='已保存',file_path=?,task_error='',progress=100 WHERE id=?", path, t.ID)
-		notify("download_saved", t.ID, "已保存")
+		if err := commitSavedArchive(t.ID, path); err != nil {
+			log.Printf("条目 %d 归档记录提交失败，下轮重试: %v", t.ID, err)
+		}
 		return
 	}
 	if s.Paused {
@@ -524,14 +531,15 @@ var downloaderClient = &http.Client{Timeout: 15 * time.Second, Transport: &http.
 var torrentClient = newClient(60 * time.Second)
 
 func aria2RPC(method string, params []any, out any) error {
-	if aria2Token != "" {
-		params = append([]any{"token:" + aria2Token}, params...)
+	cfg := runtimeConfig()
+	if cfg.aria2Token != "" {
+		params = append([]any{"token:" + cfg.aria2Token}, params...)
 	}
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": "auto-anime", "method": method, "params": params})
 	if err != nil {
 		return err
 	}
-	res, err := downloaderClient.Post(aria2URL, "application/json", bytes.NewReader(body))
+	res, err := downloaderClient.Post(cfg.aria2URL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -714,11 +722,12 @@ func aria2PayloadState(st *aria2Status) taskState {
 	return taskState{Progress: progress, DownloadSpeed: speed, Paused: st.Status == "paused"}
 }
 func aria2CompletedFiles(st *aria2Status) ([]archiveFile, error) {
-	remoteBase := aria2Dir
+	cfg := runtimeConfig()
+	remoteBase := cfg.aria2Dir
 	if remoteBase == "" {
 		remoteBase = st.Dir
 	}
-	localBase := aria2LocalDir
+	localBase := cfg.aria2LocalDir
 	if localBase == "" {
 		localBase = remoteBase
 	}
@@ -758,33 +767,48 @@ type qbitConnection struct {
 }
 
 type qbitClient struct {
-	http   *http.Client
-	config qbitConnection
+	http     *http.Client
+	config   qbitConnection
+	embedded *managedQBittorrent
 }
 
 func qbitLogin() (*qbitClient, error) {
-	return loginQBittorrent(qbitConnection{qbitURL, qbitUser, qbitPassword, qbitSavePath, qbitLocalDir}, 30*time.Second)
+	cfg := runtimeConfig()
+	return loginQBittorrent(qbitConnection{cfg.qbitURL, cfg.qbitUser, cfg.qbitPassword, cfg.qbitSavePath, cfg.qbitLocalDir}, 30*time.Second)
 }
 
 func qbitLoginFor(downloader string) (*qbitClient, error) {
 	if downloader != "builtin" {
 		return qbitLogin()
 	}
-	config, err := embeddedQbitConnection()
+	p, err := embeddedQbit.connection(launchEmbeddedQBittorrent)
 	if err != nil {
 		return nil, err
 	}
-	return loginQBittorrent(config, 30*time.Second)
+	client, err := loginQBittorrent(p.config, 30*time.Second)
+	if err == nil {
+		client.embedded = p
+	}
+	return client, err
 }
 
 func loginQBittorrent(config qbitConnection, timeout time.Duration) (*qbitClient, error) {
+	return loginQBittorrentContext(context.Background(), config, timeout)
+}
+
+func loginQBittorrentContext(ctx context.Context, config qbitConnection, timeout time.Duration) (*qbitClient, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
 	config.URL = strings.TrimRight(config.URL, "/")
-	client := &qbitClient{http: &http.Client{Jar: jar, Timeout: timeout, Transport: &http.Transport{Proxy: nil}}, config: config}
-	res, err := client.http.PostForm(config.URL+"/api/v2/auth/login", url.Values{"username": {config.User}, "password": {config.Password}})
+	client := &qbitClient{http: &http.Client{Jar: jar, Timeout: timeout, Transport: downloaderClient.Transport}, config: config}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.URL+"/api/v2/auth/login", strings.NewReader(url.Values{"username": {config.User}, "password": {config.Password}}.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res, err := client.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -847,7 +871,16 @@ type qbitHTTPError struct{ Code int }
 func (e *qbitHTTPError) Error() string { return fmt.Sprintf("qBittorrent 请求 HTTP %d", e.Code) }
 
 func (c *qbitClient) post(path string, form url.Values) error {
-	res, err := c.http.PostForm(c.config.URL+"/api/v2/"+path, form)
+	return c.postContext(context.Background(), path, form)
+}
+
+func (c *qbitClient) postContext(ctx context.Context, path string, form url.Values) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.config.URL+"/api/v2/"+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -860,7 +893,11 @@ func (c *qbitClient) post(path string, form url.Values) error {
 }
 
 func (c *qbitClient) remove(hash string) error {
-	return c.post("torrents/delete", url.Values{"hashes": {hash}, "deleteFiles": {"false"}})
+	return c.removeContext(context.Background(), hash)
+}
+
+func (c *qbitClient) removeContext(ctx context.Context, hash string) error {
+	return c.postContext(ctx, "torrents/delete", url.Values{"hashes": {hash}, "deleteFiles": {"false"}})
 }
 
 type qbitTorrent struct {
@@ -887,12 +924,18 @@ func (c *qbitClient) infoContext(ctx context.Context, query url.Values) ([]qbitT
 		return nil, err
 	}
 	defer res.Body.Close()
+	if p := c.embedded; p != nil && (!p.alive() || !p.ready.Load()) {
+		return nil, fmt.Errorf("内置 qBittorrent 正在恢复，等待下一轮查询")
+	}
 	if res.StatusCode >= 400 {
 		return nil, fmt.Errorf("qBittorrent 查询任务 HTTP %d", res.StatusCode)
 	}
 	var torrents []qbitTorrent
 	if err := json.NewDecoder(io.LimitReader(res.Body, 5<<20)).Decode(&torrents); err != nil {
 		return nil, err
+	}
+	if p := c.embedded; p != nil && (!p.alive() || !p.ready.Load()) {
+		return nil, fmt.Errorf("内置 qBittorrent 正在恢复，等待下一轮查询")
 	}
 	return torrents, nil
 }
@@ -927,10 +970,13 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 			return taskState{}, err
 		}
 		if len(found) == 0 {
-			if qbitAwaitingSubmission(t) {
+			if c.awaitingTask(t) {
 				return taskState{Pending: true}, nil
 			}
 			return taskState{Fail: "任务在 qBittorrent 中不存在"}, nil
+		}
+		if len(found) != 1 || !strings.EqualFold(found[0].Hash, t.TaskID) {
+			return taskState{}, fmt.Errorf("无法确认唯一的 qBittorrent 任务")
 		}
 		torrents = found
 	} else {
@@ -941,12 +987,15 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 			return taskState{}, err
 		}
 		if len(found) == 0 {
-			if t.SubmittedAt == 0 || qbitAwaitingSubmission(t) {
+			if t.SubmittedAt == 0 || c.awaitingTask(t) {
 				return taskState{Pending: true}, nil
 			}
 			return taskState{Fail: "qBittorrent 未能接收资源，请检查下载器中的错误后重试"}, nil
 		}
-		torrents = found[:1]
+		if len(found) != 1 || !qbitControlHash.MatchString(found[0].Hash) {
+			return taskState{}, fmt.Errorf("无法确认唯一的 qBittorrent 任务")
+		}
+		torrents = found
 		result, err := db.Exec("UPDATE items SET task_id=? WHERE id=? AND downloader=? AND COALESCE(task_id,'')='' AND status IN ("+activeTaskStatusSQL+")", strings.ToLower(torrents[0].Hash), t.ID, t.Downloader)
 		if err != nil {
 			return taskState{}, err
@@ -982,6 +1031,10 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 func qbitAwaitingSubmission(t taskRef) bool {
 	age := time.Now().Unix() - t.SubmittedAt
 	return t.SubmittedAt > 0 && age >= 0 && age < 90
+}
+
+func (c *qbitClient) awaitingTask(t taskRef) bool {
+	return qbitAwaitingSubmission(t) || (c.embedded != nil && time.Since(c.embedded.readyAt) < embeddedQbitRestoreGrace)
 }
 
 func qbitFinishedState(state string) bool {
@@ -1024,16 +1077,17 @@ type transmissionClient struct {
 }
 
 func (c *transmissionClient) call(payload map[string]any, out any) error {
+	cfg := runtimeConfig()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	do := func() (*http.Response, error) {
-		req, err := http.NewRequest("POST", transmissionURL+"/transmission/rpc", bytes.NewReader(body))
+		req, err := http.NewRequest("POST", cfg.transmissionURL+"/transmission/rpc", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
-		req.SetBasicAuth(transmissionUser, transmissionPassword)
+		req.SetBasicAuth(cfg.transmissionUser, cfg.transmissionPassword)
 		req.Header.Set("Content-Type", "application/json")
 		if c.sessionID != "" {
 			req.Header.Set("X-Transmission-Session-Id", c.sessionID)
@@ -1067,9 +1121,10 @@ func (c *transmissionClient) call(payload map[string]any, out any) error {
 }
 
 func transmissionAdd(link string) (string, error) {
+	cfg := runtimeConfig()
 	arguments := map[string]any{"filename": link}
-	if transmissionDownloadDir != "" {
-		arguments["download-dir"] = transmissionDownloadDir
+	if cfg.transmissionDownloadDir != "" {
+		arguments["download-dir"] = cfg.transmissionDownloadDir
 	}
 	var out struct {
 		Result    string `json:"result"`
@@ -1160,15 +1215,16 @@ func transmissionPoll(c *transmissionClient, t taskRef) (taskState, error) {
 }
 
 func transmissionCompletedFiles(torrent *transmissionTorrent) ([]archiveFile, error) {
+	cfg := runtimeConfig()
 	if len(torrent.Files) == 0 {
 		return nil, fmt.Errorf("Transmission 未返回文件列表")
 	}
 	dir := strings.TrimRight(torrent.DownloadDir, "/")
-	remoteBase := transmissionDownloadDir
+	remoteBase := cfg.transmissionDownloadDir
 	if remoteBase == "" {
 		remoteBase = dir
 	}
-	localBase := transmissionLocalDir
+	localBase := cfg.transmissionLocalDir
 	if localBase == "" {
 		localBase = remoteBase
 	}

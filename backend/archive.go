@@ -162,7 +162,8 @@ func resolveSeason(animeTitle string, itemSeason, autoSeason int) int {
 // configured media library directory (媒体库目录, for fnOS/Emby/Jellyfin to
 // scan) when set, otherwise DOWNLOAD_DIR.
 func archiveBaseRoot() string {
-	if d := strings.TrimSpace(libraryDir); d != "" {
+	cfg := runtimeConfig()
+	if d := strings.TrimSpace(cfg.libraryDir); d != "" {
 		return path.Clean(filepath.ToSlash(d))
 	}
 	return downloadDir
@@ -428,7 +429,7 @@ func saveArchiveContext(ctx context.Context, m archiveMetadata, res *http.Respon
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	m.SavedAt = time.Now().UTC().Format(time.RFC3339)
+	m.SavedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err = writeArchiveMeta(work, m, base); err != nil {
 		return "", err
 	}
@@ -440,6 +441,9 @@ func saveArchiveContext(ctx context.Context, m archiveMetadata, res *http.Respon
 	}
 	final := base
 	for i := 2; ; i++ {
+		if err := prepareArchiveCommit(m.ID, filepath.Join(finalDir, final+ext), filepath.Join(finalDir, final+"-info.json"), m.SavedAt); err != nil {
+			return "", err
+		}
 		if err := commitLinked(filepath.Join(work, m.File), filepath.Join(finalDir, final+ext)); err == nil {
 			break
 		} else if !os.IsExist(err) {
@@ -581,7 +585,7 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 	} else {
 		m.File = archiveMainName(files)
 	}
-	m.SavedAt = time.Now().UTC().Format(time.RFC3339)
+	m.SavedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err := writeArchiveMeta(workDir, m, base); err != nil {
 		return "", err
 	}
@@ -590,6 +594,9 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 		return "", err
 	}
 	name := uniqueChildName(finalDir, base)
+	if err := prepareArchiveCommit(m.ID, filepath.Join(finalDir, name, m.File), filepath.Join(finalDir, name, base+"-info.json"), m.SavedAt); err != nil {
+		return "", err
+	}
 	if err := os.Rename(workDir, filepath.Join(finalDir, name)); err != nil {
 		return "", err
 	}

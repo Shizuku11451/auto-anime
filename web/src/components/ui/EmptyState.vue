@@ -34,7 +34,10 @@ withDefaults(
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 64px 24px;
+  padding: 72px 24px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface);
   color: var(--text-2);
   animation: rise-in var(--t-slow) var(--ease-out) both;
 }
@@ -49,9 +52,9 @@ withDefaults(
   place-items: center;
   color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent-border);
+  box-shadow: none;
   margin-bottom: 18px;
-  animation: float-y 5s var(--ease-in-out) infinite;
+
 }
 .empty-ico.loading {
   animation: none;
@@ -83,7 +86,7 @@ withDefaults(
 .empty-hint {
   margin-top: 6px;
   font-size: 13px;
-  color: var(--text-3);
+  color: var(--text-2);
   max-width: 420px;
   line-height: 1.6;
 }

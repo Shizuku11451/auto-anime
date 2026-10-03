@@ -93,7 +93,7 @@ const countRows = computed(() => Object.entries(store.counts.value).sort((a, b) 
   border-radius: 50%;
   background: var(--green);
   margin-left: auto;
-  animation: pulse-ring 2.4s var(--ease-out) infinite;
+
 }
 .run-dot.off {
   background: var(--red);

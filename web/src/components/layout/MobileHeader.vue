@@ -19,9 +19,10 @@ const menuOpen = ref(false)
       <BaseButton icon-only :icon="Menu" aria-label="更多操作" @click="menuOpen = true" />
     </div>
     <!-- 弹窗内部会 Teleport 到 body，放在 header 内只是为了保持单根节点，让父级的 class 能落到 header 上 -->
-    <BaseDialog :open="menuOpen" title="运行状态与操作" size="sm" @close="menuOpen = false">
+    <BaseDialog :open="menuOpen" title="服务与备份" size="sm" @close="menuOpen = false">
       <div class="m-menu">
         <RuntimeCard />
+        <p class="field-hint">备份包含订阅配置，不包含历史条目、下载任务或媒体文件。</p>
         <SideActions layout="list" @done="menuOpen = false" />
       </div>
     </BaseDialog>

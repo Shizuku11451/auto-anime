@@ -1,0 +1,46 @@
+name: checks
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: Frontend tests and build
+        working-directory: web
+        run: |
+          node --test $(find src -name '*.test.mjs')
+          npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+      - name: Backend tests and vet
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test ./... -count=1 -timeout=240s
+          go vet ./...
+          go build ./...
+      - name: Race detector
+        working-directory: backend
+        run: go test -race -run TestConcurrentRuntimeConfig . -count=1 -timeout=240s

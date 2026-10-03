@@ -22,7 +22,10 @@ import (
 const sessionCookieName = "auto_anime_session"
 const sessionLifetime = 30 * 24 * time.Hour
 
-func authEnabled() bool { return webHash != "" || (webUser != "" && webPassword != "") }
+func authEnabled() bool {
+	cfg := runtimeConfig()
+	return cfg.webHash != "" || (cfg.webUser != "" && cfg.webPassword != "")
+}
 
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
@@ -157,6 +160,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Do not issue a session against credentials being replaced by settings.
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
+	cfg := runtimeConfig()
 	if !authEnabled() {
 		http.Error(w, "未启用登录：需要同时设置 WEB_USER 和 WEB_PASSWORD", http.StatusBadRequest)
 		return
@@ -172,7 +176,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	loginLimiter.reset(ip)
-	token, err := createSession(webUser)
+	if err := upgradePasswordHash(in.Password); err != nil {
+		http.Error(w, "密码存储升级失败，请重试", http.StatusInternalServerError)
+		return
+	}
+	token, err := createSession(cfg.webUser)
 	if err != nil {
 		http.Error(w, "会话创建失败", http.StatusInternalServerError)
 		return
@@ -232,7 +240,31 @@ func checkBasicAuth(r *http.Request) bool {
 	if !ok {
 		return false
 	}
-	return verifyWebCredentials(user, password)
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	ip := clientIP(r)
+	if _, blocked := loginLimiter.blocked(ip); blocked {
+		return false
+	}
+	if !verifyWebCredentials(user, password) {
+		loginLimiter.fail(ip)
+		return false
+	}
+	loginLimiter.reset(ip)
+	return upgradePasswordHash(password) == nil
+}
+
+// Caller holds settingsMu, so credentials cannot change during migration.
+func upgradePasswordHash(password string) error {
+	cfg := runtimeConfig()
+	if !strings.HasPrefix(cfg.webHash, "v1$") {
+		return nil
+	}
+	hash, err := newPasswordHash(password)
+	if err != nil {
+		return err
+	}
+	return persistSettings(map[string]string{"web_user": cfg.webUser, "web_hash": hash}, false)
 }
 
 func auth(next http.Handler) http.Handler {
@@ -261,6 +293,13 @@ func auth(next http.Handler) http.Handler {
 		if sessionUser(r) != "" || checkBasicAuth(r) {
 			next.ServeHTTP(w, r)
 			return
+		}
+		if _, _, basic := r.BasicAuth(); basic {
+			if wait, blocked := loginLimiter.blocked(clientIP(r)); blocked {
+				w.Header().Set("Retry-After", fmt.Sprint(int(wait.Seconds())+1))
+				http.Error(w, "失败次数过多，请稍后再试", http.StatusTooManyRequests)
+				return
+			}
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		if strings.HasPrefix(r.URL.Path, "/api/") {

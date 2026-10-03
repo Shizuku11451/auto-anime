@@ -47,7 +47,7 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
   border-radius: var(--r-md);
   background: var(--accent-soft);
   transform: translateX(calc(var(--active) * 100%));
-  transition: transform 460ms var(--ease-spring);
+  transition: transform var(--t-med) var(--ease-out);
   pointer-events: none;
 }
 .tab {

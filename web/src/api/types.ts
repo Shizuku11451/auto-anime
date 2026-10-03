@@ -350,3 +350,7 @@ export const MODE_LABEL: Record<string, string> = {
   qbittorrent: '外部 qBittorrent',
   transmission: 'Transmission',
 }
+export interface ItemPage {
+  items: Item[]
+  next_before: number
+}

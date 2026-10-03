@@ -63,7 +63,7 @@ async function submit() {
         <input id="l-pass" v-model="pass" type="password" autocomplete="current-password" />
       </div>
       <p class="form-msg" role="alert">{{ msg }}</p>
-      <BaseButton type="submit" variant="primary" size="lg" block :icon="LogIn" :loading="busy">登 录</BaseButton>
+      <BaseButton type="submit" variant="primary" size="lg" block :icon="LogIn" :loading="busy">登录</BaseButton>
     </form>
   </AuthShell>
 </template>

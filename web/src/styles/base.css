@@ -28,23 +28,6 @@ body {
   overflow-x: hidden;
 }
 
-/* 背景环境光：随主题变化的两团柔光 */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(900px 480px at 8% -10%, var(--accent-soft), transparent 60%),
-    radial-gradient(760px 420px at 100% -6%, rgba(94, 225, 196, 0.07), transparent 58%);
-}
-
-html[data-theme="light"] body::before {
-  background:
-    radial-gradient(900px 480px at 8% -10%, rgba(91, 78, 224, 0.09), transparent 60%),
-    radial-gradient(760px 420px at 100% -6%, rgba(47, 195, 166, 0.08), transparent 58%);
-}
 
 a {
   color: var(--accent);
@@ -120,7 +103,7 @@ input[type="email"],
 select,
 textarea {
   width: 100%;
-  min-height: 38px;
+  min-height: 40px;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
@@ -305,7 +288,7 @@ input[type="checkbox"] {
 }
 .page-enter-from {
   opacity: 0;
-  transform: translateY(12px);
+  transform: translateY(5px);
 }
 .page-leave-to {
   opacity: 0;
@@ -354,7 +337,7 @@ input[type="checkbox"] {
   transition:
     opacity var(--t-slow) var(--ease-out),
     transform var(--t-slow) var(--ease-out);
-  transition-delay: calc(min(var(--i, 0), 14) * 28ms);
+  transition-delay: calc(min(var(--i, 0), 5) * 16ms);
 }
 .list-leave-active {
   position: absolute;
@@ -364,7 +347,7 @@ input[type="checkbox"] {
 }
 .list-enter-from {
   opacity: 0;
-  transform: translateY(14px) scale(0.98);
+  transform: translateY(6px);
 }
 .list-leave-to {
   opacity: 0;
@@ -416,4 +399,15 @@ input[type="checkbox"] {
     transition-duration: 0.01ms !important;
     transition-delay: 0ms !important;
   }
+}
+
+summary { cursor: pointer; padding-block: 6px; }
+summary:hover { color: var(--text); }
+input, select, textarea { min-width: 0; }
+button, a, summary { touch-action: manipulation; }
+@media (pointer: coarse) {
+  .btn, .btn.s-sm, .btn.icon-only { min-height: 44px; }
+  .btn.icon-only { min-width: 44px; }
+  input:not([type="checkbox"]), select, textarea { font-size: 16px; }
+  summary { min-height: 44px; }
 }

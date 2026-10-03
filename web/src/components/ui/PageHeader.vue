@@ -20,11 +20,13 @@ defineProps<{ title: string; description?: string; count?: number }>()
 <style scoped>
 .page-head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px 24px;
   flex-wrap: wrap;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
   animation: rise-in var(--t-slow) var(--ease-out) both;
 }
 .page-head-text {
@@ -34,8 +36,8 @@ defineProps<{ title: string; description?: string; count?: number }>()
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 26px;
-  font-weight: 750;
+  font-size: 28px;
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
@@ -48,12 +50,12 @@ defineProps<{ title: string; description?: string; count?: number }>()
   border-radius: 999px;
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--text-2);
+  background: var(--surface-3);
   font-variant-numeric: tabular-nums;
 }
 .page-desc {
-  margin-top: 5px;
+  margin-top: 8px;
   color: var(--text-2);
   font-size: 13.5px;
 }

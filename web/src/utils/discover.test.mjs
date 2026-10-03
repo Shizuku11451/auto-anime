@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { episodeSummary, groupReleases, releaseEpisodes, subscriptionTitle, subscriptionWords } from './discover.ts'
+import { episodeSummary, filterReleases, groupReleases, releaseEpisodes, releaseField, subscriptionTitle, subscriptionWords } from './discover.ts'
 
 const item = (episode, group = '目标组', quality = '1080P', language = '简中') => ({
   title: `[${group}] 夏日动画 / Summer [${episode}] [${quality}][${language}]`,
@@ -42,4 +42,31 @@ test('缺集与未识别集数不展示为连续全集', () => {
   assert.deepEqual(episodes, [1, 2, 5, 7, 8])
   assert.equal(episodeSummary(episodes), '01–02、05、07–08')
   assert.equal(episodeSummary(releaseEpisodes([item('合集')])), '')
+})
+
+test('版本筛选组合精确匹配，清除条件后保留完整结果与来源顺序', () => {
+  const releases = groupReleases([item('01'), item('02', '其他组'), item('03', '目标组', '720P'), item('04', '目标组', '1080P', '繁中')])
+  const before = JSON.stringify(releases)
+  assert.equal(filterReleases(releases, { group: '目标组', quality: '1080p', language: '简中' }, 'source').length, 1)
+  assert.equal(filterReleases(releases, { group: '其他组', quality: '720p', language: '' }, 'source').length, 0)
+  assert.deepEqual(filterReleases(releases, { group: '', quality: '', language: '' }, 'source'), releases)
+  assert.equal(JSON.stringify(releases), before)
+  const unknown = groupReleases([{ ...item(''), fansub_group: '', quality: '', title: '未识别资源' }])[0]
+  assert.equal(releaseField(unknown, 'group'), '未识别')
+})
+
+test('排序使用最新有效发布日期与不重复的单集数量，合集不算单集', () => {
+  const releases = groupReleases([
+    { ...item('01'), published: 'invalid' },
+    { ...item('01'), published: '2026-10-01T00:00:00Z' },
+    { ...item('合集'), published: '' },
+    { ...item('01', '两集组'), published: '2026-09-01T00:00:00Z' },
+    item('02', '两集组'),
+    { ...item('01', '最新组'), published: '2026-10-02T00:00:00Z' },
+  ])
+  const filters = { group: '', quality: '', language: '' }
+  assert.equal(filterReleases(releases, filters, 'episodes')[0].item.fansub_group, '两集组')
+  assert.equal(filterReleases(releases, filters, 'latest')[0].item.fansub_group, '最新组')
+  assert.equal(releases[0].item.fansub_group, '目标组')
+  assert.equal(releases[0].episodes.length, 1)
 })

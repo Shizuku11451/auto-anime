@@ -50,6 +50,7 @@ services:
       PROXY_URL: ""
       WEBHOOK_URL: ""
       # 可选：同时设置 WEB_USER 和 WEB_PASSWORD 后启用 Web 登录
+      # 网页登录与 Basic Auth 共用限流：同一来源连续失败 5 次锁定 15 分钟
       WEB_USER: ""
       WEB_PASSWORD: ""
       # 版本检查与一键更新（设置页与侧边栏提醒）

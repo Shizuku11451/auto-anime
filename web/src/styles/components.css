@@ -176,3 +176,9 @@
   color: var(--text-3);
   word-break: break-all;
 }
+
+/* 页面筛选区：搜索优先，结果数量作为辅助信息。 */
+.filter-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 16px; margin-bottom: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
+.filter-toolbar select { width: auto; max-width: 180px; }
+.filter-toolbar .result-count { margin-left: auto; color: var(--text-3); font-size: 12px; }
+@media (max-width: 640px) { .filter-toolbar { padding: 12px; gap: 10px; } .filter-toolbar .search { flex: 1 0 100%; width: 100% !important; } }

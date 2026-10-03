@@ -5,58 +5,103 @@ import type { DiscoverResult, DiscoverSource } from '@/api/types'
 
 interface DiscoverState {
   sources: DiscoverSource[]
+  sourcesLoading: boolean
   sourcesError: string
   source: string
   keyword: string
   searching: boolean
   result: DiscoverResult | null
   error: string
+  attempt: { source: string; keyword: string } | null
+  cancelled: boolean
+  recent: string[]
 }
 
 const state = reactive<DiscoverState>({
   sources: [],
+  sourcesLoading: true,
   sourcesError: '',
   source: '',
   keyword: '',
   searching: false,
   result: null,
   error: '',
+  attempt: null,
+  cancelled: false,
+  recent: [],
 })
+
+let sourcesRequest = 0
+let searchRequest = 0
+let controller: AbortController | undefined
 
 /** 每次进入找番视图都刷新搜索源：设置页改了自定义模板后立即生效，并尽量保持之前选中的源 */
 async function loadSources() {
+  const request = ++sourcesRequest
+  state.sourcesLoading = true
   try {
     const data = await http.get<{ sources: DiscoverSource[] }>('/api/discover/sources')
+    if (request !== sourcesRequest) return
     state.sources = data.sources ?? []
     state.sourcesError = ''
+    if (!state.sources.some((s) => s.id === state.source)) {
+      cancelSearch()
+      state.source = state.sources[0]?.id ?? ''
+    }
   } catch (e) {
-    state.sources = []
+    if (request !== sourcesRequest) return
     state.sourcesError = errorMessage(e)
-    return
+  } finally {
+    if (request === sourcesRequest) state.sourcesLoading = false
   }
-  if (!state.sources.some((s) => s.id === state.source)) {
-    state.source = state.sources[0]?.id ?? ''
-  }
+}
+
+function cancelSearch() {
+  searchRequest++
+  controller?.abort()
+  controller = undefined
+  if (state.searching) state.cancelled = true
+  state.searching = false
 }
 
 async function search() {
   const keyword = state.keyword.trim()
-  if (!keyword || !state.source || state.searching) return
+  if (!keyword || !state.sources.some((s) => s.id === state.source)) return
   const source = state.source
+  if (state.searching && state.attempt?.source === source && state.attempt.keyword === keyword) return
+  cancelSearch()
+  const request = ++searchRequest
+  controller = new AbortController()
+  state.keyword = keyword
+  state.attempt = { source, keyword }
   state.searching = true
+  state.cancelled = false
   state.error = ''
-  state.result = null
   try {
-    state.result = await http.get<DiscoverResult>(
+    const result = await http.get<DiscoverResult>(
       `/api/discover/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`,
+      { signal: controller.signal },
     )
+    if (request !== searchRequest) return
+    state.result = result
+    state.recent = [keyword, ...state.recent.filter((word) => word !== keyword)].slice(0, 6)
   } catch (e) {
-    state.error = errorMessage(e)
+    if (request === searchRequest) state.error = errorMessage(e)
   } finally {
-    state.searching = false
+    if (request === searchRequest) {
+      state.searching = false
+      controller = undefined
+    }
   }
 }
 
+function retry() {
+  if (!state.attempt) return
+  state.source = state.attempt.source
+  state.keyword = state.attempt.keyword
+  return search()
+}
+
 export function useDiscover() {
-  return { state, loadSources, search }
+  return { state, loadSources, search, cancelSearch, retry }
 }

@@ -1,24 +1,50 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { CloudOff, Compass, Copy, ExternalLink, Plus, Search, SearchX, TriangleAlert } from '@lucide/vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { CloudOff, Compass, Copy, History, Search, SearchX, SlidersHorizontal, TriangleAlert, X } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import ReleaseCard from '@/components/discover/ReleaseCard.vue'
 import { useDiscover } from '@/stores/discover'
 import { useDialogs } from '@/stores/dialogs'
 import { toast } from '@/stores/toast'
-import { formatTime } from '@/utils/format'
 import type { DiscoverItem } from '@/api/types'
 import { useAppStore } from '@/stores/app'
-import { episodeSummary, groupReleases, subscriptionTitle, subscriptionWords } from '@/utils/discover'
+import { filterReleases, groupReleases, releaseField, subscriptionTitle, subscriptionWords, type ReleaseField, type ReleaseFilters, type ReleaseSort } from '@/utils/discover'
 
-const { state, loadSources, search } = useDiscover()
+const { state, loadSources, search, cancelSearch, retry } = useDiscover()
 const dialogs = useDialogs()
 const store = useAppStore()
 const releases = computed(() => groupReleases(state.result?.items ?? []))
 const existingFeed = computed(() => store.feeds.value.find((f) => f.url === state.result?.feed_url))
+const filters = reactive<ReleaseFilters>({ group: '', quality: '', language: '' })
+const sort = ref<ReleaseSort>('source')
+const filterFields: { key: ReleaseField; label: string }[] = [
+  { key: 'group', label: '字幕组' }, { key: 'quality', label: '清晰度' }, { key: 'language', label: '字幕语言' },
+]
+const filtered = computed(() => filterReleases(releases.value, filters, sort.value))
+const hasFilters = computed(() => Object.values(filters).some(Boolean))
+const activeSourceName = computed(() => state.sources.find((s) => s.id === state.attempt?.source)?.name || '所选来源')
+const showResults = computed(() => !!state.result && !state.searching && !state.error)
+const sameSearch = computed(() => state.searching && state.attempt?.keyword === state.keyword.trim() && state.attempt.source === state.source)
+
+function filterOptions(field: ReleaseField) {
+  const values = new Map<string, number>()
+  for (const release of releases.value) {
+    const value = releaseField(release, field)
+    values.set(value, (values.get(value) || 0) + 1)
+  }
+  return [...values].map(([value, count]) => ({ value, count }))
+}
+
+function resetFilters() {
+  Object.assign(filters, { group: '', quality: '', language: '' })
+}
+
+watch(() => state.result, resetFilters)
 
 onMounted(loadSources)
+onUnmounted(cancelSearch)
 
 const currentSource = computed(() => state.sources.find((s) => s.id === state.source))
 const noSources = computed(() => !state.sources.length)
@@ -27,6 +53,23 @@ function submit() {
   if (!state.keyword.trim()) return
   if (noSources.value) return
   void search()
+}
+
+function switchSource(source: string) {
+  state.source = source
+  cancelSearch()
+  submit()
+}
+
+function searchRecent(keyword: string) {
+  state.keyword = keyword
+  submit()
+}
+
+function clearKeyword() {
+  cancelSearch()
+  state.keyword = ''
+  document.getElementById('discover-keyword')?.focus()
 }
 
 async function copyFeedUrl() {
@@ -43,7 +86,7 @@ async function copyFeedUrl() {
     document.body.appendChild(ta)
     ta.select()
     try {
-      document.execCommand('copy')
+      if (!document.execCommand('copy')) throw new Error('copy failed')
       toast.success('RSS 地址已复制')
     } catch {
       toast.error('复制失败，请手动复制')
@@ -68,296 +111,171 @@ function subscribe(item: DiscoverItem) {
   })
 }
 
-function openPage(item: DiscoverItem) {
-  window.open(item.link, '_blank', 'noopener')
-}
 </script>
 
 <template>
   <div class="page">
-    <PageHeader title="找番" description="搜索番剧，选择一个字幕组和版本，持续追更" />
+    <PageHeader title="找番" description="搜番名、选版本，喜欢的字幕组持续追更" />
 
-    <form class="toolbar card" @submit.prevent="submit">
-      <label class="source">
-        <span class="src-label">搜索源</span>
-        <select v-model="state.source" :disabled="noSources || state.searching" aria-label="搜索源">
-          <option v-if="noSources" value="">{{ state.sourcesError ? '搜索源加载失败' : '无可用搜索源' }}</option>
-          <option v-for="s in state.sources" :key="s.id" :value="s.id" :title="s.hint || s.name">
-            {{ s.name }}{{ s.custom ? '（自定义）' : '' }}
-          </option>
-        </select>
-      </label>
-      <label class="kw">
-        <Search class="kw-ic" aria-hidden="true" />
-        <input
-          v-model="state.keyword"
-          type="text"
-          maxlength="100"
-          placeholder="输入番剧名或关键词，例如：芙莉莲"
-          autocomplete="off"
-          enterkeyhint="search"
-          :disabled="state.searching"
-        />
-      </label>
-      <BaseButton type="submit" variant="primary" :icon="Search" :loading="state.searching" :disabled="noSources">
-        搜索
-      </BaseButton>
-    </form>
-    <p class="hint">
-      同一版本的多集已折叠。选择后会自动限制字幕组、清晰度和已识别的字幕语言；保存前请预览匹配条目。
-      <span v-if="currentSource?.hint" class="src-hint">当前源：{{ currentSource.hint }}</span>
+    <section class="search-panel card" aria-label="搜索番剧">
+      <form class="toolbar" @submit.prevent="submit">
+        <label class="kw">
+          <Search class="kw-ic" aria-hidden="true" />
+          <input id="discover-keyword" v-model="state.keyword" aria-label="番剧名或关键词" type="text"
+            maxlength="100" placeholder="输入番剧名，例如：芙莉莲" autocomplete="off" enterkeyhint="search" />
+          <button v-if="state.keyword" class="clear-keyword" type="button" aria-label="清空关键词" @click="clearKeyword">
+            <X aria-hidden="true" />
+          </button>
+        </label>
+        <BaseButton type="submit" variant="primary" :icon="Search" :disabled="noSources || !state.keyword.trim() || sameSearch">
+          {{ state.searching ? '搜索新关键词' : '搜索' }}
+        </BaseButton>
+      </form>
+      <div class="source-row" role="group" aria-label="搜索源">
+        <span class="row-label">搜索源</span>
+        <span v-if="state.sourcesLoading && noSources" class="muted" role="status">正在加载搜索源…</span>
+        <button v-for="source in state.sources" :key="source.id" type="button" class="source-button"
+          :class="{ active: state.source === source.id }" :aria-pressed="state.source === source.id"
+          :title="source.hint" @click="switchSource(source.id)">
+          {{ source.name }}
+        </button>
+      </div>
+      <p v-if="currentSource?.hint" class="source-hint">{{ currentSource.hint }}</p>
+      <div v-if="state.sourcesError && !noSources" class="source-error" role="status">
+        <span>搜索源刷新失败：{{ state.sourcesError }}</span>
+        <BaseButton size="sm" :loading="state.sourcesLoading" @click="loadSources">重新加载</BaseButton>
+      </div>
+      <div v-if="state.recent.length" class="recent-row" role="group" aria-label="最近搜索">
+        <span class="row-label"><History aria-hidden="true" />最近搜索</span>
+        <button v-for="keyword in state.recent" :key="keyword" class="recent-button" type="button" @click="searchRecent(keyword)">{{ keyword }}</button>
+        <button class="clear-recent" type="button" @click="state.recent = []">清除记录</button>
+      </div>
+    </section>
+
+    <p v-if="state.cancelled && !state.searching" class="cancel-notice" role="status">
+      搜索已取消。{{ state.result ? '下方保留上一次的搜索结果。' : '可以修改关键词或切换搜索源重新搜索。' }}
     </p>
 
-    <Transition name="slide-up">
-      <div v-if="state.result && !state.searching" class="summary card">
-        <div class="summary-main">
-          <b>「{{ state.result.keyword }}」</b>
-          <span class="muted">{{ state.result.source_name }} · 已读取 {{ state.result.pages }} 页 · {{ releases.length }} 个版本 · {{ state.result.count }} 条资源</span>
-          <span class="rss mono truncate" :title="state.result.feed_url">{{ state.result.feed_url }}</span>
-          <p class="read-scope" :class="{ limited: state.result.limited }" role="status">
-            {{ state.result.warning || (state.result.history ? '已读取可用的历史页。下方集数是此来源已发现的集数，不代表全季已发布。' : '此来源仅提供当前 RSS 列表；未找到的早期集数可换源或加上字幕组再搜索。') }}
-          </p>
-        </div>
-        <div class="summary-actions">
-          <BaseButton size="sm" :icon="Copy" @click="copyFeedUrl">复制 RSS 地址</BaseButton>
-        </div>
-      </div>
-    </Transition>
-
-    <EmptyState
-      v-if="noSources && !state.result"
-      :icon="TriangleAlert"
-      title="没有可用搜索源"
-      :hint="state.sourcesError || '请到设置页配置自定义 RSS 搜索模板'"
-      tone="error"
-    />
-    <EmptyState v-else-if="state.searching" :icon="Compass" :title="`正在搜索「${state.keyword.trim()}」…`" hint="支持翻页的来源会继续查找早期集数，请稍候" loading />
-    <EmptyState v-else-if="state.error" :icon="CloudOff" title="搜索失败" :hint="state.error" tone="error">
-      <BaseButton @click="submit">重试</BaseButton>
+    <EmptyState v-if="state.sourcesLoading && noSources" :icon="Compass" title="正在加载搜索源" hint="加载完成后即可搜索番剧" loading />
+    <EmptyState v-else-if="noSources" :icon="TriangleAlert" title="没有可用搜索源"
+      :hint="state.sourcesError || '请到设置页配置自定义 RSS 搜索模板'" tone="error">
+      <BaseButton :loading="state.sourcesLoading" @click="loadSources">重新加载搜索源</BaseButton>
+      <RouterLink class="settings-link" to="/settings">前往设置</RouterLink>
     </EmptyState>
-    <EmptyState
-      v-else-if="!state.result"
-      :icon="Compass"
-      title="输入关键词开始搜索"
-      hint="先搜索番剧，再选择喜欢的字幕组和清晰度；不必逐集添加"
-    />
-    <EmptyState
-      v-else-if="!state.result.items.length"
-      :icon="SearchX"
-      :title="`没有找到与「${state.result.keyword}」匹配的资源`"
-      hint="换个关键词，或到设置页换一个搜索源"
-      compact
-    />
-    <TransitionGroup v-else tag="div" class="results" name="list" appear>
-      <article v-for="(release, i) in releases" :key="release.key" class="result" :style="{ '--i': i }">
-        <div class="r-info">
-          <h3 class="r-title">
-            <span>{{ release.title }}</span>
-            <span class="ep">{{ release.items.length }} 条资源</span>
-          </h3>
-          <div class="meta-line">
-            <span>{{ release.item.fansub_group || '未知字幕组' }}</span>
-            <span v-if="release.item.quality">{{ release.item.quality }}</span>
-            <span v-if="release.language">{{ release.language }}</span>
+    <EmptyState v-else-if="state.searching" :icon="Compass" :title="`正在${activeSourceName}搜索「${state.attempt?.keyword}」`"
+      hint="正在读取资源与可用的历史页。你可以取消，或直接切换上方搜索源。" loading>
+      <BaseButton :icon="X" @click="cancelSearch">取消搜索</BaseButton>
+    </EmptyState>
+    <EmptyState v-else-if="state.error" :icon="CloudOff" :title="`${activeSourceName}搜索失败`" :hint="state.error" tone="error">
+      <BaseButton @click="retry">重试本次搜索</BaseButton>
+      <BaseButton v-for="source in state.sources.filter(s => s.id !== state.attempt?.source)" :key="source.id" size="sm"
+        @click="switchSource(source.id)">改用{{ source.name }}</BaseButton>
+    </EmptyState>
+    <EmptyState v-else-if="!state.result" :icon="Compass" title="想追哪部番？从名字开始"
+      hint="搜索中文名、日文名或别名，再按字幕组和清晰度选择版本；同一版本的多集会自动合并展示。" />
+
+    <template v-if="showResults && state.result">
+      <section class="result-summary" aria-label="搜索结果概况">
+        <div>
+          <h2>「{{ state.result.keyword }}」的搜索结果</h2>
+          <p>{{ state.result.source_name }}<span>·</span>{{ releases.length }} 个版本<span>·</span>{{ state.result.count }} 条资源<span>·</span>已读取 {{ state.result.pages }} 页</p>
+        </div>
+        <BaseButton size="sm" :icon="Copy" @click="copyFeedUrl">复制 RSS 地址</BaseButton>
+      </section>
+      <p class="read-scope" :class="{ limited: state.result.limited }" role="status">
+        {{ state.result.warning || (state.result.history ? '集数来自此来源已发现的资源，不代表全季已发布。' : '此来源仅提供当前 RSS 列表；查找早期集数可换源，或加上字幕组缩小搜索范围。') }}
+      </p>
+      <p v-if="existingFeed" class="subscription-notice">
+        此 RSS 已订阅为「{{ existingFeed.name }}」。选择版本后可预览并调整原订阅，已有条目与文件保留。
+      </p>
+
+      <EmptyState v-if="!releases.length" :icon="SearchX" title="暂时没有找到匹配资源"
+        hint="试试更短的番名、日文名或别名，也可以保持关键词换个来源。" compact>
+        <BaseButton v-for="source in state.sources.filter(s => s.id !== state.result?.source)" :key="source.id" size="sm"
+          @click="switchSource(source.id)">改用{{ source.name }}</BaseButton>
+      </EmptyState>
+      <template v-else>
+        <section class="filter-panel card" aria-label="筛选版本">
+          <div class="filter-heading"><span><SlidersHorizontal aria-hidden="true" />筛选版本</span><span class="muted">仅筛选本次结果</span></div>
+          <div class="filters">
+            <label v-for="field in filterFields" :key="field.key">
+              <span>{{ field.label }}</span>
+              <select v-model="filters[field.key]" :aria-label="field.label">
+                <option value="">全部{{ field.label }}</option>
+                <option v-for="option in filterOptions(field.key)" :key="option.value" :value="option.value">{{ option.value }}（{{ option.count }}）</option>
+              </select>
+            </label>
+            <label><span>排序</span><select v-model="sort" aria-label="版本排序">
+              <option value="source">来源顺序</option><option value="latest">最近发布优先</option><option value="episodes">已发现集数最多</option>
+            </select></label>
           </div>
-          <p v-if="release.episodes.length" class="r-episodes">已发现 {{ release.episodes.length }} 集：{{ episodeSummary(release.episodes) }}</p>
-          <p v-else class="r-original">尚未识别出单集编号，请核对原始标题。</p>
-          <p v-if="!release.item.fansub_group" class="r-original">未识别到字幕组，默认关闭自动下载，请先核对过滤规则。</p>
-          <details>
-            <summary class="r-original">查看集数与原始标题</summary>
-            <p v-for="it in release.items" :key="it.torrent || it.link || it.title" class="r-original">
-              {{ it.episode ? `第 ${it.episode} 集 · ` : '' }}{{ it.title }} · {{ formatTime(it.published) }}
-              <a v-if="/^https?:/i.test(it.link || '')" :href="it.link" target="_blank" rel="noopener">资源页</a>
-            </p>
-          </details>
+          <div class="filter-footer">
+            <span role="status" aria-live="polite">显示 {{ filtered.length }} / {{ releases.length }} 个版本</span>
+            <BaseButton v-if="hasFilters" size="sm" variant="ghost" @click="resetFilters">清除筛选</BaseButton>
+          </div>
+        </section>
+        <EmptyState v-if="!filtered.length" :icon="SearchX" title="没有符合筛选条件的版本" hint="可以清除筛选，查看此来源的全部搜索结果。" compact>
+          <BaseButton @click="resetFilters">清除筛选</BaseButton>
+        </EmptyState>
+        <div v-else class="results">
+          <ReleaseCard v-for="release in filtered" :key="release.key" :release="release" :editing="!!existingFeed" @subscribe="subscribe" />
         </div>
-        <div class="r-actions">
-          <BaseButton v-if="/^https?:/i.test(release.item.link || '')" size="sm" :icon="ExternalLink" @click="openPage(release.item)">
-            资源页
-          </BaseButton>
-          <BaseButton size="sm" variant="soft" :icon="Plus" @click="subscribe(release.item)">{{ existingFeed ? '改为此版本' : '订阅此版本' }}</BaseButton>
-        </div>
-      </article>
-    </TransitionGroup>
+        <p class="subscription-hint">选择版本后将自动预览字幕组、清晰度与字幕语言的匹配结果，核对后再保存订阅。</p>
+      </template>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.toolbar {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 12px;
-  border-radius: var(--r-lg);
-  animation: rise-in var(--t-slow) var(--ease-out) both;
-  animation-delay: 60ms;
-}
-.source {
-  position: relative;
-  display: block;
-}
-.src-label {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  translate: 0 -50%;
-  font-size: 12px;
-  color: var(--text-3);
-  pointer-events: none;
-}
-.source select {
-  padding-left: 60px;
-}
-.kw {
-  position: relative;
-  display: block;
-}
-.kw-ic {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  translate: 0 -50%;
-  width: 15px;
-  height: 15px;
-  color: var(--text-3);
-  pointer-events: none;
-}
-.kw input {
-  padding-left: 36px;
-}
-.hint {
-  margin: 12px 4px 18px;
-  color: var(--text-3);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-.src-hint {
-  display: block;
-  margin-top: 2px;
-}
-
-.summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 16px;
-  flex-wrap: wrap;
-  padding: 12px 16px;
-  margin-bottom: 14px;
-  border-radius: var(--r-md);
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  box-shadow: none;
-}
-.summary-main {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  min-width: 0;
-  flex: 1;
-}
-.summary-main b {
-  font-weight: 700;
-}
-.rss {
-  max-width: 100%;
-  color: var(--text-3);
-  font-size: 11.5px;
-}
-.summary-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.read-scope {
-  flex-basis: 100%;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-3);
-  overflow-wrap: anywhere;
-}
-.read-scope.limited {
-  color: var(--amber);
-}
-.r-episodes {
-  color: var(--text-2);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.results {
-  position: relative;
-  display: grid;
-  gap: 10px;
-}
-.result {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
-  transition:
-    border-color var(--t-med) var(--ease-out),
-    box-shadow var(--t-med) var(--ease-out);
-}
-.result:hover {
-  border-color: var(--line-strong);
-  box-shadow: var(--shadow-md);
-}
-.r-info {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-}
-.r-title {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  font-size: 14.5px;
-  font-weight: 650;
-  line-height: 1.35;
-}
-.ep {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
-  white-space: nowrap;
-}
-.r-original {
-  color: var(--text-3);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.r-actions {
-  display: flex;
-  gap: 6px;
-  flex: none;
-}
-
+.search-panel { padding: 20px; border-radius: var(--r-lg); margin-bottom: 24px; }
+.toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.kw { position: relative; display: block; min-width: 0; }
+.kw input { padding-left: 40px; padding-right: 40px; }
+.kw-ic { position: absolute; left: 13px; top: 50%; translate: 0 -50%; width: 17px; height: 17px; color: var(--text-3); pointer-events: none; }
+.clear-keyword { position: absolute; right: 4px; top: 4px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--text-3); cursor: pointer; }
+.clear-keyword:hover { background: var(--surface-3); color: var(--text); }
+.clear-keyword svg { width: 16px; height: 16px; }
+.source-row, .recent-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.source-row { margin-top: 16px; }
+.row-label { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; font-size: 12px; color: var(--text-3); flex: none; }
+.row-label svg { width: 13px; height: 13px; }
+.source-button { padding: 7px 12px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-sm); font-size: 12px; color: var(--text-2); cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
+.source-button:hover { border-color: var(--accent-border); color: var(--accent); }
+.source-button.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: 600; }
+.source-hint { margin-top: 10px; font-size: 12px; color: var(--text-3); line-height: 1.6; overflow-wrap: anywhere; }
+.source-error { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--amber); font-size: 12px; margin-top: 10px; overflow-wrap: anywhere; }
+.recent-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.recent-button, .clear-recent { border: 0; background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; padding: 6px 8px; border-radius: var(--r-xs); }
+.recent-button { max-width: 180px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--surface-2); }
+.recent-button:hover { color: var(--accent); }
+.clear-recent { color: var(--text-3); }
+.cancel-notice { margin-bottom: 16px; font-size: 13px; color: var(--text-2); }
+.result-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.result-summary > div { min-width: 0; }
+.result-summary h2 { font-size: 17px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
+.result-summary p { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 9px; font-size: 12px; color: var(--text-3); margin-top: 6px; }
+.read-scope, .subscription-notice, .subscription-hint { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; color: var(--text-3); }
+.read-scope { margin: 12px 0 18px; }
+.read-scope.limited { color: var(--amber); }
+.subscription-notice { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: var(--r-sm); color: var(--accent); background: var(--accent-soft); }
+.filter-panel { margin-bottom: 16px; padding: 16px; border-radius: var(--r-md); }
+.filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 12px; }
+.filter-heading > span:first-child { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.filter-heading svg { width: 14px; height: 14px; }
+.filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.filters label { min-width: 0; }
+.filters label > span { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
+.filters select { text-overflow: ellipsis; }
+.filter-footer { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin-top: 8px; font-size: 12px; color: var(--text-3); }
+.results { display: grid; gap: 12px; }
+.subscription-hint { margin-top: 16px; text-align: center; }
+.settings-link { font-size: 13px; align-self: center; }
 @media (max-width: 760px) {
-  .toolbar {
-    grid-template-columns: 1fr;
-  }
-  .result {
-    flex-direction: column;
-  }
-  .r-actions {
-    width: 100%;
-  }
-  .r-actions :deep(.btn) {
-    flex: 1;
-  }
+  .search-panel { padding: 16px; }
+  .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 380px) {
+  .toolbar { grid-template-columns: minmax(0, 1fr); }
+  .filter-panel { padding: 12px; }
 }
 </style>

@@ -67,8 +67,9 @@ func validateDiscoverTemplate(raw string) (string, error) {
 }
 
 func discoverSourceList() []discoverSource {
+	cfg := runtimeConfig()
 	sources := append([]discoverSource{}, discoverBuiltinSources...)
-	if t, err := validateDiscoverTemplate(discoverSearchTemplate); err == nil && t != "" {
+	if t, err := validateDiscoverTemplate(cfg.discoverSearchTemplate); err == nil && t != "" {
 		sources = append(sources, discoverSource{ID: "custom", Name: "自定义搜索源", Hint: "设置页配置的 RSS 搜索模板", Template: t, Custom: true})
 	}
 	return sources

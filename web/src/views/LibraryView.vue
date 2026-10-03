@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Clapperboard, SearchX, Plus, ListChecks, Merge, Trash2 } from '@lucide/vue'
+import { Clapperboard, SearchX, Plus, ListChecks, Merge, Trash2, ServerOff } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SearchInput from '@/components/ui/SearchInput.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -42,14 +42,15 @@ function selectVisible() {
   <div class="page">
     <PageHeader
       title="番剧库"
+      description="收藏喜欢的故事，随时接着看"
       :count="store.loaded.value ? store.animes.value.length : undefined"
     >
-      <SearchInput v-model="filter" placeholder="筛选番剧" width="240px" />
       <BaseButton :icon="Plus" variant="primary" @click="dialogs.openAnimeEdit()">新建番剧</BaseButton>
       <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.animes.value.length" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
     </PageHeader>
 
-    <div class="library-toolbar">
+    <div class="library-toolbar filter-toolbar">
+      <SearchInput v-model="filter" placeholder="搜索番剧名称" width="260px" />
       <label>范围 <select v-model="scope"><option value="all">全部番剧</option><option value="empty">无资源</option><option value="saved">有已保存资源</option></select></label>
       <label>排序 <select v-model="sort"><option value="recent">最近收录</option><option value="title">名称</option><option value="resources">资源数量</option></select></label>
       <span class="result-count">{{ list.length }} 部</span>
@@ -71,6 +72,9 @@ function selectVisible() {
       </div>
     </div>
 
+    <EmptyState v-else-if="store.loadError.value && !store.animes.value.length" :icon="ServerOff" title="番剧库加载失败" hint="请检查服务连接后重新加载" tone="error">
+      <BaseButton @click="store.refresh()">重新加载</BaseButton>
+    </EmptyState>
     <EmptyState
       v-else-if="!store.animes.value.length"
       :icon="Clapperboard"
@@ -81,7 +85,9 @@ function selectVisible() {
       <BaseButton @click="router.push('/discover')">先去找番</BaseButton>
     </EmptyState>
 
-    <EmptyState v-else-if="!list.length" :icon="SearchX" title="没有匹配的番剧" hint="换个关键词试试" compact />
+    <EmptyState v-else-if="!list.length" :icon="SearchX" title="没有匹配的番剧" hint="试试其他关键词，或清除筛选" compact>
+      <BaseButton @click="filter = ''; scope = 'all'">清除筛选</BaseButton>
+    </EmptyState>
 
     <TransitionGroup v-else tag="div" class="grid" name="list" appear>
       <AnimeCard
@@ -90,13 +96,9 @@ function selectVisible() {
         :anime="a"
         :selecting="selecting"
         :selected="selected.includes(a.id)"
-        :can-merge="store.animes.value.length > 1"
         :style="{ '--i': i }"
         @open="dialogs.openAnimeDetail"
         @toggle="toggle"
-        @edit="dialogs.openAnimeEdit(a)"
-        @merge="dialogs.openAnimeManage('merge', [a])"
-        @remove="dialogs.openAnimeManage('delete', [a])"
       />
     </TransitionGroup>
   </div>
@@ -111,8 +113,8 @@ function selectVisible() {
 .grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 172px), 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 192px), 1fr));
+  gap: 24px 20px;
 }
 @media (max-width: 640px) {
   :deep(.page-actions .search) { flex: 1 0 100%; width: 100% !important; }

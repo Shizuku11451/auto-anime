@@ -30,7 +30,13 @@ export async function api<T = unknown>(url: string, options: RequestOptions = {}
     ;(init.headers as Headers).set('Content-Type', 'application/json')
     init.body = JSON.stringify(json)
   }
-  const res = await fetch(url, init)
+  let res: Response
+  try {
+    res = await fetch(url, init)
+  } catch (error) {
+    if (init.signal?.aborted) throw error
+    throw new ApiError('无法连接服务，请检查网络或稍后重试', 0)
+  }
   if (res.status === 401) {
     if (!redirectingToLogin) {
       redirectingToLogin = true
@@ -59,7 +65,7 @@ export async function api<T = unknown>(url: string, options: RequestOptions = {}
 }
 
 export const http = {
-  get: <T>(url: string) => api<T>(url),
+  get: <T>(url: string, options: RequestOptions = {}) => api<T>(url, options),
   post: <T>(url: string, json?: unknown) => api<T>(url, { method: 'POST', json }),
   put: <T>(url: string, json?: unknown) => api<T>(url, { method: 'PUT', json }),
   patch: <T>(url: string, json?: unknown) => api<T>(url, { method: 'PATCH', json }),

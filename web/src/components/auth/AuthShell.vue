@@ -7,9 +7,6 @@ withDefaults(defineProps<{ subtitle?: string; wide?: boolean }>(), { subtitle: '
 
 <template>
   <div class="auth">
-    <div class="blob b1" aria-hidden="true" />
-    <div class="blob b2" aria-hidden="true" />
-    <div class="blob b3" aria-hidden="true" />
     <div class="auth-tools">
       <ThemeToggle />
     </div>
@@ -32,50 +29,6 @@ withDefaults(defineProps<{ subtitle?: string; wide?: boolean }>(), { subtitle: '
   padding: 40px 16px;
   overflow: hidden;
 }
-.blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(70px);
-  opacity: 0.55;
-  pointer-events: none;
-  animation: drift 18s var(--ease-in-out) infinite alternate;
-}
-.b1 {
-  width: 520px;
-  height: 520px;
-  left: -160px;
-  top: -140px;
-  background: var(--accent-glow);
-}
-.b2 {
-  width: 420px;
-  height: 420px;
-  right: -140px;
-  top: 20%;
-  background: rgba(94, 225, 196, 0.22);
-  animation-delay: -6s;
-  animation-duration: 22s;
-}
-.b3 {
-  width: 380px;
-  height: 380px;
-  left: 30%;
-  bottom: -200px;
-  background: rgba(96, 165, 250, 0.18);
-  animation-delay: -12s;
-  animation-duration: 26s;
-}
-html[data-theme="light"] .blob {
-  opacity: 0.4;
-}
-@keyframes drift {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-  to {
-    transform: translate(40px, 30px) scale(1.08);
-  }
-}
 .auth-tools {
   position: absolute;
   top: 18px;
@@ -86,13 +39,11 @@ html[data-theme="light"] .blob {
   width: 100%;
   max-width: 420px;
   padding: 34px 34px 30px;
-  background: var(--surface-glass);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(22px) saturate(1.3);
-  -webkit-backdrop-filter: blur(22px) saturate(1.3);
-  animation: rise-in 600ms var(--ease-out) both;
+  animation: rise-in var(--t-slow) var(--ease-out) both;
 }
 .auth-card.wide {
   max-width: 620px;

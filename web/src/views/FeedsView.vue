@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Plus, SatelliteDish } from '@lucide/vue'
+import { computed, ref } from 'vue'
+import { Plus, SatelliteDish, SearchX, ServerOff } from '@lucide/vue'
+import SearchInput from '@/components/ui/SearchInput.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
@@ -18,6 +20,13 @@ const store = useAppStore()
 const dialogs = useDialogs()
 const router = useRouter()
 const { is: isSyncing, run } = useBusySet()
+const filter = ref('')
+const scope = ref('all')
+const filteredFeeds = computed(() => store.feeds.value.filter(feed => {
+  const query = filter.value.trim().toLocaleLowerCase()
+  return (!query || [feed.name, feed.target_title, feed.include_words].some(value => value?.toLocaleLowerCase().includes(query))) &&
+    (scope.value === 'all' || (scope.value === 'paused' ? feed.enabled === false : scope.value === 'error' ? !!feed.last_error : feed.enabled !== false))
+}))
 
 async function sync(feed: Feed) {
   await run(feed.id, async () => {
@@ -75,6 +84,12 @@ async function remove(feed: Feed) {
       <BaseButton variant="primary" :icon="Plus" @click="dialogs.openFeed(null)">添加订阅</BaseButton>
     </PageHeader>
 
+    <div v-if="store.feeds.value.length" class="filter-toolbar">
+      <SearchInput v-model="filter" placeholder="搜索订阅、番剧或关键词" />
+      <select v-model="scope" aria-label="订阅状态"><option value="all">全部订阅</option><option value="active">已启用</option><option value="paused">已暂停</option><option value="error">同步失败</option></select>
+      <span class="result-count" role="status">{{ filteredFeeds.length }} 个订阅</span>
+    </div>
+
     <div v-if="!store.loaded.value" class="grid" aria-busy="true">
       <div v-for="i in 4" :key="i" class="sk-card" :style="{ '--i': i }">
         <SkeletonBlock height="15px" width="45%" />
@@ -83,6 +98,9 @@ async function remove(feed: Feed) {
       </div>
     </div>
 
+    <EmptyState v-else-if="store.loadError.value && !store.feeds.value.length" :icon="ServerOff" title="订阅加载失败" hint="请检查服务连接后重新加载" tone="error">
+      <BaseButton @click="store.refresh()">重新加载</BaseButton>
+    </EmptyState>
     <EmptyState
       v-else-if="!store.feeds.value.length"
       :icon="SatelliteDish"
@@ -93,9 +111,12 @@ async function remove(feed: Feed) {
       <BaseButton @click="router.push('/discover')">去找番</BaseButton>
     </EmptyState>
 
+    <EmptyState v-else-if="!filteredFeeds.length" :icon="SearchX" title="没有匹配的订阅" hint="试试其他关键词，或清除筛选" compact>
+      <BaseButton @click="filter = ''; scope = 'all'">清除筛选</BaseButton>
+    </EmptyState>
     <TransitionGroup v-else tag="div" class="grid" name="list" appear>
       <FeedCard
-        v-for="(f, i) in store.feeds.value"
+        v-for="(f, i) in filteredFeeds"
         :key="f.id"
         :feed="f"
         :syncing="isSyncing(f.id)"

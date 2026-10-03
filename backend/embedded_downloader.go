@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha512"
 	"encoding/base64"
@@ -17,7 +18,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -26,19 +26,14 @@ import (
 )
 
 type managedQBittorrent struct {
-	cmd    *exec.Cmd
-	config qbitConnection
-	done   chan struct{}
-	ready  atomic.Bool
+	cmd     *exec.Cmd
+	config  qbitConnection
+	done    chan struct{}
+	ready   atomic.Bool
+	readyAt time.Time
 }
 
-var embeddedQbit struct {
-	sync.Mutex
-	process  *managedQBittorrent
-	stopping bool
-}
-
-var embeddedQbitFailure = make(chan error, 1)
+var embeddedQbit embeddedQBittorrentManager
 
 func embeddedQbitRoot() (string, error) {
 	root := strings.TrimSpace(env("QBITTORRENT_DATA_DIR", ""))
@@ -254,47 +249,44 @@ func startEmbeddedQBittorrent() error {
 }
 
 func embeddedQbitConnection() (qbitConnection, error) {
-	embeddedQbit.Lock()
-	defer embeddedQbit.Unlock()
-	if embeddedQbit.stopping {
-		return qbitConnection{}, fmt.Errorf("内置 qBittorrent 正在关闭")
-	}
-	if p := embeddedQbit.process; p != nil {
-		select {
-		case <-p.done:
-			return qbitConnection{}, fmt.Errorf("内置 qBittorrent 已退出，请重启服务")
-		default:
-			return p.config, nil
-		}
-	}
-	exe, err := embeddedQbitExecutable()
+	p, err := embeddedQbit.connection(launchEmbeddedQBittorrent)
 	if err != nil {
 		return qbitConnection{}, err
+	}
+	return p.config, nil
+}
+
+// Startup performs I/O without holding the manager lock, so health checks and
+// shutdown remain responsive even when the WebUI never answers.
+func launchEmbeddedQBittorrent(ctx context.Context) (*managedQBittorrent, error) {
+	exe, err := embeddedQbitExecutable()
+	if err != nil {
+		return nil, err
 	}
 	root, err := embeddedQbitRoot()
 	if err != nil {
-		return qbitConnection{}, err
+		return nil, err
 	}
 	port, err := embeddedQbitPort("EMBEDDED_QBIT_PORT", 8080)
 	if err != nil {
-		return qbitConnection{}, err
+		return nil, err
 	}
 	btPort, err := embeddedQbitPort("QBITTORRENT_BT_PORT", 6881)
 	if err != nil {
-		return qbitConnection{}, err
+		return nil, err
 	}
 	probe, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		return qbitConnection{}, fmt.Errorf("内置 qBittorrent WebUI 端口 %d 已被占用", port)
+		return nil, fmt.Errorf("内置 qBittorrent WebUI 端口 %d 已被占用", port)
 	}
 	probe.Close()
 	config, err := prepareEmbeddedQbit(root, port, btPort)
 	if err != nil {
-		return config, err
+		return nil, err
 	}
 	logFile, err := os.OpenFile(filepath.Join(root, "process.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
-		return config, err
+		return nil, err
 	}
 	args := []string{"--profile=" + filepath.Join(root, "profile"), "--confirm-legal-notice", "--webui-port=" + strconv.Itoa(port), "--torrenting-port=" + strconv.Itoa(btPort)}
 	if runtime.GOOS == "windows" {
@@ -303,56 +295,70 @@ func embeddedQbitConnection() (qbitConnection, error) {
 	p := &managedQBittorrent{cmd: exec.Command(exe, args...), config: config, done: make(chan struct{})}
 	p.cmd.Stdout, p.cmd.Stderr = logFile, logFile
 	configureChildProcess(p.cmd)
+	if err := ctx.Err(); err != nil {
+		logFile.Close()
+		return nil, err
+	}
 	if err := p.cmd.Start(); err != nil {
 		logFile.Close()
-		return config, fmt.Errorf("启动内置 qBittorrent 失败: %w", err)
+		return nil, fmt.Errorf("启动内置 qBittorrent 失败: %w", err)
 	}
 	go func() {
-		err := p.cmd.Wait()
+		p.cmd.Wait()
 		logFile.Close()
 		close(p.done)
-		if p.ready.Load() {
-			select {
-			case embeddedQbitFailure <- fmt.Errorf("内置 qBittorrent 已退出: %v", err):
-			default:
-			}
+	}()
+	ready := false
+	defer func() {
+		if !ready {
+			p.cmd.Process.Kill()
+			<-p.done
 		}
 	}()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("内置 qBittorrent WebUI 未就绪: %w", ctx.Err())
 		case <-p.done:
-			return config, fmt.Errorf("内置 qBittorrent 启动失败，请检查 %s", filepath.Join(root, "process.log"))
+			return nil, fmt.Errorf("内置 qBittorrent 启动失败，请检查 %s", filepath.Join(root, "process.log"))
 		default:
 		}
-		client, err := loginQBittorrent(config, 2*time.Second)
+		client, err := loginQBittorrentContext(ctx, config, 2*time.Second)
 		if err == nil {
-			embeddedQbit.process = p
-			p.ready.Store(true)
-			select {
-			case <-p.done:
-				return config, fmt.Errorf("内置 qBittorrent 在启动后退出")
-			default:
-			}
-			if err := cleanupEmbeddedQbitOrphans(client); err != nil {
+			if err := cleanupEmbeddedQbitOrphansContext(ctx, client); err != nil {
 				log.Printf("清理内置下载器已移除任务失败: %v", err)
 			}
-			log.Println("内置 qBittorrent 已就绪")
-			return config, nil
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-p.done:
+				return nil, fmt.Errorf("内置 qBittorrent 在启动后退出")
+			default:
+			}
+			ready = true
+			return p, nil
 		}
-		time.Sleep(150 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+		case <-p.done:
+		case <-time.After(150 * time.Millisecond):
+		}
 	}
-	p.cmd.Process.Kill()
-	<-p.done
-	return config, fmt.Errorf("内置 qBittorrent WebUI 未就绪，请检查 %s", filepath.Join(root, "process.log"))
 }
 
 func cleanupEmbeddedQbitOrphans(client *qbitClient) error {
-	torrents, err := client.info(nil)
+	return cleanupEmbeddedQbitOrphansContext(context.Background(), client)
+}
+
+func cleanupEmbeddedQbitOrphansContext(ctx context.Context, client *qbitClient) error {
+	torrents, err := client.infoContext(ctx, nil)
 	if err != nil {
 		return err
 	}
 	for _, torrent := range torrents {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		rel, err := filepath.Rel(client.config.SavePath, torrent.SavePath)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 			continue
@@ -369,13 +375,13 @@ func cleanupEmbeddedQbitOrphans(client *qbitClient) error {
 			}
 			owned = true
 			var count int
-			if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE id=? AND downloader='builtin' AND (COALESCE(task_id,'')='' OR task_id=?)", id, torrent.Hash).Scan(&count); err != nil {
+			if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM items WHERE id=? AND downloader='builtin' AND (COALESCE(task_id,'')='' OR task_id=?)", id, torrent.Hash).Scan(&count); err != nil {
 				return err
 			}
 			keep = keep || count > 0
 		}
 		if owned && !keep {
-			if err := client.remove(torrent.Hash); err != nil {
+			if err := client.removeContext(ctx, torrent.Hash); err != nil {
 				return err
 			}
 		}
@@ -384,13 +390,10 @@ func cleanupEmbeddedQbitOrphans(client *qbitClient) error {
 }
 
 func stopEmbeddedQBittorrent() {
-	embeddedQbit.Lock()
-	embeddedQbit.stopping = true
-	p := embeddedQbit.process
-	embeddedQbit.Unlock()
-	if p == nil {
-		return
-	}
+	embeddedQbit.stop()
+}
+
+func (p *managedQBittorrent) shutdown() {
 	p.ready.Store(false)
 	select {
 	case <-p.done:
@@ -412,17 +415,5 @@ func stopEmbeddedQBittorrent() {
 }
 
 func embeddedQbitHealthy() bool {
-	embeddedQbit.Lock()
-	defer embeddedQbit.Unlock()
-	p := embeddedQbit.process
-	if p == nil {
-		// A source install may switch modes before submitting its first BT job.
-		return true
-	}
-	select {
-	case <-p.done:
-		return false
-	default:
-		return p.ready.Load()
-	}
+	return embeddedQbit.healthy()
 }

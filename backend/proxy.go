@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,10 +18,49 @@ import (
 // the user's own LAN and a remote proxy cannot reach them.
 
 var proxyURL *url.URL
+var proxyMu sync.RWMutex
+
+func currentProxy() *url.URL {
+	proxyMu.RLock()
+	defer proxyMu.RUnlock()
+	return proxyURL // Published URLs are immutable.
+}
+
+// A client keeps its transport identity; each request selects the current
+// immutable transport without mutating http.Client while Do is running.
+type proxyTransport struct {
+	mu        sync.Mutex
+	media     bool
+	proxy     *url.URL
+	transport *http.Transport
+}
+
+func (p *proxyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	p.mu.Lock()
+	u := currentProxy()
+	if p.transport == nil || p.proxy != u {
+		old := p.transport
+		p.transport = transportForProxy(u)
+		if p.media {
+			p.transport.ResponseHeaderTimeout = 30 * time.Second
+		}
+		p.proxy = u
+		if old != nil {
+			old.CloseIdleConnections()
+		}
+	}
+	t := p.transport
+	p.mu.Unlock()
+	return t.RoundTrip(r)
+}
 
 // newTransport is the single place building outbound transports, so every
 // proxy-aware client shares the same configuration.
 func newTransport() *http.Transport {
+	return transportForProxy(currentProxy())
+}
+
+func transportForProxy(u *url.URL) *http.Transport {
 	transport := &http.Transport{
 		Proxy:               nil,
 		MaxIdleConns:        32,
@@ -30,23 +70,21 @@ func newTransport() *http.Transport {
 		DisableCompression:  true,
 		ForceAttemptHTTP2:   true,
 	}
-	if proxyURL != nil {
-		transport.Proxy = http.ProxyURL(proxyURL)
+	if u != nil {
+		transport.Proxy = http.ProxyURL(u)
 	}
 	return transport
 }
 
 func newClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout, Transport: newTransport()}
+	return &http.Client{Timeout: timeout, Transport: &proxyTransport{}}
 }
 
 // newMediaTransport caps the wait for response headers so a stalled proxy or
 // server fails fast, while the client timeout still allows multi-hour media
 // downloads.
-func newMediaTransport() *http.Transport {
-	transport := newTransport()
-	transport.ResponseHeaderTimeout = 30 * time.Second
-	return transport
+func newMediaTransport() http.RoundTripper {
+	return &proxyTransport{media: true}
 }
 
 func parseProxyURL(raw string) (*url.URL, error) {
@@ -78,11 +116,9 @@ func applyProxyConfig(raw string) error {
 	if err != nil {
 		return err
 	}
+	proxyMu.Lock()
 	proxyURL = u
-	httpClient.Transport = newTransport()
-	mediaClient.Transport = newMediaTransport()
-	torrentClient.Transport = newTransport()
-	metaClient.Transport = newTransport()
+	proxyMu.Unlock()
 	return nil
 }
 

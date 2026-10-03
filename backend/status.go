@@ -35,6 +35,7 @@ func healthStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func runtimeStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := runtimeConfig()
 	if !statusMethod(w, r) {
 		return
 	}
@@ -60,5 +61,5 @@ func runtimeStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "任务统计读取失败", 503)
 		return
 	}
-	jsonOut(w, map[string]any{"poll_minutes": pollMinutes, "download_mode": downloadMode, "max_concurrent_downloads": downloadLimit(), "counts": counts, "auth_enabled": authEnabled(), "proxy": redactProxy(proxyURL), "library_dir": strings.TrimSpace(libraryDir), "download_dir": downloadDir, "version": version, "version_label": versionLabel(), "install_ready": installReady()})
+	jsonOut(w, map[string]any{"poll_minutes": cfg.pollMinutes, "download_mode": cfg.downloadMode, "max_concurrent_downloads": downloadLimit(), "counts": counts, "auth_enabled": authEnabled(), "proxy": redactProxy(currentProxy()), "library_dir": strings.TrimSpace(cfg.libraryDir), "download_dir": downloadDir, "version": version, "version_label": versionLabel(), "install_ready": installReady()})
 }

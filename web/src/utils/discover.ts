@@ -47,5 +47,28 @@ export function groupReleases(items: DiscoverItem[]) {
     if (existing) existing.items.push(item)
     else groups.set(key, { key, title, language, item, items: [item] })
   }
-  return [...groups.values()].map((group) => ({ ...group, episodes: releaseEpisodes(group.items) }))
+  return [...groups.values()].map((group) => ({
+    ...group,
+    episodes: releaseEpisodes(group.items),
+    latest: Math.max(0, ...group.items.map((item) => Date.parse(item.published) || 0)),
+  }))
+}
+
+export type Release = ReturnType<typeof groupReleases>[number]
+export type ReleaseField = 'group' | 'quality' | 'language'
+export type ReleaseSort = 'source' | 'latest' | 'episodes'
+export type ReleaseFilters = Record<ReleaseField, string>
+
+export function releaseField(release: Release, field: ReleaseField): string {
+  const value = field === 'group' ? release.item.fansub_group : field === 'quality' ? release.item.quality : release.language
+  return value.trim().toLowerCase() || '未识别'
+}
+
+export function filterReleases(releases: Release[], filters: ReleaseFilters, sort: ReleaseSort): Release[] {
+  const filtered = releases.filter((release) =>
+    (Object.keys(filters) as ReleaseField[]).every((field) => !filters[field] || releaseField(release, field) === filters[field]),
+  )
+  if (sort === 'latest') filtered.sort((a, b) => b.latest - a.latest)
+  if (sort === 'episodes') filtered.sort((a, b) => b.episodes.length - a.episodes.length || b.latest - a.latest)
+  return filtered
 }

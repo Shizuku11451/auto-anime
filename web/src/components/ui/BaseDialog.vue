@@ -21,6 +21,17 @@ const props = withDefaults(
 const emit = defineEmits<{ close: [] }>()
 
 const panel = ref<HTMLElement | null>(null)
+let returnFocus: HTMLElement | null = null
+
+function trapFocus(e: KeyboardEvent) {
+  if (e.key !== 'Tab' || !isTopDialog(me)) return
+  const controls = Array.from(panel.value?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? []).filter(el => el.getClientRects().length > 0)
+  const first = controls[0]
+  const last = controls.at(-1)
+  if (!first) { e.preventDefault(); panel.value?.focus(); return }
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) { e.preventDefault(); last?.focus() }
+  else if (!e.shiftKey && (document.activeElement === last || document.activeElement === panel.value)) { e.preventDefault(); first.focus() }
+}
 
 const me = Symbol('dialog')
 let registered = false
@@ -34,18 +45,20 @@ function register(on: boolean) {
 watch(
   () => props.open,
   async (open) => {
+    if (open) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const wasTop = isTopDialog(me)
     register(open)
-    if (!open) return
+    if (!open) { if (wasTop) returnFocus?.focus({ preventScroll: true }); return }
     await nextTick()
     const target =
       panel.value?.querySelector<HTMLElement>('[autofocus]') ??
       panel.value?.querySelector<HTMLElement>('input:not([type="hidden"]):not([disabled]), select, textarea')
-    target?.focus({ preventScroll: true })
+    if (props.open && isTopDialog(me)) (target ?? panel.value)?.focus({ preventScroll: true })
   },
   { immediate: true },
 )
 
-onBeforeUnmount(() => register(false))
+onBeforeUnmount(() => { const wasTop = isTopDialog(me); register(false); if (wasTop) returnFocus?.focus({ preventScroll: true }) })
 
 onKeyStroke('Escape', (e) => {
   if (!props.open || !props.closable) return
@@ -55,7 +68,7 @@ onKeyStroke('Escape', (e) => {
 })
 
 function onBackdrop(e: MouseEvent) {
-  if (e.target === e.currentTarget && !props.persistent) emit('close')
+  if (e.target === e.currentTarget && props.closable && !props.persistent && isTopDialog(me)) emit('close')
 }
 </script>
 
@@ -63,7 +76,7 @@ function onBackdrop(e: MouseEvent) {
   <Teleport to="body">
     <Transition name="dlg">
       <div v-if="open" class="overlay" role="presentation" @mousedown.self="onBackdrop">
-        <div ref="panel" class="dialog" :class="`size-${size}`" role="dialog" aria-modal="true" :aria-label="title">
+        <div ref="panel" class="dialog" :class="`size-${size}`" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" @keydown="trapFocus">
           <header v-if="title || $slots.header || closable" class="dialog-head">
             <div class="dialog-head-main">
               <slot name="header">
@@ -93,8 +106,8 @@ function onBackdrop(e: MouseEvent) {
   place-items: center;
   padding: 24px;
   background: var(--overlay);
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .dialog {
@@ -102,7 +115,7 @@ function onBackdrop(e: MouseEvent) {
   flex-direction: column;
   width: 100%;
   max-width: 560px;
-  max-height: min(88vh, 920px);
+  max-height: min(88dvh, 920px);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-xl);
@@ -124,7 +137,8 @@ function onBackdrop(e: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px 18px 12px 24px;
+  padding: 20px 18px 18px 24px;
+  border-bottom: 1px solid var(--line);
 }
 .dialog-head-main {
   flex: 1;
@@ -143,7 +157,7 @@ function onBackdrop(e: MouseEvent) {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 4px 24px 8px;
+  padding: 20px 24px;
   overscroll-behavior: contain;
 }
 .dialog-foot {
@@ -165,7 +179,7 @@ function onBackdrop(e: MouseEvent) {
 }
 .dlg-enter-active .dialog {
   transition:
-    transform 400ms var(--ease-spring),
+    transform var(--t-med) var(--ease-out),
     opacity var(--t-med) var(--ease-out);
 }
 .dlg-leave-active {
@@ -181,7 +195,7 @@ function onBackdrop(e: MouseEvent) {
 }
 .dlg-enter-from .dialog {
   opacity: 0;
-  transform: translateY(20px) scale(0.955);
+  transform: translateY(8px) scale(0.99);
 }
 .dlg-leave-to {
   opacity: 0;
@@ -207,7 +221,7 @@ function onBackdrop(e: MouseEvent) {
     padding: 16px 12px 10px 18px;
   }
   .dialog-body {
-    padding: 4px 18px 8px;
+    padding: 18px;
   }
   .dialog-foot {
     padding: 12px 18px calc(16px + env(safe-area-inset-bottom));

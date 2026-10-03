@@ -47,8 +47,8 @@ const excludes = computed(() => splitKeywords(props.feed.exclude_words))
 
     <footer class="actions">
       <BaseButton size="sm" :icon="RefreshCw" :loading="syncing" @click="emit('sync')">立即同步</BaseButton>
-      <BaseButton size="sm" :icon="Pencil" @click="emit('edit')">编辑</BaseButton>
-      <BaseButton size="sm" :icon="paused ? Play : Pause" @click="emit('toggle')">{{ paused ? '启用' : '暂停' }}</BaseButton>
+      <BaseButton size="sm" variant="ghost" :icon="Pencil" @click="emit('edit')">编辑</BaseButton>
+      <BaseButton size="sm" variant="ghost" :icon="paused ? Play : Pause" @click="emit('toggle')">{{ paused ? '启用' : '暂停' }}</BaseButton>
       <BaseButton size="sm" variant="danger" :icon="Trash2" @click="emit('remove')">删除</BaseButton>
     </footer>
   </article>
@@ -72,9 +72,8 @@ const excludes = computed(() => splitKeywords(props.feed.exclude_words))
     opacity var(--t-med) var(--ease-out);
 }
 .feed-card:hover {
-  transform: translateY(-2px);
   border-color: var(--line-strong);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-sm);
 }
 .feed-card.paused {
   opacity: 0.78;

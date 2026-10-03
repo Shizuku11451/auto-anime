@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useMediaQuery } from '@vueuse/core'
+import { useEventListener, useMediaQuery } from '@vueuse/core'
+import { onBeforeRouteLeave } from 'vue-router'
+import { confirmDialog } from '@/stores/confirm'
 import { FolderTree, Globe, HardDrive, RefreshCw, Rocket, Save, UserRound } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -56,6 +58,17 @@ const loading = ref(true)
 const saving = ref(false)
 const msg = ref('')
 const loadErr = ref('')
+const section = ref('download')
+const sections = [{ id: 'download', title: '下载方式', icon: HardDrive }, { id: 'library', title: '媒体库', icon: FolderTree }, { id: 'network', title: '网络与同步', icon: Globe }, { id: 'account', title: '管理员账户', icon: UserRound }, { id: 'update', title: '版本更新', icon: Rocket }]
+const savedForm = ref('')
+const dirty = computed(() => !!savedForm.value && JSON.stringify(form) !== savedForm.value)
+onBeforeRouteLeave(async () => {
+  if (saving.value) return false
+  return !dirty.value || await confirmDialog('放弃未保存的更改？', '离开后，本次设置修改不会保存。', { okText: '放弃更改', cancelText: '继续编辑' })
+})
+useEventListener(window, 'beforeunload', (event: BeforeUnloadEvent) => {
+  if (dirty.value) { event.preventDefault(); event.returnValue = '' }
+})
 
 const modeIndex = computed(() => Math.max(0, MODES.indexOf(form.download_mode as (typeof MODES)[number])))
 
@@ -88,6 +101,7 @@ async function load() {
     form.discover_search_template = s.discover_search_template || ''
     form.library_dir = s.library_dir || ''
     form.auto_cleanup_empty_anime = s.auto_cleanup_empty_anime === true
+    savedForm.value = JSON.stringify(form)
   } catch (e) {
     loadErr.value = errorMessage(e)
   } finally {
@@ -101,6 +115,7 @@ onMounted(() => {
 })
 
 async function save() {
+  if (loading.value || saving.value || loadErr.value || !dirty.value) return
   msg.value = ''
   const body: SettingsInput = {
     web_user: form.web_user.trim(),
@@ -142,6 +157,8 @@ async function save() {
   try {
     const r = await http.put<{ ok: boolean; reauth_required: boolean; cleaned_anime: number; cleanup_warning: string; library_warning: string }>('/api/settings', body)
     if (r.reauth_required) {
+      form.web_password = ''
+      savedForm.value = JSON.stringify(form)
       toast.info('密码已更新，请重新登录')
       location.href = '/login'
       return
@@ -160,15 +177,16 @@ async function save() {
 
 <template>
   <div class="page settings">
-    <PageHeader title="设置" description="保存在数据库中并立即生效；未填写的项沿用环境变量或默认值">
-      <BaseButton variant="primary" :icon="Save" :loading="saving" :disabled="loading" @click="save">保存设置</BaseButton>
-    </PageHeader>
+    <PageHeader title="设置" description="让追番服务按照你的习惯运行" />
 
-    <p v-if="loadErr" class="form-msg">读取设置失败：{{ loadErr }}</p>
+    <div v-if="loadErr" class="form-msg" role="alert">读取设置失败：{{ loadErr }} <BaseButton @click="load">重新加载</BaseButton></div>
+    <nav class="settings-nav" aria-label="设置分类">
+      <button v-for="tab in sections" :key="tab.id" type="button" :aria-current="section === tab.id ? 'true' : undefined" :class="{ active: section === tab.id }" @click="section = tab.id"><component :is="tab.icon" aria-hidden="true" />{{ tab.title }}</button>
+    </nav>
 
-    <div class="groups" :class="{ loading }">
+    <fieldset class="groups" :class="{ loading }" :disabled="loading || saving || !!loadErr" :aria-busy="loading">
       <!-- 管理员账户 -->
-      <section class="group card" style="--i: 0">
+      <section v-show="section === 'account'" class="group card" style="--i: 0">
         <header class="group-head">
           <span class="group-ico"><UserRound aria-hidden="true" /></span>
           <div>
@@ -190,7 +208,7 @@ async function save() {
       </section>
 
       <!-- 下载方式 -->
-      <section class="group card" style="--i: 1">
+      <section v-show="section === 'download'" class="group card" style="--i: 1">
         <header class="group-head">
           <span class="group-ico"><HardDrive aria-hidden="true" /></span>
           <div>
@@ -306,7 +324,7 @@ async function save() {
       </section>
 
       <!-- 媒体库 -->
-      <section class="group card" style="--i: 2">
+      <section v-show="section === 'library'" class="group card" style="--i: 2">
         <header class="group-head">
           <span class="group-ico"><FolderTree aria-hidden="true" /></span>
           <div>
@@ -331,7 +349,7 @@ async function save() {
       </section>
 
       <!-- 版本更新 -->
-      <section class="group card" style="--i: 3">
+      <section v-show="section === 'update'" class="group card" style="--i: 3">
         <header class="group-head">
           <span class="group-ico"><Rocket aria-hidden="true" /></span>
           <div>
@@ -376,7 +394,7 @@ async function save() {
       </section>
 
       <!-- 网络与同步 -->
-      <section class="group card" style="--i: 4">
+      <section v-show="section === 'network'" class="group card" style="--i: 4">
         <header class="group-head">
           <span class="group-ico"><Globe aria-hidden="true" /></span>
           <div>
@@ -417,13 +435,14 @@ async function save() {
           />
         </div>
       </section>
-    </div>
+    </fieldset>
 
     <div class="save-bar">
+      <span class="save-status" role="status">{{ loading ? '正在读取设置…' : loadErr ? '读取失败后无法保存' : dirty ? '有未保存的更改' : '设置已与服务同步' }}</span>
       <Transition name="fade">
         <p v-if="msg" class="form-msg" role="alert">{{ msg }}</p>
       </Transition>
-      <BaseButton variant="primary" :icon="Save" :loading="saving" :disabled="loading" @click="save">保存设置</BaseButton>
+      <BaseButton variant="primary" :icon="Save" :loading="saving" :disabled="loading || !!loadErr || !dirty" @click="save">保存设置</BaseButton>
     </div>
   </div>
 </template>
@@ -433,6 +452,10 @@ async function save() {
   max-width: 900px;
 }
 .groups {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
   display: grid;
   gap: 16px;
   transition: opacity var(--t-med) var(--ease-out);
@@ -444,7 +467,6 @@ async function save() {
 .group {
   padding: 20px 22px 12px;
   animation: rise-in var(--t-slow) var(--ease-out) both;
-  animation-delay: calc(var(--i) * 70ms + 60ms);
 }
 .group-head {
   display: flex;
@@ -554,12 +576,26 @@ async function save() {
 }
 
 .save-bar {
+  position: sticky;
+  bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
   margin-top: 18px;
 }
+.save-status { margin-right: auto; color: var(--text-2); font-size: 13px; }
+.settings-nav { display: flex; gap: 6px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 6px; }
+.settings-nav button { display: flex; align-items: center; gap: 8px; padding: 11px 14px; white-space: nowrap; background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text-2); cursor: pointer; }
+.settings-nav button:hover { background: var(--surface-2); }
+.settings-nav button.active { background: var(--accent-soft); color: var(--accent); }
+.settings-nav svg { width: 16px; height: 16px; }
+@media (max-width: 900px) { .save-bar { bottom: calc(84px + env(safe-area-inset-bottom)); } }
 .save-bar .form-msg {
   margin: 0;
 }

@@ -12,11 +12,19 @@ on:
         description: '要发布的版本号 tag（例如 v1.2.0），需已存在于仓库'
         required: true
 
+env:
+  REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+
 permissions:
   contents: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
   binaries:
+    needs: checks
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -30,6 +38,8 @@ jobs:
             goarch: amd64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22.12'
@@ -47,14 +57,12 @@ jobs:
       - name: Resolve version
         id: meta
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
+          TAG="$REQUESTED_TAG"
+          [[ "$TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]] || { echo "版本标签无效"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-          echo "commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - name: Build binary
         working-directory: backend
@@ -80,6 +88,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -87,11 +96,9 @@ jobs:
       - name: Resolve version
         id: meta
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
+          TAG="$REQUESTED_TAG"
+          [[ "$TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]] || { echo "版本标签无效"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
       - name: Checksums
@@ -103,7 +110,7 @@ jobs:
           cat checksums.txt
       - name: Release notes
         run: |
-          TAG="${{ steps.meta.outputs.tag }}"
+          TAG="$REQUESTED_TAG"
           anchored="$(git tag -l --format='%(contents)' "$TAG")"
           if [ "${#anchored}" -ge 40 ]; then
             printf '%s\n' "$anchored" > NOTES.md
@@ -124,11 +131,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.meta.outputs.tag }}"
+          TAG="$REQUESTED_TAG"
           gh release create "$TAG" dist/* \
             --title "Auto-Anime ${{ steps.meta.outputs.version }}" \
             --notes-file NOTES.md \
-            --target "${{ github.sha }}" \
+            --target "$(git rev-parse HEAD)" \
           || gh release upload "$TAG" dist/* --clobber
 
   image:
@@ -139,6 +146,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -163,11 +172,9 @@ jobs:
       - name: Resolve version
         id: meta
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
+          TAG="$REQUESTED_TAG"
+          [[ "$TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]] || { echo "版本标签无效"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           # 容器镜像名必须全小写，GitHub 用户名可能含大写
@@ -189,24 +196,25 @@ jobs:
           IMAGE: ${{ steps.meta.outputs.image }}
           VERSION: ${{ steps.meta.outputs.version }}
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
-          COMMIT: ${{ github.sha }}
         run: |
           set -u
+          COMMIT="$(git rev-parse HEAD)"
           status=1
           for attempt in 1 2 3; do
             echo "推送 GHCR 镜像，第 ${attempt}/3 次尝试"
             if docker buildx build \
-              --context image-context \
               --file image-context/release.Dockerfile \
               --platform linux/amd64,linux/arm64 \
               --push \
               --build-arg VERSION="$RELEASE_TAG" \
               --build-arg COMMIT="$COMMIT" \
               --tag "$IMAGE:$VERSION" \
-              --tag "$IMAGE:latest"; then
+              --tag "$IMAGE:latest" image-context; then
+              docker buildx imagetools inspect "$IMAGE:$VERSION" || exit $?
               exit 0
+            else
+              status=$?
             fi
-            status=$?
             if [ "$attempt" -lt 3 ]; then
               delay=$((attempt * 90))
               echo "GHCR 推送失败，${delay} 秒后重试"

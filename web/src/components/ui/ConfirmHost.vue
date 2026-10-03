@@ -10,8 +10,8 @@ const { state, resolveConfirm } = useConfirm()
   <BaseDialog :open="state.open" :title="state.title" size="sm" @close="resolveConfirm(false)">
     <p class="confirm-text">{{ state.text }}</p>
     <template #footer>
-      <BaseButton @click="resolveConfirm(false)">{{ state.cancelText }}</BaseButton>
-      <BaseButton :variant="state.danger ? 'danger' : 'primary'" autofocus @click="resolveConfirm(true)">
+      <BaseButton autofocus @click="resolveConfirm(false)">{{ state.cancelText }}</BaseButton>
+      <BaseButton :variant="state.danger ? 'danger' : 'primary'" @click="resolveConfirm(true)">
         {{ state.okText }}
       </BaseButton>
     </template>

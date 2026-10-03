@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -13,13 +12,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // 用户自定义设置：settings 表为 KV 存储；数据库值优先，环境变量回退。
 // 保存后立即更新对应的全局变量（热生效，无需重启容器）。
 
 var setupDone bool
-var webHash string        // "v1$salt$hash"；非空时优先于 WEB_USER/WEB_PASSWORD 环境变量
+var webHash string        // v2 bcrypt；兼容旧 v1，非空时优先于环境变量
 var settingsMu sync.Mutex // Serialize settings writes and login session issuance.
 
 func getSetting(key string) string {
@@ -48,7 +49,9 @@ func loadSettings() {
 		}
 	}
 	rows.Close()
-	setupDone = stored["setup_done"] == "1"
+	if _, ok := stored["setup_done"]; !ok {
+		stored["setup_done"] = "0"
+	}
 	applyStoredSettings(stored)
 }
 
@@ -56,6 +59,8 @@ func loadSettings() {
 // Regular fields take effect whenever the key exists in the table (so clearing
 // one in the UI reverts to the env/default); secrets only ever move upwards.
 func applyStoredSettings(stored map[string]string) {
+	runtimeConfigMu.Lock()
+	defer runtimeConfigMu.Unlock()
 	if v, ok := stored["max_concurrent_downloads"]; ok {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= maximumConcurrentDownloads {
 			configuredDownloads.Store(int64(n))
@@ -140,10 +145,11 @@ func applyStoredSettings(stored map[string]string) {
 // setupRequired reports whether the first-run wizard should run: the service
 // has no usable credentials at all and the wizard was not skipped.
 func setupRequired() bool {
-	return !setupDone && !authEnabled()
+	cfg := runtimeConfig()
+	return !cfg.setupDone && cfg.webHash == "" && (cfg.webUser == "" || cfg.webPassword == "")
 }
 
-// ---- 密码哈希：v1$salt$hash，只在数据库里存哈希 ----
+// v1 SHA-256 is read-only legacy support; successful authentication upgrades it.
 
 func hashWebPassword(password, salt string) string {
 	sum := sha256.Sum256([]byte(salt + ":" + password))
@@ -151,28 +157,32 @@ func hashWebPassword(password, salt string) string {
 }
 
 func newPasswordHash(password string) (string, error) {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	salt := hex.EncodeToString(raw)
-	return "v1$" + salt + "$" + hashWebPassword(password, salt), nil
+	// Prehash to preserve support for passwords longer than bcrypt's 72 bytes.
+	sum := sha256.Sum256([]byte(password))
+	hash, err := bcrypt.GenerateFromPassword([]byte(hex.EncodeToString(sum[:])), bcrypt.DefaultCost)
+	return "v2$" + string(hash), err
 }
 
 // verifyWebCredentials checks a login against the hashed DB credentials when
 // present, then falls back to the WEB_USER/WEB_PASSWORD environment pair.
 func verifyWebCredentials(user, password string) bool {
-	if webHash != "" {
-		parts := strings.SplitN(webHash, "$", 3)
+	cfg := runtimeConfig()
+	if cfg.webHash != "" {
+		if strings.HasPrefix(cfg.webHash, "v2$") {
+			sum := sha256.Sum256([]byte(password))
+			return subtle.ConstantTimeCompare([]byte(user), []byte(cfg.webUser)) == 1 &&
+				bcrypt.CompareHashAndPassword([]byte(strings.TrimPrefix(cfg.webHash, "v2$")), []byte(hex.EncodeToString(sum[:]))) == nil
+		}
+		parts := strings.SplitN(cfg.webHash, "$", 3)
 		if len(parts) != 3 || parts[0] != "v1" {
 			return false
 		}
-		okUser := subtle.ConstantTimeCompare([]byte(user), []byte(webUser))
+		okUser := subtle.ConstantTimeCompare([]byte(user), []byte(cfg.webUser))
 		okHash := subtle.ConstantTimeCompare([]byte(hashWebPassword(password, parts[1])), []byte(parts[2]))
 		return okUser == 1 && okHash == 1
 	}
-	okUser := subtle.ConstantTimeCompare([]byte(user), []byte(webUser))
-	okPass := subtle.ConstantTimeCompare([]byte(password), []byte(webPassword))
+	okUser := subtle.ConstantTimeCompare([]byte(user), []byte(cfg.webUser))
+	okPass := subtle.ConstantTimeCompare([]byte(password), []byte(cfg.webPassword))
 	return okUser == 1 && okPass == 1
 }
 
@@ -277,14 +287,15 @@ func decodeSettings(w http.ResponseWriter, r *http.Request) (*settingsInput, boo
 
 // validateSettings checks mode, poll interval and proxy before anything is saved.
 func validateSettings(in *settingsInput) error {
+	cfg := runtimeConfig()
 	if n := in.MaxConcurrentDownloads; n != nil && (*n < 1 || *n > maximumConcurrentDownloads) {
 		return fmt.Errorf("同时下载数量必须是 1-32 的整数")
 	}
-	user := webUser
+	user := cfg.webUser
 	if in.WebUser != nil && strings.TrimSpace(*in.WebUser) != "" {
 		user = strings.TrimSpace(*in.WebUser)
 	}
-	if user != webUser && (in.WebPassword == nil || *in.WebPassword == "") {
+	if user != cfg.webUser && (in.WebPassword == nil || *in.WebPassword == "") {
 		return fmt.Errorf("修改用户名时必须同时填写新密码")
 	}
 	if in.WebPassword != nil && *in.WebPassword != "" {
@@ -342,6 +353,8 @@ func applySettings(in *settingsInput) error {
 
 // settingsMu must be held, including when called by the setup handler.
 func saveSettings(in *settingsInput, finishSetup bool) error {
+	cfg := runtimeConfig()
+	proxyURL := currentProxy()
 	if err := validateSettings(in); err != nil {
 		return err
 	}
@@ -447,7 +460,7 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 	}
 	revokeSessions := false
 	if in.WebPassword != nil && *in.WebPassword != "" {
-		user := webUser
+		user := cfg.webUser
 		if in.WebUser != nil && strings.TrimSpace(*in.WebUser) != "" {
 			user = strings.TrimSpace(*in.WebUser)
 		}
@@ -465,27 +478,29 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 }
 
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
+	cfg := runtimeConfig()
+	proxyURL := currentProxy()
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Cache-Control", "no-store")
 		jsonOut(w, map[string]any{
-			"web_user": webUser, "web_password_set": webHash != "" || webPassword != "",
-			"download_mode":            downloadMode,
+			"web_user": cfg.webUser, "web_password_set": cfg.webHash != "" || cfg.webPassword != "",
+			"download_mode":            cfg.downloadMode,
 			"max_concurrent_downloads": downloadLimit(),
-			"aria2_url":                aria2URL, "aria2_token_set": aria2Token != "",
-			"aria2_dir": aria2Dir, "aria2_local_dir": aria2LocalDir,
-			"qbit_url": qbitURL, "qbit_user": qbitUser, "qbit_password_set": qbitPassword != "",
-			"qbit_save_path": qbitSavePath, "qbit_local_dir": qbitLocalDir,
-			"transmission_url": transmissionURL, "transmission_user": transmissionUser, "transmission_password_set": transmissionPassword != "",
-			"transmission_download_dir": transmissionDownloadDir, "transmission_local_dir": transmissionLocalDir,
+			"aria2_url":                cfg.aria2URL, "aria2_token_set": cfg.aria2Token != "",
+			"aria2_dir": cfg.aria2Dir, "aria2_local_dir": cfg.aria2LocalDir,
+			"qbit_url": cfg.qbitURL, "qbit_user": cfg.qbitUser, "qbit_password_set": cfg.qbitPassword != "",
+			"qbit_save_path": cfg.qbitSavePath, "qbit_local_dir": cfg.qbitLocalDir,
+			"transmission_url": cfg.transmissionURL, "transmission_user": cfg.transmissionUser, "transmission_password_set": cfg.transmissionPassword != "",
+			"transmission_download_dir": cfg.transmissionDownloadDir, "transmission_local_dir": cfg.transmissionLocalDir,
 			"proxy_url":                redactProxy(proxyURL),
 			"proxy_credentials_set":    proxyURL != nil && proxyURL.User != nil,
-			"poll_minutes":             pollMinutes,
-			"discover_search_template": discoverSearchTemplate,
-			"library_dir":              libraryDir,
+			"poll_minutes":             cfg.pollMinutes,
+			"discover_search_template": cfg.discoverSearchTemplate,
+			"library_dir":              cfg.libraryDir,
 			"auto_cleanup_empty_anime": getSetting("auto_cleanup_empty_anime") == "1",
 			"download_dir":             downloadDir,
-			"setup_done":               setupDone,
+			"setup_done":               cfg.setupDone,
 		})
 	case http.MethodPut:
 		in, ok := decodeSettings(w, r)
@@ -509,7 +524,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		// 媒体库目录同样可能落在容器未映射的路径上，保存时一并提示。
 		libraryWarning := ""
 		if in.LibraryDir != nil {
-			libraryWarning = unmappedPathWarning(libraryDir)
+			libraryWarning = unmappedPathWarning(runtimeConfig().libraryDir)
 		}
 		jsonOut(w, map[string]any{"ok": true, "reauth_required": in.WebPassword != nil && *in.WebPassword != "", "cleaned_anime": cleaned, "cleanup_warning": warning, "library_warning": libraryWarning})
 	default:
@@ -518,30 +533,32 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func setupStatusHandler(w http.ResponseWriter, r *http.Request) {
+	cfg := runtimeConfig()
 	if r.Method != http.MethodGet {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, map[string]any{"required": setupRequired(), "download_mode": downloadMode})
+	jsonOut(w, map[string]any{"required": setupRequired(), "download_mode": cfg.downloadMode})
 }
 
 // setupHandler runs the first-run wizard. It stays reachable without
 // credentials only while the instance is uninitialized; afterwards the normal
 // login is required and this endpoint refuses to run again.
 func setupHandler(w http.ResponseWriter, r *http.Request) {
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
 	if r.Method != http.MethodPost {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	if setupDone || authEnabled() {
-		http.Error(w, "已完成初始化，请登录后在设置页修改", http.StatusForbidden)
-		return
-	}
 	in, ok := decodeSettings(w, r)
 	if !ok {
+		return
+	}
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	cfg := runtimeConfig()
+	if cfg.setupDone || authEnabled() {
+		http.Error(w, "已完成初始化，请登录后在设置页修改", http.StatusForbidden)
 		return
 	}
 	if err := saveSettings(in, true); err != nil {

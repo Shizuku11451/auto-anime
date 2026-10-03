@@ -264,6 +264,9 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS archive_commits(item_id INTEGER PRIMARY KEY,signature TEXT NOT NULL,file_path TEXT NOT NULL,marker TEXT NOT NULL,saved_at TEXT NOT NULL)`); err != nil {
+		log.Fatal(err)
+	}
 	_, e = db.Exec(`CREATE TABLE IF NOT EXISTS feeds(id INTEGER PRIMARY KEY,name TEXT NOT NULL,url TEXT UNIQUE NOT NULL,include_words TEXT DEFAULT '',exclude_words TEXT DEFAULT '',auto_download INTEGER DEFAULT 0,enabled INTEGER DEFAULT 1,last_sync TEXT DEFAULT '',last_error TEXT DEFAULT '',created_at TEXT);CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,feed_id INTEGER,title TEXT,link TEXT UNIQUE,published TEXT,description TEXT,status TEXT DEFAULT '待下载',file_path TEXT,created_at TEXT);CREATE TABLE IF NOT EXISTS anime_meta(anime_title TEXT PRIMARY KEY,subject_id INTEGER DEFAULT 0,name TEXT DEFAULT '',name_cn TEXT DEFAULT '',cover_url TEXT DEFAULT '',cover_file TEXT DEFAULT '',source TEXT DEFAULT '',updated_at TEXT);CREATE TABLE IF NOT EXISTS web_sessions(token_hash TEXT PRIMARY KEY,user TEXT NOT NULL,created_at TEXT DEFAULT '',expires_at TEXT NOT NULL);CREATE TABLE IF NOT EXISTS anime_storage(anime_title TEXT PRIMARY KEY,storage_dir TEXT DEFAULT '',season INTEGER DEFAULT 1,updated_at TEXT);CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);CREATE TABLE IF NOT EXISTS animes(id INTEGER PRIMARY KEY,title TEXT UNIQUE NOT NULL,search_name TEXT DEFAULT '',bangumi_id INTEGER DEFAULT 0,season INTEGER DEFAULT 0,storage_dir TEXT DEFAULT '',include_rules TEXT DEFAULT '',exclude_rules TEXT DEFAULT '',created_at TEXT DEFAULT '',updated_at TEXT DEFAULT '');`)
 	if e != nil {
 		log.Fatalf("初始化数据库失败 %s: %v", dbFile, e)
@@ -302,6 +305,16 @@ func initDB() {
 			}
 		}
 	}
+	for _, ddl := range []string{
+		"CREATE TRIGGER IF NOT EXISTS archive_commits_item_deleted AFTER DELETE ON items BEGIN DELETE FROM archive_commits WHERE item_id=OLD.id; END",
+		"CREATE INDEX IF NOT EXISTS items_anime_id_id ON items(anime_id,id)",
+		"CREATE INDEX IF NOT EXISTS items_status_id ON items(status,id)",
+		"CREATE INDEX IF NOT EXISTS items_feed_id ON items(feed_id)",
+	} {
+		if _, err := db.Exec(ddl); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 func allowed(t, in, ex string) bool {
 	low := strings.ToLower(t)
@@ -329,7 +342,9 @@ func parseFeed(r io.Reader) ([]feedItem, error) {
 	}
 	return feedItemsFromEntries(page.Entries), nil
 }
-func syncFeed(id int) (int, error) {
+func syncFeed(id int) (int, error) { return syncFeedContext(context.Background(), id) }
+
+func syncFeedContext(ctx context.Context, id int) (int, error) {
 	animeCleanupMu.RLock()
 	defer animeCleanupMu.RUnlock()
 	var f Feed
@@ -339,7 +354,7 @@ func syncFeed(id int) (int, error) {
 		return 0, e
 	}
 	f.Auto = a == 1
-	fetched, e := fetchRSS(context.Background(), f.URL)
+	fetched, e := fetchRSS(ctx, f.URL)
 	if e != nil {
 		db.Exec("UPDATE feeds SET last_error=? WHERE id=?", e.Error(), id)
 		return 0, e
@@ -347,6 +362,9 @@ func syncFeed(id int) (int, error) {
 	n := 0
 	var writeErr error
 	for _, it := range feedItemsFromEntries(fetched.Entries) {
+		if err := ctx.Err(); err != nil {
+			return n, err
+		}
 		if it.Title == "" || it.Link == "" || !allowed(it.Title, f.Include, f.Exclude) {
 			continue
 		}
@@ -468,9 +486,19 @@ func runQueuedDownload(id int) {
 // Cancellation only interrupts direct HTTP I/O; accepted external submissions
 // are persisted before a pause or removal can control that exact task.
 func performDownload(ctx context.Context, id int) {
+	cfg := runtimeConfig()
 	clearTransfer(id)
 	defer clearTransfer(id)
 	if ctx.Err() != nil {
+		return
+	}
+	if path, err := pendingArchivePath(id); err != nil {
+		failDownload(id, "归档提交恢复失败："+err.Error())
+		return
+	} else if path != "" {
+		if err := commitSavedArchive(id, path); err != nil {
+			log.Printf("条目 %d 归档记录提交失败: %v", id, err)
+		}
 		return
 	}
 	item, err := readControlledItem(id)
@@ -503,15 +531,15 @@ func performDownload(ctx context.Context, id int) {
 		failDownload(id, vErr.Error())
 		return
 	}
-	if downloadMode == "builtin" && (u.Scheme == "magnet" || torrentLink(link)) {
+	if cfg.downloadMode == "builtin" && (u.Scheme == "magnet" || torrentLink(link)) {
 		submitQBittorrentMode(id, link, "builtin")
 		return
 	}
-	if downloadMode == "qbittorrent" && qbitURL != "" {
+	if cfg.downloadMode == "qbittorrent" && cfg.qbitURL != "" {
 		submitQBittorrent(id, link)
 		return
 	}
-	if downloadMode == "transmission" && transmissionURL != "" {
+	if cfg.downloadMode == "transmission" && cfg.transmissionURL != "" {
 		taskID, e := transmissionAdd(link)
 		if e != nil {
 			failDownload(id, "Transmission 提交失败："+e.Error())
@@ -520,7 +548,7 @@ func performDownload(ctx context.Context, id int) {
 		setSubmitted(id, "transmission", taskID, "已发送到 Transmission")
 		return
 	}
-	if downloadMode == "aria2" && aria2URL != "" {
+	if cfg.downloadMode == "aria2" && cfg.aria2URL != "" {
 		taskID, e := aria2Add(link)
 		if e != nil {
 			failDownload(id, "Aria2 提交失败："+e.Error())
@@ -542,8 +570,9 @@ func performDownload(ctx context.Context, id int) {
 	}
 	path, e := fetchArchiveContext(ctx, id, link)
 	if e == nil {
-		db.Exec("UPDATE items SET status='已保存',file_path=?,task_error='',progress=100 WHERE id=?", path, id)
-		notify("download_saved", id, "已保存")
+		if err := commitSavedArchive(id, path); err != nil {
+			log.Printf("条目 %d 归档记录提交失败，将在重启后恢复: %v", id, err)
+		}
 		return
 	}
 	if ctx.Err() != nil {
@@ -551,7 +580,7 @@ func performDownload(ctx context.Context, id int) {
 		return
 	}
 	if errors.Is(e, errTorrentResource) {
-		if downloadMode == "builtin" {
+		if cfg.downloadMode == "builtin" {
 			submitQBittorrentMode(id, link, "builtin")
 			return
 		}
@@ -1140,8 +1169,35 @@ func boolInt(v bool) int {
 	return 0
 }
 func items(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "方法不支持", 405)
+		return
+	}
 	where := []string{}
 	args := []any{}
+	if group := r.URL.Query().Get("group"); group != "" && group != "全部" {
+		switch group {
+		case "下载中":
+			where = append(where, "items.status IN ("+activeTaskStatusSQL+")")
+		case "待下载":
+			where = append(where, "items.status IN ('待下载','等待下载','等待继续')")
+		case "已暂停", "已保存", "下载失败", "等待下载器":
+			where = append(where, "items.status=?")
+			args = append(args, group)
+		default:
+			http.Error(w, "状态筛选无效", 400)
+			return
+		}
+	}
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		before, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || before < 1 {
+			http.Error(w, "分页游标无效", 400)
+			return
+		}
+		where = append(where, "items.id<?")
+		args = append(args, before)
+	}
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		where = append(where, "(items.title LIKE ? OR items.anime_title LIKE ? OR items.fansub_group LIKE ?)")
 		pattern := "%" + q + "%"
@@ -1155,7 +1211,8 @@ func items(w http.ResponseWriter, r *http.Request) {
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	query += " ORDER BY items.id DESC LIMIT 100"
+	paginated := r.URL.Query().Get("page") == "1"
+	query += " ORDER BY items.id DESC LIMIT 101"
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		http.Error(w, "查询失败", 500)
@@ -1189,13 +1246,29 @@ func items(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var x item
 		var manual int
-		rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.FilePath, &x.AnimeID, &x.Season, &x.SeasonAuto, &manual, &x.CoverFile)
+		if err := rows.Scan(&x.ID, &x.Title, &x.Link, &x.Published, &x.Status, &x.AnimeTitle, &x.Episode, &x.Quality, &x.Group, &x.Feed, &x.Downloader, &x.TaskError, &x.Progress, &x.FilePath, &x.AnimeID, &x.Season, &x.SeasonAuto, &manual, &x.CoverFile); err != nil {
+			http.Error(w, "读取条目失败", 500)
+			return
+		}
 		x.DownloadSpeed, x.Progress = transferSnapshot(x.ID, x.Status, x.Progress)
 		x.Manual = manual == 1
 		if x.CoverFile != "" {
 			x.Cover = "/api/covers/" + x.CoverFile
 		}
 		out = append(out, x)
+	}
+	nextBefore := 0
+	if len(out) > 100 {
+		out = out[:100]
+		nextBefore = out[99].ID
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "查询失败", 500)
+		return
+	}
+	if paginated {
+		jsonOut(w, map[string]any{"items": out, "next_before": nextBefore})
+		return
 	}
 	jsonOut(w, out)
 }
@@ -1236,7 +1309,7 @@ func runApplication() error {
 		if err := applyProxyConfig(raw); err != nil {
 			log.Fatalf("PROXY_URL 无效: %v", err)
 		}
-		log.Printf("出站代理已启用: %s（RSS/下载/封面走代理，下载器 RPC 始终直连）", redactProxy(proxyURL))
+		log.Printf("出站代理已启用: %s（RSS/下载/封面走代理，下载器 RPC 始终直连）", redactProxy(currentProxy()))
 	}
 	// 数据库里保存的用户设置优先于环境变量，最后加载。
 	loadSettings()
@@ -1251,6 +1324,7 @@ func runApplication() error {
 		return err
 	}
 	defer stopEmbeddedQBittorrent()
+	go embeddedQbit.supervise(ctx, time.Second, launchEmbeddedQBittorrent)
 	startUpdateChecker()
 	if authEnabled() {
 		log.Println("Web 登录已启用")
@@ -1261,6 +1335,9 @@ func runApplication() error {
 	}
 	if setupRequired() {
 		log.Printf("首次安装：请访问 http://127.0.0.1:%s/setup 完成初始化", listenPort)
+	}
+	if err := recoverArchiveCommits(); err != nil {
+		return fmt.Errorf("恢复归档提交失败: %w", err)
 	}
 	recovered, err := recoverDownloads(db)
 	if err != nil {
@@ -1312,32 +1389,25 @@ func runApplication() error {
 	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
 	http.HandleFunc("/api/items/", itemsEntryAPI)
-	http.HandleFunc("/api/sync/", func(w http.ResponseWriter, r *http.Request) {
-		var id int
-		fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/api/sync/"), "%d", &id)
-		n, e := syncFeed(id)
-		if e != nil {
-			http.Error(w, fmt.Sprintf("已新增 %d 条；%v", n, e), 502)
-			return
-		}
-		jsonOut(w, map[string]int{"added": n})
-	})
+	http.HandleFunc("/api/sync/", syncFeedHandler)
 	go func() {
 		for {
-			if err := syncEnabledFeeds(); err != nil {
+			if err := syncEnabledFeedsContext(ctx); err != nil {
 				log.Println("定时同步失败:", err)
 			}
-			time.Sleep(time.Duration(pollMinutes) * time.Minute)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(runtimeConfig().pollMinutes) * time.Minute):
+			}
 		}
 	}()
 	log.Printf("自动追番运行在 :%s", listenPort)
 	server := &http.Server{Addr: ":" + listenPort, Handler: auth(http.DefaultServeMux), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.ListenAndServe() }()
-	var shutdownErr error
 	select {
 	case <-ctx.Done():
-	case shutdownErr = <-embeddedQbitFailure:
 	case err := <-serveErr:
 		return err
 	}
@@ -1347,10 +1417,12 @@ func runApplication() error {
 		server.Close()
 		return err
 	}
-	return shutdownErr
+	return nil
 }
 
-func syncEnabledFeeds() error {
+func syncEnabledFeeds() error { return syncEnabledFeedsContext(context.Background()) }
+
+func syncEnabledFeedsContext(ctx context.Context) error {
 	rows, err := db.Query("SELECT id FROM feeds WHERE enabled=1")
 	if err != nil {
 		return err
@@ -1370,9 +1442,28 @@ func syncEnabledFeeds() error {
 		return err
 	}
 	for _, id := range ids {
-		if _, err := syncFeed(id); err != nil {
+		if _, err := syncFeedContext(ctx, id); err != nil {
 			log.Printf("订阅 %d 同步失败: %v", id, err)
 		}
 	}
 	return nil
+}
+
+func syncFeedHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "方法不支持", 405)
+		return
+	}
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/sync/"))
+	if err != nil || id < 1 {
+		http.Error(w, "订阅编号无效", 400)
+		return
+	}
+	n, err := syncFeedContext(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("已新增 %d 条；%v", n, err), 502)
+		return
+	}
+	jsonOut(w, map[string]int{"added": n})
 }

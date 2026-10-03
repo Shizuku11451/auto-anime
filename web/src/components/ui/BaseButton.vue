@@ -22,6 +22,7 @@ withDefaults(
     :type="type"
     class="btn"
     :class="[`v-${variant}`, `s-${size}`, { block, 'icon-only': iconOnly, 'is-loading': loading }]"
+    :aria-busy="loading || undefined"
     :disabled="disabled || loading"
   >
     <span v-if="loading || icon" class="btn-ic" aria-hidden="true">
@@ -39,11 +40,11 @@ withDefaults(
   align-items: center;
   justify-content: center;
   gap: 7px;
-  height: 36px;
+  height: 40px;
   padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text);
   font-weight: 550;
   font-size: 13.5px;
@@ -65,7 +66,7 @@ withDefaults(
   background: var(--surface-3);
 }
 .btn:active:not(:disabled) {
-  transform: scale(0.965);
+  transform: translateY(1px);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -84,7 +85,7 @@ withDefaults(
   height: 16px;
 }
 .s-sm {
-  height: 30px;
+  height: 32px;
   padding: 0 11px;
   font-size: 12.5px;
   gap: 5px;
@@ -106,36 +107,30 @@ withDefaults(
 }
 .icon-only {
   padding: 0;
-  width: 36px;
+  width: 40px;
 }
 .icon-only.s-sm {
-  width: 30px;
+  width: 32px;
 }
 .icon-only.s-lg {
   width: 42px;
 }
 
-/* 主按钮：渐变 + 光晕 */
+/* 主操作使用实色，减少多层光效。 */
 .v-primary {
   color: var(--accent-contrast);
   border-color: transparent;
-  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    var(--glow-accent);
+  background: var(--accent);
+  box-shadow: none;
   font-weight: 650;
 }
 .v-primary:hover:not(:disabled) {
   border-color: transparent;
-  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
-  filter: brightness(1.06) saturate(1.05);
-  transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 12px 32px -8px var(--accent-glow);
+  background: var(--accent);
+  background: var(--accent-strong);
 }
 .v-primary:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: translateY(1px);
 }
 
 .v-ghost {
@@ -144,7 +139,7 @@ withDefaults(
   color: var(--text-2);
 }
 .v-ghost:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: var(--surface);
   border-color: transparent;
   color: var(--text);
 }

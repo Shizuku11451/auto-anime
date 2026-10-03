@@ -1,17 +1,20 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { Search, X } from '@lucide/vue'
 
 withDefaults(defineProps<{ placeholder?: string; width?: string }>(), { placeholder: '搜索', width: '280px' })
 const model = defineModel<string>({ default: '' })
 const emit = defineEmits<{ enter: [] }>()
+const input = ref<HTMLInputElement | null>(null)
+function clear() { model.value = ''; input.value?.focus() }
 </script>
 
 <template>
   <label class="search" :style="{ width }">
     <Search class="search-ic" aria-hidden="true" />
-    <input v-model="model" type="search" :placeholder="placeholder" autocomplete="off" @keydown.enter="emit('enter')" />
+    <input ref="input" v-model="model" type="search" :aria-label="placeholder" :placeholder="placeholder" autocomplete="off" @keydown.enter="emit('enter')" />
     <Transition name="fade">
-      <button v-if="model" type="button" class="clear" aria-label="清除" @click="model = ''">
+      <button v-if="model" type="button" class="clear" aria-label="清除搜索" @click="clear">
         <X />
       </button>
     </Transition>
@@ -41,7 +44,7 @@ const emit = defineEmits<{ enter: [] }>()
 input {
   padding-left: 36px;
   padding-right: 34px;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
 }
 .clear {
   position: absolute;

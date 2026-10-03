@@ -243,7 +243,7 @@ func controlDownloaderTask(t taskRef, pause bool) (string, error) {
 			return "", err
 		}
 		if len(found) == 0 {
-			if qbitAwaitingSubmission(t) {
+			if client.awaitingTask(t) {
 				return "", fmt.Errorf("下载器仍在接收任务，请稍后重试")
 			}
 			return "", fmt.Errorf("任务在 qBittorrent 中不存在")

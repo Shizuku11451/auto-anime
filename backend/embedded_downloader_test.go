@@ -158,14 +158,8 @@ func resetEmbeddedQbitTest(t *testing.T) {
 	stopEmbeddedQBittorrent()
 	embeddedQbit.Lock()
 	embeddedQbit.process, embeddedQbit.stopping = nil, false
+	embeddedQbit.requested, embeddedQbit.failures, embeddedQbit.retryAt = false, 0, time.Time{}
 	embeddedQbit.Unlock()
-	for {
-		select {
-		case <-embeddedQbitFailure:
-		default:
-			return
-		}
-	}
 }
 
 // Optional real lifecycle coverage uses a private profile, local torrent,
@@ -338,7 +332,7 @@ func TestEmbeddedQbitTagDiscoveryCannotChangeAnotherDownloader(t *testing.T) {
 				if _, err := db.Exec("UPDATE items SET downloader=? WHERE id=?", replacement, id); err != nil {
 					t.Error(err)
 				}
-				json.NewEncoder(w).Encode([]qbitTorrent{{Hash: "stale", State: "downloading", Progress: 0.5}})
+				json.NewEncoder(w).Encode([]qbitTorrent{{Hash: controlTestHash, State: "downloading", Progress: 0.5}})
 			}))
 			defer server.Close()
 			client := &qbitClient{http: server.Client(), config: qbitConnection{URL: server.URL}}
