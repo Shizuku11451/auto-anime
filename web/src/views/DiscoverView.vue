@@ -10,7 +10,7 @@ import { useDialogs } from '@/stores/dialogs'
 import { toast } from '@/stores/toast'
 import type { DiscoverItem } from '@/api/types'
 import { useAppStore } from '@/stores/app'
-import { filterReleases, groupReleases, releaseField, subscriptionTitle, subscriptionWords, type ReleaseField, type ReleaseFilters, type ReleaseSort } from '@/utils/discover'
+import { discoveredSubscriptionWords, filterReleases, groupReleases, releaseField, seasonLabel, subscriptionTitle, type ReleaseField, type ReleaseFilters, type ReleaseSort } from '@/utils/discover'
 
 const { state, loadSources, search, cancelSearch, retry } = useDiscover()
 const dialogs = useDialogs()
@@ -19,14 +19,16 @@ const releases = computed(() => groupReleases(state.result?.items ?? []))
 const existingFeed = computed(() => store.feeds.value.find((f) => f.url === state.result?.feed_url))
 const filters = reactive<ReleaseFilters>({ group: '', quality: '', language: '' })
 const sort = ref<ReleaseSort>('source')
+const season = ref('')
+const seasons = computed(() => [...new Set(releases.value.map(r => r.item.season ?? 0))].sort((a, b) => a - b))
 const filterFields: { key: ReleaseField; label: string }[] = [
   { key: 'group', label: '字幕组' }, { key: 'quality', label: '清晰度' }, { key: 'language', label: '字幕语言' },
 ]
-const filtered = computed(() => filterReleases(releases.value, filters, sort.value))
-const hasFilters = computed(() => Object.values(filters).some(Boolean))
+const filtered = computed(() => filterReleases(releases.value, filters, sort.value).filter(r => !season.value || String(r.item.season ?? 0) === season.value))
+const hasFilters = computed(() => !!season.value || Object.values(filters).some(Boolean))
 const activeSourceName = computed(() => state.sources.find((s) => s.id === state.attempt?.source)?.name || '所选来源')
 const showResults = computed(() => !!state.result && !state.searching && !state.error)
-const sameSearch = computed(() => state.searching && state.attempt?.keyword === state.keyword.trim() && state.attempt.source === state.source)
+const sameSearch = computed(() => state.searching && state.attempt?.keyword === state.keyword.trim() && state.attempt.source === state.source && state.attempt.literal === state.literal)
 
 function filterOptions(field: ReleaseField) {
   const values = new Map<string, number>()
@@ -39,9 +41,13 @@ function filterOptions(field: ReleaseField) {
 
 function resetFilters() {
   Object.assign(filters, { group: '', quality: '', language: '' })
+  season.value = ''
 }
 
-watch(() => state.result, resetFilters)
+watch(() => state.result, () => {
+  resetFilters()
+  if (state.result?.requested_season) season.value = String(state.result.requested_season)
+}, { immediate: true })
 
 onMounted(loadSources)
 onUnmounted(cancelSearch)
@@ -98,15 +104,21 @@ async function copyFeedUrl() {
 function subscribe(item: DiscoverItem) {
   const r = state.result
   if (!r) return
+  if ((item.season ?? 0) < 0) return
+  const url = item.feed_url || r.feed_url
+  const existing = store.feeds.value.find(f => f.url === url)
   dialogs.openFeed({
-    ...existingFeed.value,
-    name: [subscriptionTitle(item), item.fansub_group, item.quality].filter(Boolean).join(' · '),
-    url: r.feed_url,
-    include_words: subscriptionWords(item, r.keyword),
+    ...existing,
+    name: [subscriptionTitle(item), item.season ? seasonLabel(item.season) : '', item.fansub_group, item.quality].filter(Boolean).join(' · '),
+    url,
+    include_words: discoveredSubscriptionWords(item, r.keyword, !!r.requested_season),
+    season_filter: item.season || -1,
+    allow_unknown_season: false,
+    requires_season_confirmation: !item.season,
     exclude_words: '',
     target_title: subscriptionTitle(item),
-    auto_download: !!item.fansub_group && (existingFeed.value?.auto_download ?? true),
-    enabled: existingFeed.value?.enabled ?? true,
+    auto_download: !!item.fansub_group && !!item.season && (existing?.auto_download ?? true),
+    enabled: existing?.enabled ?? true,
     from_discover: true,
   })
 }
@@ -141,6 +153,7 @@ function subscribe(item: DiscoverItem) {
         </button>
       </div>
       <p v-if="currentSource?.hint" class="source-hint">{{ currentSource.hint }}</p>
+      <label class="source-hint"><input v-model="state.literal" type="checkbox" /> 按原词搜索（不识别季数、不扩展查询）</label>
       <div v-if="state.sourcesError && !noSources" class="source-error" role="status">
         <span>搜索源刷新失败：{{ state.sourcesError }}</span>
         <BaseButton size="sm" :loading="state.sourcesLoading" @click="loadSources">重新加载</BaseButton>
@@ -180,10 +193,13 @@ function subscribe(item: DiscoverItem) {
           <h2>「{{ state.result.keyword }}」的搜索结果</h2>
           <p>{{ state.result.source_name }}<span>·</span>{{ releases.length }} 个版本<span>·</span>{{ state.result.count }} 条资源<span>·</span>已读取 {{ state.result.pages }} 页</p>
         </div>
-        <BaseButton size="sm" :icon="Copy" @click="copyFeedUrl">复制 RSS 地址</BaseButton>
+        <BaseButton size="sm" :icon="Copy" @click="copyFeedUrl">{{ state.result.requested_season ? '复制原词 RSS' : '复制 RSS 地址' }}</BaseButton>
       </section>
       <p class="read-scope" :class="{ limited: state.result.limited }" role="status">
         {{ state.result.warning || (state.result.history ? '集数来自此来源已发现的资源，不代表全季已发布。' : '此来源仅提供当前 RSS 列表；查找早期集数可换源，或加上字幕组缩小搜索范围。') }}
+      </p>
+      <p v-if="state.result.requested_season" class="read-scope" role="status">
+        已识别：{{ seasonLabel(state.result.requested_season) }}；同源查询：{{ state.result.queries?.join('、') }}。未标明季数的资源需切换筛选并人工核对，不自动认作目标季。订阅使用各版本的实际 RSS，原词 RSS 不包含合并结果。
       </p>
       <p v-if="existingFeed" class="subscription-notice">
         此 RSS 已订阅为「{{ existingFeed.name }}」。选择版本后可预览并调整原订阅，已有条目与文件保留。
@@ -198,6 +214,11 @@ function subscribe(item: DiscoverItem) {
         <section class="filter-panel card" aria-label="筛选版本">
           <div class="filter-heading"><span><SlidersHorizontal aria-hidden="true" />筛选版本</span><span class="muted">仅筛选本次结果</span></div>
           <div class="filters">
+            <label><span>季数</span><select v-model="season" aria-label="季数">
+              <option value="">全部季数</option>
+              <option v-if="state.result.requested_season && !seasons.includes(state.result.requested_season)" :value="String(state.result.requested_season)">{{ seasonLabel(state.result.requested_season) }}（暂无明确资源）</option>
+              <option v-for="value in seasons" :key="value" :value="String(value)">{{ seasonLabel(value) }}</option>
+            </select></label>
             <label v-for="field in filterFields" :key="field.key">
               <span>{{ field.label }}</span>
               <select v-model="filters[field.key]" :aria-label="field.label">
@@ -218,7 +239,7 @@ function subscribe(item: DiscoverItem) {
           <BaseButton @click="resetFilters">清除筛选</BaseButton>
         </EmptyState>
         <div v-else class="results">
-          <ReleaseCard v-for="release in filtered" :key="release.key" :release="release" :editing="!!existingFeed" @subscribe="subscribe" />
+          <ReleaseCard v-for="release in filtered" :key="release.key" :release="release" :editing="store.feeds.value.some(f => f.url === (release.item.feed_url || state.result?.feed_url))" @subscribe="subscribe" />
         </div>
         <p class="subscription-hint">选择版本后将自动预览字幕组、清晰度与字幕语言的匹配结果，核对后再保存订阅。</p>
       </template>

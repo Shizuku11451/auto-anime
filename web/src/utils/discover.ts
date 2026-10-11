@@ -30,6 +30,15 @@ export function releaseEpisodes(items: DiscoverItem[]): number[] {
     .sort((a, b) => a - b)
 }
 
+// Expanded intent is not a title substring; manual keyword rules stay intact.
+export function discoveredSubscriptionWords(item: DiscoverItem, keyword: string, expanded: boolean): string {
+  return subscriptionWords(item, expanded ? '' : keyword)
+}
+
+export function seasonLabel(season = 0): string {
+  return season < 0 ? '季数冲突' : season === 0 ? '季数未标明' : `第 ${season} 季`
+}
+
 export function episodeSummary(episodes: number[]): string {
   const ranges: string[] = []
   const format = (episode: number) => String(episode).padStart(2, '0')
@@ -47,7 +56,8 @@ export function groupReleases(items: DiscoverItem[]) {
   for (const item of items) {
     const title = subscriptionTitle(item)
     const language = releaseLanguage(item)
-    const key = JSON.stringify([title, item.fansub_group, item.quality, language].map((s) => s.toLowerCase()))
+    // Each card must be reproducible by one real RSS, not a query union.
+    const key = JSON.stringify([...([title, item.fansub_group, item.quality, language].map((s) => s.toLowerCase())), item.season ?? 0, item.feed_url ?? ''])
     const existing = groups.get(key)
     if (existing) existing.items.push(item)
     else groups.set(key, { key, title, language, item, items: [item] })

@@ -14,14 +14,15 @@ const store = useAppStore()
 const s = state.feed
 
 const editing = computed(() => !!(s.feed && s.feed.id))
-const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '', storage: '' })
+const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '', storage: '', season: 0, allowUnknown: false })
 const preview = ref('')
 const previewing = ref(false)
 const saving = ref(false)
 const msg = ref('')
 const previewKey = ref('')
 const previewCount = ref(0)
-const filterKey = computed(() => JSON.stringify([form.url.trim(), form.include.trim(), form.exclude.trim()]))
+const seasonConfirmed = ref(false)
+const filterKey = computed(() => JSON.stringify([form.url.trim(), form.include.trim(), form.exclude.trim(), form.season, form.allowUnknown]))
 const previewReady = computed(() => previewKey.value === filterKey.value && previewCount.value > 0)
 let previewRequest = 0
 let previewController: AbortController | undefined
@@ -109,6 +110,9 @@ watch(
     form.auto = f ? f.auto_download !== false : true
     form.target = f?.target_title ?? ''
     form.storage = f?.storage_dir ?? ''
+    form.season = f?.season_filter ?? 0
+    form.allowUnknown = f?.allow_unknown_season ?? false
+    seasonConfirmed.value = false
     enabledAtOpen = f ? f.enabled !== false : true
     preview.value = ''
     previewKey.value = ''
@@ -140,7 +144,7 @@ async function runPreview() {
   try {
     const data = await api<PreviewResult>('/api/preview', {
       method: 'POST',
-      json: { url, include_words: form.include.trim(), exclude_words: form.exclude.trim() },
+      json: { url, include_words: form.include.trim(), exclude_words: form.exclude.trim(), season_filter: form.season, allow_unknown_season: form.allowUnknown },
       signal: previewController.signal,
     })
     if (request !== previewRequest) return
@@ -205,6 +209,10 @@ function isAbsolutePath(value: string) {
 async function save() {
   if (saving.value) return
   msg.value = ''
+  if (s.feed?.requires_season_confirmation && !seasonConfirmed.value) {
+    msg.value = '该资源没有明确季数，请核对原始标题并确认后再保存'
+    return
+  }
   if (s.feed?.from_discover && (!previewReady.value || previewing.value)) {
     msg.value = '请先预览当前规则，确认有匹配的资源后再保存'
     return
@@ -231,6 +239,8 @@ async function save() {
     enabled: enabledAtOpen,
     target_title: form.target.trim(),
     storage_dir: storage,
+    season_filter: form.season,
+    allow_unknown_season: form.allowUnknown,
   }
   if (!body.name) {
     msg.value = '请填写订阅名称'
@@ -310,6 +320,13 @@ async function save() {
           <option v-for="anime in store.animes.value" :key="anime.id" :value="anime.title" />
         </datalist>
         <p class="field-hint">选择已有番剧或填写统一名称，让不同标题的后续集数进入同一张番剧卡片；不会合并已有记录。</p>
+      </div>
+      <div class="field">
+        <label for="f-season">季数条件</label>
+        <input id="f-season" v-model.number="form.season" type="number" min="-1" max="999" step="1" />
+        <p class="field-hint">0：不限；-1：仅季数未标明；1–999：只匹配标题明确标明的该季。此条件不修改归档季号，标题季数冲突时不匹配指定季。</p>
+        <label v-if="form.season > 0" class="check"><input v-model="form.allowUnknown" type="checkbox" /> 已人工核对，同时接受季数未标明的资源</label>
+        <label v-if="s.feed?.requires_season_confirmation" class="check"><input v-model="seasonConfirmed" type="checkbox" /> 已核对原始资源，此版本确实是我要订阅的内容（不会自动指定归档季号）</label>
       </div>
       <div class="field">
         <label for="f-storage">保存位置（番剧根目录）</label>

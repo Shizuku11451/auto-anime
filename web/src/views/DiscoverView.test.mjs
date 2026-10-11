@@ -53,4 +53,24 @@ test('输入框和来源修改后，订阅仍对应展示结果；新结果到�
   assert.ok(opened.include_words.split(',').every(word => word === '无职转生' || traditional.title.toLowerCase().includes(word.toLowerCase())))
   assert.ok(opened.include_words.includes('無職轉生'))
   assert.equal(opened.include_words.includes('无职转生'), true)
+  const expanded = { ...item, season: 1, feed_url: 'https://example.test/S01', query: '夏日动画 S01' }
+  state.result = { keyword: '夏日动画 第一季', base_keyword: '夏日动画', requested_season: 1, feed_url: 'https://example.test/original', items: [expanded] }
+  await vue.nextTick()
+  const remounted = { exports: {}, require: id => modules[id] }
+  scope.run(() => runInNewContext(compiled, remounted))
+  assert.equal(remounted.exports.filtered.value.length, 1)
+  state.result.items.push({ ...expanded, season: 3 })
+  assert.equal(remounted.exports.filtered.value.length, 1)
+  context.exports.subscribe(expanded)
+  assert.equal(opened.url, expanded.feed_url)
+  assert.equal(opened.season_filter, 1)
+  assert.equal(opened.allow_unknown_season, false)
+  assert.equal(opened.include_words.includes('第一季'), false)
+  context.exports.subscribe({ ...expanded, season: 0 })
+  assert.equal(opened.season_filter, -1)
+  assert.equal(opened.auto_download, false)
+  assert.equal(opened.requires_season_confirmation, true)
+  const previous = opened
+  context.exports.subscribe({ ...expanded, season: -1 })
+  assert.equal(opened, previous)
 })

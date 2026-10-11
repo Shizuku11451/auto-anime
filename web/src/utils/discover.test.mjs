@@ -1,12 +1,37 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { episodeSummary, filterReleases, groupReleases, releaseEpisodes, releaseField, subscriptionTitle, subscriptionWords } from './discover.ts'
+import { discoveredSubscriptionWords, episodeSummary, filterReleases, groupReleases, releaseEpisodes, releaseField, seasonLabel, subscriptionTitle, subscriptionWords } from './discover.ts'
 
 const item = (episode, group = '目标组', quality = '1080P', language = '简中') => ({
   title: `[${group}] 夏日动画 / Summer [${episode}] [${quality}][${language}]`,
   anime_title: `夏日动画 / Summer [${quality}][${language}]`,
   fansub_group: group, quality, episode,
   link: `https://example.test/${episode}`, torrent: '', published: '',
+})
+
+test('季数与实际 RSS 分开分组，不将不同季或不同查询拼成一个可订阅版本', () => {
+  const groups = groupReleases([
+    { ...item('01'), season: 1, feed_url: 'https://example.test/?q=S1' },
+    { ...item('02'), season: 1, feed_url: 'https://example.test/?q=S1' },
+    { ...item('01'), season: 3, feed_url: 'https://example.test/?q=S1' },
+    { ...item('03'), season: 1, feed_url: 'https://example.test/?q=S01' },
+    { ...item('01'), season: 0, feed_url: 'https://example.test/?q=S1' },
+  ])
+  assert.equal(groups.length, 4)
+  assert.equal(groups[0].items.length, 2)
+  assert.equal(seasonLabel(0), '季数未标明')
+  assert.equal(seasonLabel(-1), '季数冲突')
+  assert.equal(seasonLabel(1), '第 1 季')
+})
+
+test('扩展搜索不将第一季输入作为标题必需字串，原词和手动规则不变', () => {
+  const selected = { ...item('01'), season: 1 }
+  const words = discoveredSubscriptionWords(selected, '夏日动画 第一季', true)
+  assert.equal(words.includes('第一季'), false)
+  assert.ok(words.includes('夏日动画'))
+  assert.ok(words.includes('[目标组]'))
+  assert.ok(words.split(',').every(w => selected.title.toLowerCase().includes(w.toLowerCase())))
+  assert.ok(discoveredSubscriptionWords(selected, '夏日动画 第一季', false).includes('第一季'))
 })
 
 test('同版多集合并，不混入其他字幕组、清晰度和语言', () => {

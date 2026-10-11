@@ -28,6 +28,8 @@ export interface StorageCheckInput {
 }
 
 export interface Feed {
+  season_filter: number
+  allow_unknown_season: boolean
   target_title: string
   /* 订阅保存位置：番剧根目录，归档时在其下按番剧名建立文件夹；空表示默认位置。 */
   storage_dir: string
@@ -303,6 +305,9 @@ export interface DiscoverSource {
 }
 
 export interface DiscoverItem {
+  season?: number
+  feed_url?: string
+  query?: string
   title: string
   anime_title: string
   fansub_group: string
@@ -321,6 +326,9 @@ export interface FeedReadInfo {
 }
 
 export interface DiscoverResult extends FeedReadInfo {
+  base_keyword?: string
+  requested_season?: number
+  queries?: string[]
   source: string
   source_name: string
   keyword: string

@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import { http } from '@/api/client'
 import type { AnimeDetail, AnimeSummary, Feed, Item, ResourceItem } from '@/api/types'
 
-export type FeedPrefill = Partial<Feed> & { url?: string; name?: string; from_discover?: boolean }
+export type FeedPrefill = Partial<Feed> & { url?: string; name?: string; from_discover?: boolean; requires_season_confirmation?: boolean }
 
 /** 播放器的一个条目：只带展示与流地址所需字段 */
 export interface PlayerEntry {

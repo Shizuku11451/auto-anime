@@ -83,6 +83,23 @@ test('最近搜索去重且最多保留六条，空关键词或失效来源不�
   assert.equal(requests.length, 8)
 })
 
+test('原词模式独立请求，重试保留模式，旧扩展响应不覆盖新查询', async () => {
+  const { store, requests } = fixture()
+  const old = store.search()
+  store.state.literal = true
+  const literal = store.search()
+  assert.ok(requests[1].url.endsWith('&literal=1'))
+  requests[0].resolve({ keyword: '扩展' }); await old
+  assert.equal(store.state.result, null)
+  requests[1].reject(new Error('暂时失败')); await literal
+  store.state.literal = false
+  const retry = store.retry()
+  assert.equal(store.state.literal, true)
+  assert.equal(requests[2].url, requests[1].url)
+  requests[2].resolve({ keyword: '原词' }); await retry
+  assert.equal(store.state.result.keyword, '原词')
+})
+
 test('来源刷新隔离迟到响应，失败保留已有来源并退出加载状态', async () => {
   const { store, requests } = fixture()
   const old = store.loadSources(), fresh = store.loadSources()

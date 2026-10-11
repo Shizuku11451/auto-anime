@@ -9,10 +9,11 @@ interface DiscoverState {
   sourcesError: string
   source: string
   keyword: string
+  literal: boolean
   searching: boolean
   result: DiscoverResult | null
   error: string
-  attempt: { source: string; keyword: string } | null
+  attempt: { source: string; keyword: string; literal: boolean } | null
   cancelled: boolean
   recent: string[]
 }
@@ -23,6 +24,7 @@ const state = reactive<DiscoverState>({
   sourcesError: '',
   source: '',
   keyword: '',
+  literal: false,
   searching: false,
   result: null,
   error: '',
@@ -68,18 +70,19 @@ async function search() {
   const keyword = state.keyword.trim()
   if (!keyword || !state.sources.some((s) => s.id === state.source)) return
   const source = state.source
-  if (state.searching && state.attempt?.source === source && state.attempt.keyword === keyword) return
+  const literal = state.literal
+  if (state.searching && state.attempt?.source === source && state.attempt.keyword === keyword && state.attempt.literal === literal) return
   cancelSearch()
   const request = ++searchRequest
   controller = new AbortController()
   state.keyword = keyword
-  state.attempt = { source, keyword }
+  state.attempt = { source, keyword, literal }
   state.searching = true
   state.cancelled = false
   state.error = ''
   try {
     const result = await http.get<DiscoverResult>(
-      `/api/discover/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`,
+      `/api/discover/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}${literal ? '&literal=1' : ''}`,
       { signal: controller.signal },
     )
     if (request !== searchRequest) return
@@ -99,6 +102,7 @@ function retry() {
   if (!state.attempt) return
   state.source = state.attempt.source
   state.keyword = state.attempt.keyword
+  state.literal = state.attempt.literal
   return search()
 }
 

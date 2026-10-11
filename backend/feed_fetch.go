@@ -155,6 +155,7 @@ func discoverItemsFromEntries(entries []feedEntry) []discoverItem {
 		info := extractAnimeInfo(entry.Title)
 		items = append(items, discoverItem{
 			Title: entry.Title, AnimeTitle: info.Title, Group: info.Group,
+			Season:  resourceSeason(entry.Title),
 			Episode: info.Episode, Quality: info.Quality,
 			Link: entry.Link, Torrent: entry.Torrent, Published: entry.Published,
 		})
@@ -242,16 +243,29 @@ func readFeedPage(ctx context.Context, address, origin *url.URL, remaining int) 
 	limit := min(discoverMaxBytes, remaining)
 	data, err := io.ReadAll(io.LimitReader(response.Body, int64(limit)+1))
 	if err != nil {
-		return feedPage{}, nil, 0, fmt.Errorf("读取 RSS 响应失败")
+		return feedPage{}, nil, len(data), fmt.Errorf("读取 RSS 响应失败")
 	}
 	if len(data) > limit {
-		return feedPage{}, nil, 0, fmt.Errorf("RSS 响应超过读取大小上限")
+		return feedPage{}, nil, len(data), fmt.Errorf("RSS 响应超过读取大小上限")
 	}
 	page, err := decodeFeedPage(bytes.NewReader(data))
 	return page, response.Request.URL, len(data), err
 }
 
 func fetchRSS(ctx context.Context, feedURL string) (feedFetchResult, error) {
+	budget := newFeedReadBudget()
+	return fetchRSSBudget(ctx, feedURL, &budget, feedMaxPages)
+}
+
+type feedReadBudget struct {
+	pages, items, bytes int
+}
+
+func newFeedReadBudget() feedReadBudget {
+	return feedReadBudget{feedMaxPages, feedMaxItems, feedMaxTotalBytes}
+}
+
+func fetchRSSBudget(ctx context.Context, feedURL string, budget *feedReadBudget, maxPages int) (feedFetchResult, error) {
 	result := feedFetchResult{Entries: []feedEntry{}}
 	address, err := url.Parse(strings.TrimSpace(feedURL))
 	if err != nil || (address.Scheme != "http" && address.Scheme != "https") || address.Hostname() == "" {
@@ -263,9 +277,12 @@ func fetchRSS(ctx context.Context, feedURL string) (feedFetchResult, error) {
 	result.History = source.PageParam != ""
 	seenPages := map[string]bool{}
 	seenEntries := map[string]bool{}
-	remaining := feedMaxTotalBytes
 	var origin *url.URL
 	for {
+		if budget.pages <= 0 || budget.items <= 0 || budget.bytes <= 0 || result.Pages >= maxPages {
+			result.limit("达到本次读取预算；结果可能不完整，请缩小搜索范围。")
+			break
+		}
 		if seenPages[address.String()] {
 			result.limit("来源的下一页链接重复，已停止读取；结果可能不完整。")
 			break
@@ -281,7 +298,10 @@ func fetchRSS(ctx context.Context, feedURL string) (feedFetchResult, error) {
 				return result, nil
 			}
 		}
-		page, base, size, err := readFeedPage(ctx, address, origin, remaining)
+		// Failed requests consume a page slot as well; expansions share one budget.
+		budget.pages--
+		page, base, size, err := readFeedPage(ctx, address, origin, budget.bytes)
+		budget.bytes -= size
 		if err != nil {
 			if result.Pages == 0 {
 				return result, err
@@ -289,7 +309,6 @@ func fetchRSS(ctx context.Context, feedURL string) (feedFetchResult, error) {
 			result.limit(fmt.Sprintf("已读取 %d 页，第 %d 页读取失败：%v；结果可能不完整，请重试。", result.Pages, result.Pages+1, err))
 			break
 		}
-		remaining -= size
 		result.Pages++
 		if origin == nil {
 			origin = base
@@ -302,11 +321,12 @@ func fetchRSS(ctx context.Context, feedURL string) (feedFetchResult, error) {
 			if entry.Title == "" || key == "" || seenEntries[key] {
 				continue
 			}
-			if len(result.Entries) >= feedMaxItems {
+			if budget.items <= 0 {
 				result.limit(fmt.Sprintf("已读取 %d 条资源，达到本次读取上限；请加上番名或字幕组缩小搜索范围。", feedMaxItems))
 				return result, nil
 			}
 			seenEntries[key] = true
+			budget.items--
 			result.Entries = append(result.Entries, entry)
 			added++
 		}
@@ -345,7 +365,7 @@ func fetchRSS(ctx context.Context, feedURL string) (feedFetchResult, error) {
 			}
 			break
 		}
-		if result.Pages >= feedMaxPages || len(result.Entries) >= feedMaxItems || remaining <= 0 {
+		if result.Pages >= maxPages || budget.pages <= 0 || budget.items <= 0 || budget.bytes <= 0 {
 			result.limit(fmt.Sprintf("已读取 %d 页、%d 条资源，达到本次读取上限；请加上番名或字幕组缩小搜索范围。", result.Pages, len(result.Entries)))
 			break
 		}

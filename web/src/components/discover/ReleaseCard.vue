@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { ArrowRight, ExternalLink } from '@lucide/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { formatTime } from '@/utils/format'
-import { episodeSummary, type Release } from '@/utils/discover'
+import { episodeSummary, seasonLabel, type Release } from '@/utils/discover'
 import type { DiscoverItem } from '@/api/types'
 
 const props = defineProps<{ release: Release; editing: boolean }>()
@@ -20,12 +20,13 @@ const isWebLink = (link: string) => /^https?:\/\//i.test(link)
       <div class="release-info">
         <h3>{{ release.title }}</h3>
         <div class="version-tags">
+          <span>{{ seasonLabel(release.item.season) }}</span>
           <span class="group-tag">{{ release.item.fansub_group || '字幕组未识别' }}</span>
           <span v-if="release.item.quality">{{ release.item.quality }}</span>
           <span v-if="release.language">{{ release.language }}</span>
         </div>
       </div>
-      <BaseButton variant="soft" size="sm" :icon="ArrowRight" @click="$emit('subscribe', release.item)">
+      <BaseButton variant="soft" size="sm" :icon="ArrowRight" :disabled="(release.item.season ?? 0) < 0" @click="$emit('subscribe', release.item)">
         {{ editing ? '预览并调整' : '预览并订阅' }}
       </BaseButton>
     </div>
@@ -37,6 +38,9 @@ const isWebLink = (link: string) => /^https?:\/\//i.test(link)
     <p v-if="release.episodes.length" class="episodes">集数：{{ episodeSummary(release.episodes) }}</p>
     <p v-else class="notice">尚未识别出单集编号，请展开核对原始标题。</p>
     <p v-if="!release.item.fansub_group" class="notice">字幕组未识别，默认关闭自动下载；订阅前请核对过滤规则。</p>
+    <p v-if="!release.item.season" class="notice">季数未标明，默认关闭自动下载，请人工核对。</p>
+    <p v-if="(release.item.season ?? 0) < 0" class="notice">标题中的季数互相冲突，不能自动订阅。</p>
+    <p v-if="release.item.query" class="notice">实际 RSS 查询：{{ release.item.query }}；本卡片仅包含该 RSS 的资源。</p>
     <details class="resource-details" @toggle="expanded = ($event.target as HTMLDetailsElement).open">
       <summary>查看集数与原始标题 <span>{{ release.items.length }} 条</span></summary>
       <div v-if="expanded" class="resource-list">

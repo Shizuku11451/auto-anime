@@ -10,7 +10,7 @@ import * as vue from 'vue'
 // responses, including late responses from a request whose signal was aborted.
 const source = readFileSync(new URL('./FeedDialog.vue', import.meta.url), 'utf8')
 const setup = parse(source).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(setup + '\nexport { form, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase };', {
+const compiled = ts.transpileModule(setup + '\nexport { form, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase, seasonConfirmed, previewReady };', {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const flush = () => new Promise((resolve) => setImmediate(resolve))
@@ -23,11 +23,13 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null) {
   } } })
   const statusRef = vue.ref(status)
   const requests = []
+  const previews = []
   const errors = []
   let items = []
   let previewError
   const api = async (url, options) => {
     if (url === '/api/preview') {
+      previews.push(options.json)
       if (previewError) throw previewError
       return { items, count: items.length, total: items.length, pages: 1, history: false }
     }
@@ -66,7 +68,7 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null) {
     scope.stop()
   })
   return {
-    state, component, requests, errors, saved, status: statusRef,
+    state, component, requests, previews, errors, saved, status: statusRef,
     setItems: (value) => { items = value },
     failPreview: () => { previewError = new Error('RSS unavailable') },
     async preview(value, include = '') {
@@ -78,6 +80,38 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null) {
     },
   }
 }
+
+test('季数条件进入预览和保存，修改条件后旧预览不能授权保存', async (t) => {
+  const h = dialog(t, false)
+  Object.assign(h.state.feed.feed, { season_filter: 1, allow_unknown_season: false, target_title: '测试动画' })
+  h.setItems([item('https://source.example/video.mp4', '测试动画 S1')])
+  h.state.feed.open = true
+  await flush()
+  assert.equal(h.previews.at(-1).season_filter, 1)
+  assert.equal(h.component.previewReady.value, true)
+  h.component.form.allowUnknown = true
+  assert.equal(h.component.previewReady.value, false)
+  await h.component.save()
+  assert.equal(h.saved.length, 0)
+  await h.component.runPreview()
+  await h.component.save()
+  assert.equal(h.saved[0].body.season_filter, 1)
+  assert.equal(h.saved[0].body.allow_unknown_season, true)
+})
+
+test('季数未标明必须人工确认，不允许仅凭成功预览保存', async (t) => {
+  const h = dialog(t, false)
+  Object.assign(h.state.feed.feed, { season_filter: -1, requires_season_confirmation: true, target_title: '测试动画', auto_download: false })
+  h.setItems([item('https://source.example/video.mp4', '测试动画 [01]')])
+  h.state.feed.open = true
+  await flush()
+  await h.component.save()
+  assert.equal(h.saved.length, 0)
+  h.component.seasonConfirmed.value = true
+  await h.component.save()
+  assert.equal(h.saved[0].body.season_filter, -1)
+  assert.equal(h.saved[0].body.auto_download, false)
+})
 
 test('打开找番弹窗自动检测带参数的种子链接', async (t) => {
   const h = dialog(t, false)

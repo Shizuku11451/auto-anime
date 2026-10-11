@@ -45,6 +45,8 @@ var (
 	hashTag = regexp.MustCompile(`^[0-9a-f]{8}$|^[0-9a-f]{16,64}$`)
 	// seasonEpisodeTag 匹配 S01、S01E09、E09 这类纯季集标签。
 	seasonEpisodeTag = regexp.MustCompile(`^s[0-9]{1,2}(?:e[0-9]{1,3})?$|^e[0-9]{1,3}$`)
+	seasonReleaseTag = regexp.MustCompile(`(?i)^s[0-9]{1,2}(?:\s+(?:reseed|fin|end|batch|complete))+$`)
+	bitDepthPattern  = regexp.MustCompile(`(?i)\b(?:8|10|12|16)[ -]?bits?\b`)
 	// tokenPattern 把标签内容拆成词，短代码（chs、nf、cr）只按整词匹配，避免误伤作品名。
 	tokenPattern = regexp.MustCompile(`[^0-9a-zA-Z]+`)
 	// bareTokenPattern 找出括号外的英文数字词，用来清理裸写的技术标签。
@@ -204,13 +206,27 @@ func analyzeTitle(raw string, stripGroup bool) animeInfo {
 		info.Quality = strings.ToUpper(m)
 	}
 	info.Season, clean = takeSeason(clean)
+	// Read evidence before cleaning bracket labels such as [S1 Reseed Fin].
+	if season := resourceSeason(raw); season > 0 {
+		info.Season = season
+	} else if season < 0 {
+		info.Season = 0
+	}
 	// 年份先当噪声去掉，否则「2023 - 01」会被合集区间匹配吃掉，集数就丢了。
 	clean = maskYears(clean)
+	// Bit depth is technical metadata, not an episode (e.g. a season batch
+	// labelled 10-bit must not appear as episode 10).
+	clean = bitDepthPattern.ReplaceAllString(clean, " ")
 	// 合集区间先去掉：否则「[01-12合集]」会被当成第 12 集，还会把系列名啃掉一块。
+	hasEpisodeRange := false
 	for _, pattern := range episodeRangePatterns {
+		hasEpisodeRange = hasEpisodeRange || pattern.MatchString(clean)
 		clean = pattern.ReplaceAllString(clean, " ")
 	}
 	for _, pattern := range episodePatterns {
+		if hasEpisodeRange {
+			break
+		}
 		m := pattern.FindStringSubmatch(clean)
 		if len(m) <= 1 || looksLikeYear(m[1]) {
 			continue
@@ -516,6 +532,9 @@ func isBareResourceToken(token string) bool {
 }
 
 func isResourceTag(inner string) bool {
+	if seasonReleaseTag.MatchString(strings.TrimSpace(inner)) {
+		return true
+	}
 	if inner == "" {
 		return true
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -111,6 +112,9 @@ type discoverItem struct {
 	Link       string `json:"link"`
 	Torrent    string `json:"torrent"`
 	Published  string `json:"published"`
+	Season     int    `json:"season"`
+	FeedURL    string `json:"feed_url,omitempty"`
+	Query      string `json:"query,omitempty"`
 }
 
 // parseDiscoverFeed 解码 RSS/RDF/Atom 并保留资源页与种子两条链接；
@@ -138,22 +142,78 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "搜索源不存在", http.StatusBadRequest)
 		return
 	}
-	feedURL := discoverSearchURL(source.Template, keyword)
+	base, season := discoverIntent(keyword)
+	if r.URL.Query().Get("literal") == "1" {
+		base, season = keyword, 0
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), discoverTimeout)
 	defer cancel()
-	result, err := fetchRSS(ctx, feedURL)
-	if err != nil {
-		http.Error(w, "搜索失败："+err.Error(), http.StatusBadGateway)
+	budget := newFeedReadBudget()
+	items := []discoverItem{}
+	seen := map[string]bool{}
+	warnings := []string{}
+	queries := []string{}
+	pages, successes := 0, 0
+	history, limited := false, false
+	for i, query := range discoverQueries(keyword, base, season) {
+		if ctx.Err() != nil || budget.pages <= 0 || budget.items <= 0 || budget.bytes <= 0 {
+			warnings = append(warnings, "部分扩展查询未完成：达到超时或读取预算。")
+			limited = true
+			break
+		}
+		feedURL := discoverSearchURL(source.Template, query)
+		maxPages := feedMaxPages
+		if season > 0 && query != base {
+			maxPages = 3
+			if i == 0 {
+				maxPages = 1
+			}
+		}
+		queries = append(queries, query)
+		queryContext := ctx
+		queryCancel := func() {}
+		if season > 0 && query != base {
+			queryContext, queryCancel = context.WithTimeout(ctx, 12*time.Second)
+		}
+		result, err := fetchRSSBudget(queryContext, feedURL, &budget, maxPages)
+		queryCancel()
+		pages += result.Pages
+		history = history || result.History
+		limited = limited || result.Limited
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("查询 %d 失败：%v", i+1, err))
+			limited = true
+			continue
+		}
+		successes++
+		if result.Warning != "" {
+			warnings = append(warnings, "查询 "+strconv.Itoa(i+1)+"："+result.Warning)
+		}
+		for _, item := range discoverItemsFromEntries(result.Entries) {
+			key := item.Torrent
+			if key == "" {
+				key = item.Link
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			item.FeedURL, item.Query = feedURL, query
+			items = append(items, item)
+		}
+	}
+	if successes == 0 {
+		http.Error(w, "搜索失败："+strings.Join(warnings, "；"), http.StatusBadGateway)
 		return
 	}
-	items := discoverItemsFromEntries(result.Entries)
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOut(w, map[string]any{
 		"source": source.ID, "source_name": source.Name,
-		"keyword": keyword, "feed_url": feedURL,
+		"keyword": keyword, "feed_url": discoverSearchURL(source.Template, keyword),
+		"base_keyword": base, "requested_season": season, "queries": queries,
 		"count": len(items), "items": items,
-		"pages": result.Pages, "history": result.History,
-		"limited": result.Limited, "warning": result.Warning,
+		"pages": pages, "history": history,
+		"limited": limited, "warning": strings.Join(warnings, "；"),
 	})
 }
 
