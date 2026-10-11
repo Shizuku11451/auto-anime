@@ -44,17 +44,6 @@ export interface Feed {
   last_error: string
 }
 
-export interface FeedInput {
-  target_title?: string
-  storage_dir?: string
-  name: string
-  url: string
-  include_words: string
-  exclude_words: string
-  auto_download: boolean
-  enabled?: boolean
-}
-
 export interface Item {
   id: number
   title: string
@@ -347,13 +336,6 @@ export interface PreviewResult extends FeedReadInfo {
   total: number
   count: number
   items: { title: string; link: string; published: string; description: string }[]
-}
-
-export interface AvailabilityTracker {
-  url: string
-  seeds: number
-  leechers: number
-  error?: string
 }
 
 export type AvailabilityVerdict = 'available' | 'no_seeds' | 'unreachable' | 'unknown'

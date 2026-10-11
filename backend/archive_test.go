@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func TestEpisodeArchiveUsesSeasonAndStandardName(t *testing.T) {
 	server := mediaServer(t)
 	result, _ := db.Exec("INSERT INTO items(title,link,anime_title,episode) VALUES(?,?,?,?)", "[组] 夏日动画 第07话", server.URL+"/ep07.mp4", "夏日动画", "7")
 	id, _ := result.LastInsertId()
-	path, err := fetchArchive(int(id), server.URL+"/ep07.mp4")
+	path, err := fetchArchiveContext(context.Background(), int(id), server.URL+"/ep07.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestCustomStorageDirAndSeason(t *testing.T) {
 
 	result, _ := db.Exec("INSERT INTO items(title,link,anime_title,episode) VALUES(?,?,?,?)", "[组] 夏日动画 第05话", server.URL+"/ep05.mp4", "夏日动画", "05")
 	id, _ := result.LastInsertId()
-	path, err := fetchArchive(int(id), server.URL+"/ep05.mp4")
+	path, err := fetchArchiveContext(context.Background(), int(id), server.URL+"/ep05.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestCustomStorageDirAndSeason(t *testing.T) {
 	}
 	result, _ = db.Exec("INSERT INTO items(title,link,anime_title,episode) VALUES(?,?,?,?)", "[组] 夏日动画 第06话", server.URL+"/ep06.mp4", "夏日动画", "6")
 	id, _ = result.LastInsertId()
-	path, err = fetchArchive(int(id), server.URL+"/ep06.mp4")
+	path, err = fetchArchiveContext(context.Background(), int(id), server.URL+"/ep06.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestSameEpisodeConflictGetsUniqueSuffix(t *testing.T) {
 	for _, link := range []string{server.URL + "/v1.mp4", server.URL + "/v2.mp4"} {
 		result, _ := db.Exec("INSERT INTO items(title,link,anime_title,episode) VALUES(?,?,?,?)", "[组] 夏日动画 [09]", link, "夏日动画", "09")
 		id, _ := result.LastInsertId()
-		if _, err := fetchArchive(int(id), link); err != nil {
+		if _, err := fetchArchiveContext(context.Background(), int(id), link); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -325,7 +326,7 @@ func TestArchiveUsesParsedSeason(t *testing.T) {
 	result, _ := db.Exec("INSERT INTO items(title,link,anime_title,episode,season_auto) VALUES(?,?,?,?,?)",
 		"[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 01", server.URL+"/e01.mp4", "无职转生 3期", "01", 3)
 	id, _ := result.LastInsertId()
-	path, err := fetchArchive(int(id), server.URL+"/e01.mp4")
+	path, err := fetchArchiveContext(context.Background(), int(id), server.URL+"/e01.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +351,7 @@ func TestArchiveUsesParsedSeason(t *testing.T) {
 	result, _ = db.Exec("INSERT INTO items(title,link,anime_title,episode,season_auto) VALUES(?,?,?,?,?)",
 		"[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 02", server.URL+"/e02.mp4", "无职转生 3期", "02", 3)
 	id, _ = result.LastInsertId()
-	path, err = fetchArchive(int(id), server.URL+"/e02.mp4")
+	path, err = fetchArchiveContext(context.Background(), int(id), server.URL+"/e02.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +387,7 @@ func TestArchiveUsesParsedTitleTags(t *testing.T) {
 			t.Fatal(err)
 		}
 		id, _ := result.LastInsertId()
-		path, err := fetchArchive(int(id), link)
+		path, err := fetchArchiveContext(context.Background(), int(id), link)
 		if err != nil {
 			t.Fatal(err)
 		}

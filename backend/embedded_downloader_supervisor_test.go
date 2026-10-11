@@ -174,7 +174,7 @@ func TestEmbeddedQbitRestoreGracePreservesTaskUntilVisible(t *testing.T) {
 		if err != nil || !state.Pending || state.Fail != "" {
 			t.Fatalf("restoring task failed early: %+v %v", state, err)
 		}
-		applyTaskUpdate(ref, state)
+		applyTaskUpdateLocked(ref, state)
 		item := controlItem(t, id)
 		if item.Status != "下载中" || item.Progress != 37 || item.TaskID != hash || item.Downloader != "builtin" {
 			t.Fatal("restore changed persisted identity or progress", item)
@@ -184,7 +184,7 @@ func TestEmbeddedQbitRestoreGracePreservesTaskUntilVisible(t *testing.T) {
 		if err != nil || state.Pending || state.Progress != 42 {
 			t.Fatalf("visible task did not recover: %+v %v", state, err)
 		}
-		applyTaskUpdate(ref, state)
+		applyTaskUpdateLocked(ref, state)
 		if item = controlItem(t, id); item.TaskID != controlTestHash || item.Progress != 42 {
 			t.Fatal("recovery failed to track original task", item)
 		}

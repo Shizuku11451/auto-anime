@@ -129,7 +129,7 @@ func TestPickAssetForPlatform(t *testing.T) {
 	}
 }
 
-func platformPair() string { return currentPlatform() }
+func platformPair() string { return runtime.GOOS + "_" + runtime.GOARCH }
 
 func exeSuffix() string {
 	if runtime.GOOS == "windows" {
@@ -281,10 +281,6 @@ func withUpdateGlobals(t *testing.T, source string, versionValue string) {
 		updateStarting = false
 		updateStateMu.Unlock()
 	})
-}
-
-func releasePath(base string) string {
-	return strings.TrimPrefix(strings.TrimPrefix(base, "https://github.com/"), "http://github.com/")
 }
 
 // githubReleaseServer pretends to be both api.github.com and github.com for one repo.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +35,7 @@ func TestArchiveRejectsLinkedSeasonForDirectAndDownloaderFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := result.LastInsertId()
-	if _, err = fetchArchive(int(id), server.URL+"/ep01.mp4"); err == nil || !strings.Contains(err.Error(), "符号链接") {
+	if _, err = fetchArchiveContext(context.Background(), int(id), server.URL+"/ep01.mp4"); err == nil || !strings.Contains(err.Error(), "符号链接") {
 		t.Fatalf("direct archive accepted linked season: %v", err)
 	}
 	source := filepath.Join(t.TempDir(), "episode.mp4")

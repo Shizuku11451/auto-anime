@@ -148,7 +148,7 @@ func TestSourceCleanupArchiveCommitFailureAndRecovery(t *testing.T) {
 			if _, err := db.Exec(`CREATE TRIGGER fail_source_commit BEFORE UPDATE OF status ON items WHEN NEW.status='已保存' BEGIN SELECT RAISE(FAIL,'simulated'); END`); err != nil {
 				t.Fatal(err)
 			}
-			applyTaskUpdate(ref, taskState{Progress: 100, Files: []archiveFile{{Src: source, Rel: "video.mp4"}}})
+			applyTaskUpdateLocked(ref, taskState{Progress: 100, Files: []archiveFile{{Src: source, Rel: "video.mp4"}}})
 			processSourceCleanup()
 			if _, err := os.Stat(source); err != nil {
 				t.Fatal("failed commit removed source")

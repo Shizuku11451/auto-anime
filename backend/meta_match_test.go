@@ -118,7 +118,7 @@ func TestMetaSearchFallbackPreservesOriginalSeason(t *testing.T) {
 				}
 				json.NewEncoder(w).Encode(map[string]any{"list": list})
 			})
-			subject, err := searchBangumi(bracketedMushokuTitle)
+			subject, err := searchBangumiAliases(context.Background(), metaQueryTitles(bracketedMushokuTitle))
 			if err != nil || subject == nil || subject.ID != 3 {
 				t.Fatalf("fallback chose %+v (%v), queries=%v", subject, err, queries)
 			}
@@ -312,7 +312,7 @@ func TestMetaSearchEscapesQuery(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"list":[]}`)
 	})
-	if _, err := searchBangumi(query); err != nil {
+	if _, err := searchBangumiAliases(context.Background(), metaQueryTitles(query)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -343,8 +343,9 @@ func TestMetaMatchingRespectsSeasonAndIdentity(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.query+"/"+c.name, func(t *testing.T) {
-			if got := metaAccept(c.query, c.name, c.nameCN); got != c.want {
-				t.Fatalf("accept=%v, want %v (score=%d)", got, c.want, metaMatchScore(c.query, c.name, c.nameCN))
+			score := metaAliasesScore(metaQueryTitles(c.query), c.name, c.nameCN)
+			if got := score > 0; got != c.want {
+				t.Fatalf("accept=%v, want %v (score=%d)", got, c.want, score)
 			}
 		})
 	}

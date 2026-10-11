@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -115,16 +114,6 @@ type discoverItem struct {
 	Season     int    `json:"season"`
 	FeedURL    string `json:"feed_url,omitempty"`
 	Query      string `json:"query,omitempty"`
-}
-
-// parseDiscoverFeed 解码 RSS/RDF/Atom 并保留资源页与种子两条链接；
-// parseFeed 会把 enclosure 合并进 Link，这里需要分开展示。
-func parseDiscoverFeed(data []byte) ([]discoverItem, error) {
-	page, err := decodeFeedPage(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	return discoverItemsFromEntries(page.Entries), nil
 }
 
 func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {

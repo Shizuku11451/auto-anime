@@ -186,7 +186,7 @@ func TestAnimeManagementStaleDownloaderResult(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	applyTaskUpdate(taskRef{ID: 1, Downloader: "aria2", TaskID: "old-task"}, taskState{Progress: 100, Files: []archiveFile{{Src: media, Rel: "keep.mp4"}}})
+	applyTaskUpdateLocked(taskRef{ID: 1, Downloader: "aria2", TaskID: "old-task"}, taskState{Progress: 100, Files: []archiveFile{{Src: media, Rel: "keep.mp4"}}})
 	managementCount(t, "SELECT COUNT(*) FROM items WHERE id=1", 0)
 	managementCount(t, "SELECT COUNT(*) FROM animes WHERE id=1", 0)
 	if data, err := os.ReadFile(media); err != nil || string(data) != "preserved media" {

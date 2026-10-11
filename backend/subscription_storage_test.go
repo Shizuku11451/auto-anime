@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -210,7 +211,7 @@ func TestSyncAppliesSubscriptionStorage(t *testing.T) {
 	if _, err := db.Exec("INSERT INTO animes(title,storage_dir) VALUES('秋日动画',?)", manual); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := syncFeed(1); err != nil || n != 2 {
+	if n, err := syncFeedContext(context.Background(), 1); err != nil || n != 2 {
 		t.Fatalf("sync: %d %v", n, err)
 	}
 	if got := animeStorage(t, "夏日动画"); !samePath(got, filepath.Join(filepath.FromSlash(base), "夏日动画")) {

@@ -66,7 +66,7 @@ func TestSearchPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
 	}
 	// A subscription created by the previous single-page implementation.
 	discoverBuiltinSources[0].PageParam = ""
-	if n, err := syncFeed(1); n != 4 || err != nil {
+	if n, err := syncFeedContext(context.Background(), 1); n != 4 || err != nil {
 		t.Fatalf("initial window: %d %v", n, err)
 	}
 	discoverBuiltinSources[0].PageParam = "page"
@@ -101,10 +101,10 @@ func TestSearchPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &projected); err != nil || rec.Code != 200 || projected.Count != 8 || projected.Total != 72 || projected.Pages != 3 || !projected.History {
 		t.Fatalf("historical preview: %d %s", rec.Code, rec.Body.String())
 	}
-	if n, err := syncFeed(1); n != 4 || err != nil {
+	if n, err := syncFeedContext(context.Background(), 1); n != 4 || err != nil {
 		t.Fatalf("backfill existing subscription: %d %v", n, err)
 	}
-	if n, err := syncFeed(1); n != 0 || err != nil {
+	if n, err := syncFeedContext(context.Background(), 1); n != 0 || err != nil {
 		t.Fatalf("repeat backfill: %d %v", n, err)
 	}
 	var count, series int
@@ -223,7 +223,7 @@ func TestHistoryReadFailureKeepsItemsAndRetries(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"limited":true`) || !strings.Contains(rec.Body.String(), "503") {
 		t.Fatalf("partial search hidden: %d %s", rec.Code, rec.Body.String())
 	}
-	if n, err := syncFeed(1); n != 1 || err == nil || !strings.Contains(err.Error(), "503") {
+	if n, err := syncFeedContext(context.Background(), 1); n != 1 || err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("partial sync must store available items and report failure: %d %v", n, err)
 	}
 	var lastError string
@@ -232,7 +232,7 @@ func TestHistoryReadFailureKeepsItemsAndRetries(t *testing.T) {
 		t.Fatalf("partial sync error not saved: %q", lastError)
 	}
 	fail.Store(false)
-	if n, err := syncFeed(1); n != 1 || err != nil {
+	if n, err := syncFeedContext(context.Background(), 1); n != 1 || err != nil {
 		t.Fatalf("retry missed old episode: %d %v", n, err)
 	}
 	db.QueryRow("SELECT last_error FROM feeds WHERE id=1").Scan(&lastError)

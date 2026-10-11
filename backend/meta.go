@@ -376,12 +376,8 @@ func fetchBangumiVoices(id int) string {
 	return string(b)
 }
 
-// searchBangumiList queries Bangumi and returns the raw candidate list for
-// the binding UI (no heuristic filtering).
-func searchBangumiList(query string) ([]bangumiSubject, error) {
-	return searchBangumiListContext(context.Background(), query)
-}
-
+// searchBangumiListContext queries Bangumi and returns the raw candidate list
+// for the binding UI (no heuristic filtering).
 func searchBangumiListContext(ctx context.Context, query string) ([]bangumiSubject, error) {
 	u := fmt.Sprintf("%s/search/subject/%s?type=2&responseGroup=small&max_results=8&format=json", bangumiAPI, url.PathEscape(query))
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -417,12 +413,6 @@ func searchBangumiListContext(ctx context.Context, query string) ([]bangumiSubje
 		out.List = out.List[:8]
 	}
 	return out.List, nil
-}
-
-func searchBangumi(query string) (*bangumiSubject, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), metaLookupTimeout)
-	defer cancel()
-	return searchBangumiAliases(ctx, metaQueryTitles(query))
 }
 
 func searchBangumiAliases(ctx context.Context, aliases []string) (*bangumiSubject, error) {

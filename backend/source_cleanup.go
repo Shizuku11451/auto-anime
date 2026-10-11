@@ -169,8 +169,7 @@ func cleanupSource(c sourceCleanup) error {
 	if shared != 0 {
 		return fmt.Errorf("其他条目共用此任务，保留原文件")
 	}
-	paths, err := cleanupPaths(c)
-	if err != nil {
+	if _, err := cleanupPaths(c); err != nil {
 		return err
 	}
 	if !c.Stopped {
@@ -182,7 +181,7 @@ func cleanupSource(c sourceCleanup) error {
 		}
 	}
 	// Revalidate after potentially slow downloader RPCs before touching sources.
-	paths, err = cleanupPaths(c)
+	paths, err := cleanupPaths(c)
 	if err != nil {
 		return err
 	}

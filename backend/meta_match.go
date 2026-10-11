@@ -269,14 +269,6 @@ func metaTitleParts(s string) (string, int, int) {
 	return normalizeMetaText(s), season, part
 }
 
-func metaAccept(query, name, nameCN string) bool {
-	return metaMatchScore(query, name, nameCN) > 0
-}
-
-func metaMatchScore(query, name, nameCN string) int {
-	return metaAliasesScore(metaQueryTitles(query), name, nameCN)
-}
-
 func metaAliasesScore(aliases []string, name, nameCN string) int {
 	qSeason, qPart, cSeason, cPart := 0, 0, 0, 0
 	var queries, candidates []string

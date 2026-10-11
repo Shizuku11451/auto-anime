@@ -178,26 +178,11 @@ input[type="checkbox"] {
 .muted {
   color: var(--text-2);
 }
-.faint {
-  color: var(--text-3);
-}
 .truncate {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.break-all {
-  word-break: break-all;
-}
-.visually-hidden {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
 /* ---- 关键帧 ---- */
 @keyframes spin {
   to {
@@ -210,26 +195,6 @@ input[type="checkbox"] {
   }
   to {
     background-position: -200% 0;
-  }
-}
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 var(--green-border);
-  }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-@keyframes float-y {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
   }
 }
 @keyframes rise-in {
@@ -292,26 +257,6 @@ input[type="checkbox"] {
 }
 .page-leave-to {
   opacity: 0;
-}
-
-/* 弹出层：缩放 + 上浮，弹性收尾 */
-.pop-enter-active {
-  transition:
-    opacity var(--t-med) var(--ease-out),
-    transform 380ms var(--ease-spring);
-}
-.pop-leave-active {
-  transition:
-    opacity 160ms var(--ease-in-out),
-    transform 160ms var(--ease-in-out);
-}
-.pop-enter-from {
-  opacity: 0;
-  transform: translateY(18px) scale(0.96);
-}
-.pop-leave-to {
-  opacity: 0;
-  transform: translateY(6px) scale(0.985);
 }
 
 /* 向上滑入（提示、摘要条） */

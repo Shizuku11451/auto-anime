@@ -243,16 +243,6 @@ func notify(event string, id int, status string) {
 		}
 	}()
 }
-func fetchFeedItems(feedURL string) ([]feedItem, error) {
-	result, err := fetchRSS(context.Background(), feedURL)
-	if err != nil {
-		return nil, err
-	}
-	if result.Incomplete {
-		return feedItemsFromEntries(result.Entries), fmt.Errorf("%s", result.Warning)
-	}
-	return feedItemsFromEntries(result.Entries), nil
-}
 func initDB() {
 	if n, e := strconv.Atoi(env("POLL_MINUTES", "30")); e == nil && n >= 5 {
 		pollMinutes = n
@@ -343,15 +333,6 @@ func initDB() {
 }
 
 type feedItem struct{ Title, Link, Pub, Description, PageURL string }
-
-func parseFeed(r io.Reader) ([]feedItem, error) {
-	page, err := decodeFeedPage(r)
-	if err != nil {
-		return nil, err
-	}
-	return feedItemsFromEntries(page.Entries), nil
-}
-func syncFeed(id int) (int, error) { return syncFeedContext(context.Background(), id) }
 
 func syncFeedContext(ctx context.Context, id int) (int, error) {
 	animeCleanupMu.RLock()
@@ -1486,8 +1467,6 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	}
 	return nil
 }
-
-func syncEnabledFeeds() error { return syncEnabledFeedsContext(context.Background()) }
 
 func syncEnabledFeedsContext(ctx context.Context) error {
 	rows, err := db.Query("SELECT id FROM feeds WHERE enabled=1")

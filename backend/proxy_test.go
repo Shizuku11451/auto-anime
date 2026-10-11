@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +63,8 @@ func TestProxyRoutesOutboundContentRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	items, err := fetchFeedItems("http://target.example/rss.xml")
+	result, err := fetchRSS(context.Background(), "http://target.example/rss.xml")
+	items := feedItemsFromEntries(result.Entries)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("rss via proxy: %#v %v", items, err)
 	}

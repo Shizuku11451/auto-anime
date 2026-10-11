@@ -229,7 +229,7 @@ func TestAria2MagnetLateResultsCannotReplaceNewTask(t *testing.T) {
 	id := insertItem(t, "magnet:?xt=urn:btih:0123456789012345678901234567890123456789")
 	setSubmitted(id, "aria2", "replacement", "下载中")
 	old := taskRef{ID: id, Downloader: "aria2", TaskID: "metadata"}
-	applyTaskUpdate(old, taskState{TaskID: "payload", Fail: "old failure"})
+	applyTaskUpdateLocked(old, taskState{TaskID: "payload", Fail: "old failure"})
 	recordTaskQueryError(old, context.DeadlineExceeded)
 	var status, gid, taskError string
 	if err := db.QueryRow("SELECT status,task_id,task_error FROM items WHERE id=?", id).Scan(&status, &gid, &taskError); err != nil {
@@ -251,7 +251,7 @@ func TestAria2MagnetFailedHandoffDoesNotArchive(t *testing.T) {
 	if err := os.WriteFile(media, []byte("original"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	applyTaskUpdate(taskRef{ID: id, Downloader: "aria2", TaskID: "metadata"}, taskState{TaskID: "payload", Progress: 100, Files: []archiveFile{{Src: media, Rel: "episode.mp4"}}})
+	applyTaskUpdateLocked(taskRef{ID: id, Downloader: "aria2", TaskID: "metadata"}, taskState{TaskID: "payload", Progress: 100, Files: []archiveFile{{Src: media, Rel: "episode.mp4"}}})
 	var status, gid, archived string
 	if err := db.QueryRow("SELECT status,task_id,COALESCE(file_path,'') FROM items WHERE id=?", id).Scan(&status, &gid, &archived); err != nil {
 		t.Fatal(err)

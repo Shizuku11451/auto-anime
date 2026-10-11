@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -56,7 +57,7 @@ func TestSyncMergesItemsByAnimeRules(t *testing.T) {
 	}
 	feedID, _ := r.LastInsertId()
 	// 先同步：三条都按本地识别标题落库。
-	if n, err := syncFeed(int(feedID)); err != nil || n != 3 {
+	if n, err := syncFeedContext(context.Background(), int(feedID)); err != nil || n != 3 {
 		t.Fatalf("first sync: %d %v", n, err)
 	}
 	// 建立番剧 + 多来源规则，"应用规则"应把两个字幕组的星海物语都归并进来。
@@ -119,7 +120,7 @@ func TestSyncRoutesNewItemByRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	feedID, _ := r.LastInsertId()
-	if _, err := syncFeed(int(feedID)); err != nil {
+	if _, err := syncFeedContext(context.Background(), int(feedID)); err != nil {
 		t.Fatal(err)
 	}
 	var animeID int64
@@ -429,7 +430,7 @@ func TestCorrectItemReallocatesAndMovesFile(t *testing.T) {
 	result, _ := db.Exec("INSERT INTO items(title,link,anime_title,anime_id,episode) VALUES(?,?,?,?,?)",
 		"[组] 某动画 [07]", server.URL+"/ep07.mp4", "某动画", 0, "07")
 	id, _ := result.LastInsertId()
-	savedPath, err := fetchArchive(int(id), server.URL+"/ep07.mp4")
+	savedPath, err := fetchArchiveContext(context.Background(), int(id), server.URL+"/ep07.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +539,7 @@ func TestAnimeDetailSeriesNFOAndSeasonDefault(t *testing.T) {
 	result, _ := db.Exec("INSERT INTO items(title,link,anime_title,anime_id,episode) VALUES(?,?,?,?,?)",
 		"[组] NFO动画 [05]", server.URL+"/e05.mp4", "NFO动画", id, "5")
 	itemID, _ := result.LastInsertId()
-	path, err := fetchArchive(int(itemID), server.URL+"/e05.mp4")
+	path, err := fetchArchiveContext(context.Background(), int(itemID), server.URL+"/e05.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +557,7 @@ func TestAnimeDetailSeriesNFOAndSeasonDefault(t *testing.T) {
 		"[组] NFO动画 SP [01]", server.URL+"/sp01.mp4", "NFO动画", id, "01", 0)
 	itemID, _ = result.LastInsertId()
 	db.Exec("UPDATE items SET season=1 WHERE id=?", itemID)
-	if _, err := fetchArchive(int(itemID), server.URL+"/sp01.mp4"); err != nil {
+	if _, err := fetchArchiveContext(context.Background(), int(itemID), server.URL+"/sp01.mp4"); err != nil {
 		t.Fatal(err)
 	}
 	sp := filepath.Join(downloadDir, "NFO动画", "Season 01", "NFO动画 - S01E01.mp4")

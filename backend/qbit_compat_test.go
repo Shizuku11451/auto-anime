@@ -114,7 +114,11 @@ func TestQBittorrentAddResponseCompatibility(t *testing.T) {
 			oldURL := qbitURL
 			qbitURL = server.URL
 			t.Cleanup(func() { qbitURL = oldURL })
-			err := qbitAdd("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", "auto-anime-1")
+			client, err := qbitLogin()
+			if err != nil {
+				t.Fatalf("login: %v", err)
+			}
+			err = client.add("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", "auto-anime-1")
 			if (err == nil) != tc.ok {
 				t.Fatalf("addition success=%v, expected=%v: %v", err == nil, tc.ok, err)
 			}
@@ -173,7 +177,7 @@ func TestQBittorrentAsyncSubmissionSurvivesPollAndRestart(t *testing.T) {
 		if err != nil || !state.Pending || state.Fail != "" {
 			t.Fatalf("async addition failed prematurely: %#v %v", state, err)
 		}
-		applyTaskUpdate(refs[0], state)
+		applyTaskUpdateLocked(refs[0], state)
 		if _, err := recoverDownloads(db); err != nil {
 			t.Fatal(err)
 		}
@@ -191,7 +195,7 @@ func TestQBittorrentAsyncSubmissionSurvivesPollAndRestart(t *testing.T) {
 		if err != nil || state.Pending || state.Progress != 25 {
 			t.Fatalf("async addition did not appear: %#v %v", state, err)
 		}
-		applyTaskUpdate(refs[0], state)
+		applyTaskUpdateLocked(refs[0], state)
 		db.QueryRow("SELECT status FROM items WHERE id=?", id).Scan(&status)
 		if status != "下载中" {
 			t.Fatalf("visible task not tracked: %s", status)

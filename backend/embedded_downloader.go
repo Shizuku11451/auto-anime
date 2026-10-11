@@ -363,10 +363,6 @@ func launchEmbeddedQBittorrent(ctx context.Context) (*managedQBittorrent, error)
 	}
 }
 
-func cleanupEmbeddedQbitOrphans(client *qbitClient) error {
-	return cleanupEmbeddedQbitOrphansContext(context.Background(), client)
-}
-
 func cleanupEmbeddedQbitOrphansContext(ctx context.Context, client *qbitClient) error {
 	torrents, err := client.infoContext(ctx, nil)
 	if err != nil {

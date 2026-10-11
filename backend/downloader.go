@@ -186,14 +186,6 @@ func recordTaskQueryError(t taskRef, err error) {
 	}
 }
 
-func applyTaskUpdate(t taskRef, s taskState) {
-	l, release := downloadLock(t.ID)
-	defer release()
-	l.operation.Lock()
-	defer l.operation.Unlock()
-	applyTaskUpdateLocked(t, s)
-}
-
 func applyTaskUpdateLocked(t taskRef, s taskState) {
 	if s.Pending {
 		return
@@ -832,14 +824,6 @@ func loginQBittorrentContext(ctx context.Context, config qbitConnection, timeout
 		return nil, fmt.Errorf("qBittorrent 登录 HTTP %d", res.StatusCode)
 	}
 	return client, nil
-}
-
-func qbitAdd(link, tag string) error {
-	client, err := qbitLogin()
-	if err != nil {
-		return err
-	}
-	return client.add(link, tag)
 }
 
 func (client *qbitClient) add(link, tag string) error {

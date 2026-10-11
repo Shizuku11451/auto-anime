@@ -162,14 +162,14 @@ func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,season_filter,allow_unknown_season,target_title) VALUES(1,'第一季',?,1,1,'测试动画')`, server.URL); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := syncFeed(1); err != nil || n != 0 {
+	if n, err := syncFeedContext(context.Background(), 1); err != nil || n != 0 {
 		t.Fatalf("second seasons leaked into first: %d %v", n, err)
 	}
 	if _, err := db.Exec(`UPDATE feeds SET season_filter=2,allow_unknown_season=0 WHERE id=1`); err != nil {
 		t.Fatal(err)
 	}
 	for _, count := range []int{3, 0} {
-		if n, err := syncFeed(1); err != nil || n != count {
+		if n, err := syncFeedContext(context.Background(), 1); err != nil || n != count {
 			t.Fatalf("second season sync: %d want %d err=%v", n, count, err)
 		}
 	}
@@ -272,7 +272,7 @@ func TestSeasonSubscriptionPreviewSyncAndBackup(t *testing.T) {
 		}
 	}
 	for _, count := range []int{2, 0} {
-		if n, err := syncFeed(created.ID); n != count || err != nil {
+		if n, err := syncFeedContext(context.Background(), created.ID); n != count || err != nil {
 			t.Fatalf("sync: %d %v", n, err)
 		}
 	}

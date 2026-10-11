@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,8 @@ func TestFeedKeepsPageAndDownloadURLs(t *testing.T) {
 		`<rss><channel><item><title>测试动画</title><link>https://mikanani.me/Home/Episode/abc123</link><enclosure url="https://mikanani.me/Download/abc.torrent"/></item></channel></rss>`,
 		`<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>测试动画</title><link rel="enclosure" href="https://mikanani.me/Download/abc.torrent"/><link rel="alternate" href="https://mikanani.me/Home/Episode/abc123"/></entry></feed>`,
 	} {
-		items, err := parseFeed(strings.NewReader(data))
+		page, err := decodeFeedPage(strings.NewReader(data))
+		items := feedItemsFromEntries(page.Entries)
 		if err != nil || len(items) != 1 || items[0].PageURL != mikanTestEpisode || items[0].Link != "https://mikanani.me/Download/abc.torrent" {
 			t.Fatalf("page/download separation: %+v %v", items, err)
 		}
@@ -31,7 +33,7 @@ func TestSyncBackfillsPageWithoutChangingExistingTask(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,target_title) VALUES(1,'测试',?,'测试动画')`, server.URL); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := syncFeed(1); n != 1 || err != nil {
+	if n, err := syncFeedContext(context.Background(), 1); n != 1 || err != nil {
 		t.Fatalf("first sync: %d %v", n, err)
 	}
 	var page string
@@ -50,7 +52,7 @@ func TestSyncBackfillsPageWithoutChangingExistingTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	for n := 0; n < 2; n++ {
-		if added, err := syncFeed(1); added != 0 || err != nil {
+		if added, err := syncFeedContext(context.Background(), 1); added != 0 || err != nil {
 			t.Fatalf("backfill: %d %v", added, err)
 		}
 	}

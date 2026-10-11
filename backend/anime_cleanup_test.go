@@ -142,7 +142,7 @@ func TestEmptyAnimeCleanupSetting(t *testing.T) {
 
 func TestEmptyAnimeCleanupWaitsForFirstResource(t *testing.T) {
 	testDatabase(t)
-	if err := setSetting("auto_cleanup_empty_anime", "1"); err != nil {
+	if _, err := db.Exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", "auto_cleanup_empty_anime", "1"); err != nil {
 		t.Fatal(err)
 	}
 	animeCleanupMu.RLock()

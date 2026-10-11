@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,12 +18,14 @@ import (
 
 func TestParseRSSAndAtom(t *testing.T) {
 	data := `<rss><channel><item><title>[组] 第一话</title><link>https://example.test/1.torrent</link><pubDate>today</pubDate></item></channel></rss>`
-	items, err := parseFeed(strings.NewReader(data))
+	page, err := decodeFeedPage(strings.NewReader(data))
+	items := feedItemsFromEntries(page.Entries)
 	if err != nil || len(items) != 1 || items[0].Link == "" {
 		t.Fatalf("RSS parse failed: %#v %v", items, err)
 	}
 	atom := `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>第二话</title><link rel="alternate" href="magnet:?xt=urn:btih:test"/><updated>tomorrow</updated><summary>简介</summary></entry></feed>`
-	items, err = parseFeed(strings.NewReader(atom))
+	page, err = decodeFeedPage(strings.NewReader(atom))
+	items = feedItemsFromEntries(page.Entries)
 	if err != nil || len(items) != 1 || !strings.HasPrefix(items[0].Link, "magnet:") {
 		t.Fatalf("Atom parse failed: %#v %v", items, err)
 	}
@@ -36,7 +39,8 @@ func TestRelativeFeedLinksResolveAgainstFeedURL(t *testing.T) {
 	defer server.Close()
 	httpClient = server.Client()
 	defer func() { httpClient = oldClient }()
-	items, err := fetchFeedItems(server.URL + "/rss.xml")
+	result, err := fetchRSS(context.Background(), server.URL+"/rss.xml")
+	items := feedItemsFromEntries(result.Entries)
 	if err != nil || len(items) != 1 || items[0].Link != server.URL+"/download/1.torrent" {
 		t.Fatalf("relative link: %#v %v", items, err)
 	}
@@ -55,7 +59,7 @@ func TestScheduledSyncSkipsPausedFeeds(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := syncEnabledFeeds(); err != nil {
+	if err := syncEnabledFeedsContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 1 {
@@ -188,7 +192,7 @@ func TestAutomaticDownloadAndDeduplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := r.LastInsertId()
-	n, err := syncFeed(int(id))
+	n, err := syncFeedContext(context.Background(), int(id))
 	if err != nil || n != 1 {
 		t.Fatalf("sync: %d %v", n, err)
 	}
@@ -225,7 +229,7 @@ func TestAutomaticDownloadAndDeduplication(t *testing.T) {
 	if err != nil || !strings.Contains(string(nfo), "episodedetails") {
 		t.Fatalf("NFO: %q %v", nfo, err)
 	}
-	n, err = syncFeed(int(id))
+	n, err = syncFeedContext(context.Background(), int(id))
 	if err != nil || n != 0 {
 		t.Fatalf("dedup: %d %v", n, err)
 	}
@@ -236,7 +240,8 @@ func TestAtomEnclosureHasPriority(t *testing.T) {
 		`<link rel="alternate" href="https://example.test/page"/><link rel="enclosure" href="https://example.test/video.mp4"/>`,
 		`<link rel="enclosure" href="https://example.test/video.mp4"/><link rel="alternate" href="https://example.test/page"/>`,
 	} {
-		items, err := parseFeed(strings.NewReader(`<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>动画</title>` + links + `</entry></feed>`))
+		page, err := decodeFeedPage(strings.NewReader(`<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>动画</title>` + links + `</entry></feed>`))
+		items := feedItemsFromEntries(page.Entries)
 		if err != nil || len(items) != 1 || items[0].Link != "https://example.test/video.mp4" {
 			t.Fatalf("enclosure selection: %#v %v", items, err)
 		}
@@ -244,11 +249,12 @@ func TestAtomEnclosureHasPriority(t *testing.T) {
 }
 
 func TestRSS1AndInvalidDocument(t *testing.T) {
-	items, err := parseFeed(strings.NewReader(`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"><item><title>第一话</title><link>https://example.test/1.mp4</link></item></rdf:RDF>`))
+	page, err := decodeFeedPage(strings.NewReader(`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"><item><title>第一话</title><link>https://example.test/1.mp4</link></item></rdf:RDF>`))
+	items := feedItemsFromEntries(page.Entries)
 	if err != nil || len(items) != 1 || items[0].Title != "第一话" {
 		t.Fatalf("RSS1: %#v %v", items, err)
 	}
-	if _, err = parseFeed(strings.NewReader(`<html><body>访问受限</body></html>`)); err == nil {
+	if _, err = decodeFeedPage(strings.NewReader(`<html><body>访问受限</body></html>`)); err == nil {
 		t.Fatal("HTML response should be rejected")
 	}
 }
@@ -271,7 +277,11 @@ func TestQBittorrentSubmit(t *testing.T) {
 	oldURL, oldUser, oldPassword := qbitURL, qbitUser, qbitPassword
 	qbitURL, qbitUser, qbitPassword = server.URL, "admin", "secret"
 	t.Cleanup(func() { qbitURL, qbitUser, qbitPassword = oldURL, oldUser, oldPassword })
-	if err := qbitAdd("magnet:?xt=urn:btih:test", "auto-anime-1"); err != nil || !login || !added {
+	client, err := qbitLogin()
+	if err != nil {
+		t.Fatalf("qBittorrent login: %v", err)
+	}
+	if err := client.add("magnet:?xt=urn:btih:test", "auto-anime-1"); err != nil || !login || !added {
 		t.Fatalf("qBittorrent submit: %v login=%v added=%v", err, login, added)
 	}
 }
@@ -290,7 +300,7 @@ func TestSyncFeedRecordsWriteErrors(t *testing.T) {
 	if _, err := db.Exec("DROP TABLE items"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := syncFeed(int(feedID)); err == nil {
+	if _, err := syncFeedContext(context.Background(), int(feedID)); err == nil {
 		t.Fatal("item write error was swallowed")
 	}
 	var lastError string
@@ -362,7 +372,11 @@ func TestQBittorrentLoginFailureDoesNotSubmit(t *testing.T) {
 	old := qbitURL
 	qbitURL = server.URL
 	defer func() { qbitURL = old }()
-	if err := qbitAdd("magnet:?xt=urn:btih:test", "auto-anime-1"); err == nil || submitted {
+	client, err := qbitLogin()
+	if err == nil {
+		err = client.add("magnet:?xt=urn:btih:test", "auto-anime-1")
+	}
+	if err == nil || submitted {
 		t.Fatalf("failed login continued: error=%v submitted=%v", err, submitted)
 	}
 }

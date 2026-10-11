@@ -56,7 +56,7 @@ func assertLegacyAria2Upgrade(t *testing.T, root string) {
 		t.Fatal("old source file was changed")
 	}
 	// A late response from the retired downloader cannot revive the task.
-	applyTaskUpdate(taskRef{ID: 1, Downloader: "aria2", TaskID: "1111111111111111"}, taskState{Progress: 99})
+	applyTaskUpdateLocked(taskRef{ID: 1, Downloader: "aria2", TaskID: "1111111111111111"}, taskState{Progress: 99})
 	var status string
 	if err := db.QueryRow("SELECT status FROM items WHERE id=1").Scan(&status); err != nil || status != "下载失败" {
 		t.Fatal("late poll revived a retired task")

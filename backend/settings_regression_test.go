@@ -55,7 +55,7 @@ func TestSettingsOrdinarySavePreservesLoginAndSetup(t *testing.T) {
 		t.Fatal("ordinary save changed login or setup state")
 	}
 	webUser, webPassword = "", ""
-	if err := setSetting("setup_done", "1"); err != nil {
+	if _, err := db.Exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", "setup_done", "1"); err != nil {
 		t.Fatal(err)
 	}
 	if rec := settingsPUT(t, `{"web_user":"","poll_minutes":12}`); rec.Code != 200 {

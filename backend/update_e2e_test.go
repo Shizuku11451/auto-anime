@@ -322,26 +322,6 @@ func updateStatus(client *http.Client, baseURL string) updateSnapshot {
 	return snapshot
 }
 
-// waitForStagedOrVersion 等待两种结果之一：已暂存待重启（Windows），或版本
-// 已经变成新版本（Unix 就地替换 + 自动重启）。
-func waitForStagedOrVersion(client *http.Client, baseURL string, versionOf func() string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if versionOf() == "1.2.0" {
-			return true
-		}
-		snapshot := updateStatus(client, baseURL)
-		if snapshot.Status == "failed" {
-			return false
-		}
-		if snapshot.Pending && snapshot.Status == "installing" {
-			return false
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return false
-}
-
 func waitForFile(path string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

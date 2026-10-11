@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -41,7 +42,7 @@ func savedFixture(t *testing.T, title string, season int, nested bool) (int64, s
 		}
 		saved, err = archiveFromFiles(int(id), files)
 	} else {
-		saved, err = fetchArchive(int(id), server.URL+"/07.mp4")
+		saved, err = fetchArchiveContext(context.Background(), int(id), server.URL+"/07.mp4")
 	}
 	if err != nil {
 		t.Fatal(err)

@@ -158,7 +158,7 @@ func TestSubmittedTaskHoldsSlotUntilFailure(t *testing.T) {
 		t.Fatal("external task released slot at submission")
 	default:
 	}
-	applyTaskUpdate(taskRef{ID: first, Downloader: "aria2", TaskID: "test-gid"}, taskState{Fail: "test failure"})
+	applyTaskUpdateLocked(taskRef{ID: first, Downloader: "aria2", TaskID: "test-gid"}, taskState{Fail: "test failure"})
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):

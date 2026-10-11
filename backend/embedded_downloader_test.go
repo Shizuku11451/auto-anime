@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -145,7 +146,7 @@ func TestEmbeddedQbitOrphansRespectOwnershipAndPreserveFiles(t *testing.T) {
 	}))
 	defer server.Close()
 	client := &qbitClient{http: server.Client(), config: qbitConnection{URL: server.URL, SavePath: root}}
-	if err := cleanupEmbeddedQbitOrphans(client); err != nil {
+	if err := cleanupEmbeddedQbitOrphansContext(context.Background(), client); err != nil {
 		t.Fatal(err)
 	}
 	if len(removed) != 1 || !removed["orphan"] {

@@ -190,7 +190,7 @@ func TestPauseDirectCleansPartialAndResumeDownloadsOnce(t *testing.T) {
 		}
 		return nil
 	})
-	applyTaskUpdate(taskRef{ID: id}, taskState{Fail: "late failure"})
+	applyTaskUpdateLocked(taskRef{ID: id}, taskState{Fail: "late failure"})
 	if item := controlItem(t, id); item.Status != "已暂停" {
 		t.Fatal("late update overwrote pause", item)
 	}
@@ -230,7 +230,7 @@ func TestQbitPauseResumePreservesTaskAndRespectsCapacity(t *testing.T) {
 			if speed, _ := transferSnapshot(id, item.Status, item.Progress); speed != 0 {
 				t.Fatal("paused speed", speed)
 			}
-			applyTaskUpdate(item.taskRef, taskState{Progress: 70, DownloadSpeed: 1234})
+			applyTaskUpdateLocked(item.taskRef, taskState{Progress: 70, DownloadSpeed: 1234})
 			if item := controlItem(t, id); item.Status != "已暂停" || item.Progress != 37 {
 				t.Fatal("late poll changed paused task", item)
 			}

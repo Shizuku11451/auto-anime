@@ -255,19 +255,6 @@ func commitLinked(workPath, dstPath string) error {
 	return os.Remove(workPath)
 }
 
-// archiveParent creates the per-series directory after checking it is a real
-// directory, not a symlink out of the archive root.
-func archiveParent(root, series string) (string, error) {
-	parent := filepath.Join(root, safeComponent(series))
-	if err := os.MkdirAll(parent, 0755); err != nil {
-		return "", err
-	}
-	if info, err := os.Lstat(parent); err != nil || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("归档目录不可用或是符号链接")
-	}
-	return parent, nil
-}
-
 func resourceExtension(res *http.Response) (string, error) {
 	kind, _, _ := mime.ParseMediaType(res.Header.Get("Content-Type"))
 	if kind == "text/html" || kind == "application/xhtml+xml" {
@@ -392,10 +379,6 @@ func refreshSeriesPoster(animeTitle string) {
 // Commit an entire resource only after the media and metadata have been fully
 // written into a staging directory. Existing archive files are linked into
 // place under a unique name, never overwritten.
-func saveArchive(m archiveMetadata, res *http.Response) (string, error) {
-	return saveArchiveContext(context.Background(), m, res)
-}
-
 func saveArchiveContext(ctx context.Context, m archiveMetadata, res *http.Response) (string, error) {
 	m.Season = resolveSeason(m.AnimeTitle, m.Season, m.AutoSeason)
 	if res.StatusCode != http.StatusOK {
@@ -639,10 +622,6 @@ func cleanupEmptyDirs(dir, stopAt string) {
 		}
 		dir = parent
 	}
-}
-
-func fetchArchive(id int, link string) (string, error) {
-	return fetchArchiveContext(context.Background(), id, link)
 }
 
 func fetchArchiveContext(ctx context.Context, id int, link string) (string, error) {

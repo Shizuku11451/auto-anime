@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -95,25 +96,25 @@ func TestMetaQueryTitles(t *testing.T) {
 }
 
 func TestMetaAccept(t *testing.T) {
-	if !metaAccept("葬送的芙莉莲", "葬送のフリーレン", "葬送的芙莉莲") {
+	if metaAliasesScore(metaQueryTitles("葬送的芙莉莲"), "葬送のフリーレン", "葬送的芙莉莲") == 0 {
 		t.Fatal("exact name_cn should match")
 	}
-	if !metaAccept("无职转生 第二季", "Mushoku Tensei II", "无职转生 第二季") {
+	if metaAliasesScore(metaQueryTitles("无职转生 第二季"), "Mushoku Tensei II", "无职转生 第二季") == 0 {
 		t.Fatal("season suffix should still match")
 	}
-	if metaAccept("葬送的芙莉莲", "夏日动画", "夏日动画") {
+	if metaAliasesScore(metaQueryTitles("葬送的芙莉莲"), "夏日动画", "夏日动画") > 0 {
 		t.Fatal("unrelated subject must not match")
 	}
-	if metaAccept("与", "与", "与") {
+	if metaAliasesScore(metaQueryTitles("与"), "与", "与") > 0 {
 		t.Fatal("single-character queries must not match")
 	}
-	if metaAccept("  ", "テスト", "测试") {
+	if metaAliasesScore(metaQueryTitles("  "), "テスト", "测试") > 0 {
 		t.Fatal("empty query must not match")
 	}
-	if !metaAccept("葬送的芙莉莲 S01 · 1080P", "葬送のフリーレン", "葬送的芙莉莲") {
+	if metaAliasesScore(metaQueryTitles("葬送的芙莉莲 S01 · 1080P"), "葬送のフリーレン", "葬送的芙莉莲") == 0 {
 		t.Fatal("season and quality noise should be ignored")
 	}
-	if !metaAccept("Kimi-ga-Shinu-made-Koi-wo-Shitai", "Kimi ga Shinu made Koi wo Shitai", "") {
+	if metaAliasesScore(metaQueryTitles("Kimi-ga-Shinu-made-Koi-wo-Shitai"), "Kimi ga Shinu made Koi wo Shitai", "") == 0 {
 		t.Fatal("punctuation differences should match")
 	}
 }
@@ -346,7 +347,7 @@ func TestSyncTriggersMetaEnqueueWithoutBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	feedID, _ := result.LastInsertId()
-	n, err := syncFeed(int(feedID))
+	n, err := syncFeedContext(context.Background(), int(feedID))
 	if err != nil || n != 1 {
 		t.Fatalf("sync: %d %v", n, err)
 	}

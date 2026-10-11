@@ -65,12 +65,5 @@ export function noteBlocks(notes: string): NoteBlock[] {
   return blocks
 }
 
-/** 版本标签：dev 或 v1.2.0（abc1234） */
-export function versionLabel(version: string, commit = ''): string {
-  const value = (version || '').trim() || 'dev'
-  const short = (commit || '').trim().slice(0, 7)
-  return short ? `${value} (${short})` : value
-}
-
 /** 把版本写入 localStorage 的键名 */
 export const SKIPPED_VERSION_KEY = 'auto-anime:skipped-version'

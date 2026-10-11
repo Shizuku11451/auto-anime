@@ -459,11 +459,6 @@ func directProxyValue(raw string) bool {
 	}
 }
 
-// currentPlatform is the platform key used in asset names and manifest keys.
-func currentPlatform() string {
-	return runtime.GOOS + "_" + runtime.GOARCH
-}
-
 func updateBodyRequest(ctx context.Context, method, target string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -59,7 +60,7 @@ func TestTraditionalReleasePreviewAndSyncAtReadLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []int{16, 0} {
-		if added, err := syncFeed(1); added != want || err == nil || !strings.Contains(err.Error(), "读取上限") {
+		if added, err := syncFeedContext(context.Background(), 1); added != want || err == nil || !strings.Contains(err.Error(), "读取上限") {
 			t.Fatalf("sync must retain matching items and report incomplete history: added=%d want=%d err=%v", added, want, err)
 		}
 	}
@@ -121,7 +122,7 @@ func TestTargetedSubscriptionKeepsOneSeries(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.ID == 0 {
 		t.Fatalf("create: %s", rec.Body.String())
 	}
-	if n, err := syncFeed(created.ID); err != nil || n != 2 {
+	if n, err := syncFeedContext(context.Background(), created.ID); err != nil || n != 2 {
 		t.Fatalf("sync: %d %v", n, err)
 	}
 	var series, items int
@@ -130,7 +131,7 @@ func TestTargetedSubscriptionKeepsOneSeries(t *testing.T) {
 	if series != 1 || items != 2 {
 		t.Fatalf("same subscription split into %d series, canonical items=%d", series, items)
 	}
-	if n, err := syncFeed(created.ID); err != nil || n != 0 {
+	if n, err := syncFeedContext(context.Background(), created.ID); err != nil || n != 0 {
 		t.Fatalf("repeat sync: %d %v", n, err)
 	}
 }

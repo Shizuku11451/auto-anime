@@ -29,11 +29,6 @@ func getSetting(key string) string {
 	return value
 }
 
-func setSetting(key, value string) error {
-	_, err := db.Exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, value)
-	return err
-}
-
 // loadSettings applies stored overrides over the env-initialized globals.
 func loadSettings() {
 	rows, err := db.Query("SELECT key,value FROM settings")
@@ -187,18 +182,6 @@ func verifyWebCredentials(user, password string) bool {
 	okUser := subtle.ConstantTimeCompare([]byte(user), []byte(cfg.webUser))
 	okPass := subtle.ConstantTimeCompare([]byte(password), []byte(cfg.webPassword))
 	return okUser == 1 && okPass == 1
-}
-
-// setPasswordCredentials stores new admin credentials (hashed) and switches
-// the live globals over immediately.
-func setPasswordCredentials(user, password string) error {
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
-	hash, err := newPasswordHash(password)
-	if err != nil {
-		return err
-	}
-	return persistSettings(map[string]string{"web_user": user, "web_hash": hash}, true)
 }
 
 // Commit the entire configuration and session revocation before publishing it.

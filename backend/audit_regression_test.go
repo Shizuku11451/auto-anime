@@ -66,7 +66,7 @@ func TestArchiveCommitFailureRecoversWithoutCopy(t *testing.T) {
 	srv := mediaServer(t)
 	id := insertItem(t, srv.URL+"/video.mp4")
 	db.Exec("UPDATE items SET status='下载中' WHERE id=?", id)
-	path, err := fetchArchive(id, srv.URL+"/video.mp4")
+	path, err := fetchArchiveContext(context.Background(), id, srv.URL+"/video.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestArchiveReceiptCannotOverrideCorrectionOrPause(t *testing.T) {
 	srv := mediaServer(t)
 	id := insertItem(t, srv.URL+"/video.mp4")
 	db.Exec("UPDATE items SET status='下载中' WHERE id=?", id)
-	path, err := fetchArchive(id, srv.URL+"/video.mp4")
+	path, err := fetchArchiveContext(context.Background(), id, srv.URL+"/video.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,18 +193,18 @@ func TestExternalArchiveRetryDoesNotDuplicateMedia(t *testing.T) {
 	if _, err := db.Exec(`CREATE TRIGGER fail_saved BEFORE UPDATE OF status ON items WHEN NEW.status='已保存' BEGIN SELECT RAISE(FAIL,'simulated'); END`); err != nil {
 		t.Fatal(err)
 	}
-	applyTaskUpdate(ref, state)
+	applyTaskUpdateLocked(ref, state)
 	first, err := pendingArchivePath(id)
 	if err != nil || first == "" {
 		t.Fatalf("missing pending archive: %s %v", first, err)
 	}
-	applyTaskUpdate(ref, state)
+	applyTaskUpdateLocked(ref, state)
 	second, err := pendingArchivePath(id)
 	if err != nil || second != first {
 		t.Fatal("retry copied another archive")
 	}
 	db.Exec("DROP TRIGGER fail_saved")
-	applyTaskUpdate(ref, state)
+	applyTaskUpdateLocked(ref, state)
 	var stored string
 	db.QueryRow("SELECT file_path FROM items WHERE id=?", id).Scan(&stored)
 	if stored != first {
