@@ -34,6 +34,8 @@ func discoverIntent(keyword string) (string, int) {
 // Unknown (0) and conflicting (-1) seasons must not inherit archiving's default
 // Season 01. Part/Cour is deliberately distinct from season.
 func resourceSeason(title string) int {
+	// Underscores delimit release tokens just like spaces in archiving's parser.
+	title = strings.ReplaceAll(title, "_", " ")
 	// Metadata's fuzzy matcher accepts bare Chinese numerals; search evidence
 	// must not turn a work named 四季青春 into season 4.
 	title = metaCNSeason.ReplaceAllStringFunc(title, func(marker string) string {
@@ -45,6 +47,14 @@ func resourceSeason(title string) int {
 	_, season, _ := parseMetaMarkers(title)
 	for _, marker := range episodeTagPattern.FindAllStringSubmatch(title, -1) {
 		season = mergeMetaNumber(season, metaNumber(marker[1]))
+	}
+	// Reuse archiving's unambiguous Roman markers. Metadata matching only
+	// accepts a suffix, but releases usually append episodes and technical tags.
+	for _, marker := range asciiRomanSuffix.FindAllString(title, -1) {
+		season = mergeMetaNumber(season, romanNumber(marker))
+	}
+	for _, marker := range romanRunePattern.FindAllString(title, -1) {
+		season = mergeMetaNumber(season, romanNumber(marker))
 	}
 	return season
 }

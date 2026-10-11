@@ -40,6 +40,18 @@ func TestResourceSeasonEvidence(t *testing.T) {
 		{"测试动画 第二季 / Example S2 Part 2", 2}, {"测试动画 第一季 / Example S2", -1},
 		{"测试动画 Part 2 - 01", 0}, {"测试动画 [2021][01-24合集]", 0},
 		{"SPY X FAMILY [01]", 0}, {"测试动画 II", 2},
+		{"[VCB-Studio] 无职转生 II [01][1080p]", 2},
+		{"[Group] Example II - 01 [1080p]", 2},
+		{"[Group] Example ii - 01 [1080p]", 2},
+		{"[Group] Example_S02_01_1080p", 2},
+		{"[Group] Example_S02E01_1080p", 2},
+		{"[Group] 无职转生Ⅱ [01][1080p]", 2},
+		{"[Group] Example XII [01][1080p]", 0},
+		{"[Group] 测试动画Ⅻ [01][1080p]", 12},
+		{"[Group] 测试动画 第二季 / Example III [01][1080p]", -1},
+		{"[Group] Example_S02_S03E01_1080p", -1},
+		{"[Group] SPY X FAMILY [01][1080p]", 0},
+		{"[Group] That Time I Got Reincarnated [01][1080p]", 0},
 		{"四季青春 [01]", 0}, {"四季青春 第三季 [01]", 3},
 		{"Example S01E02", 1}, {"Example S01E02 / Example S02E02", -1},
 	} {
@@ -51,6 +63,12 @@ func TestResourceSeasonEvidence(t *testing.T) {
 		}
 		if allowsSeason(tc.title, 1, true) != (tc.season == 1 || tc.season == 0) {
 			t.Fatal("unknown opt-in mismatch")
+		}
+		if tc.season != 0 {
+			want := max(tc.season, 0)
+			if got := extractAnimeInfo(tc.title).Season; got != want {
+				t.Fatalf("filter/archive season mismatch for %q: %d want %d", tc.title, got, want)
+			}
 		}
 	}
 	info := extractAnimeInfo("[组] 测试动画 [S1 Reseed Fin] [1080p]")
@@ -109,6 +127,55 @@ func TestDiscoverSeasonExpansionAndProvenance(t *testing.T) {
 	rec = discoverGet(t, "/api/discover/search?source=acgrip&literal=1&keyword="+url.QueryEscape("测试动画 第一季"))
 	if rec.Code != 200 || requests.Load() != 1 {
 		t.Fatal("literal search expanded")
+	}
+}
+
+func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
+	testDatabase(t)
+	titles := []string{
+		"[Group] 测试动画 II [01][1080p]",
+		"[Group] 测试动画_S02_02_1080p",
+		"[Group] 测试动画Ⅱ [03][1080p]",
+		"[Group] 测试动画 第一季 / Example III [04][1080p]",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<rss><channel>`)
+		for i, title := range titles {
+			fmt.Fprintf(w, `<item><title>%s</title><link>/item/%d</link></item>`, title, i)
+		}
+		fmt.Fprint(w, `</channel></rss>`)
+	}))
+	defer server.Close()
+	for _, tc := range []struct {
+		season  int
+		unknown bool
+		count   int
+	}{{2, false, 3}, {1, true, 0}, {-1, false, 0}} {
+		payload, _ := json.Marshal(PreviewInput{URL: server.URL, SeasonFilter: tc.season, AllowUnknownSeason: tc.unknown})
+		rec := httptest.NewRecorder()
+		preview(rec, httptest.NewRequest("POST", "/api/preview", strings.NewReader(string(payload))))
+		var out struct{ Count int }
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || out.Count != tc.count {
+			t.Fatalf("preview season %d: %d %s err=%v", tc.season, rec.Code, rec.Body.String(), err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,season_filter,allow_unknown_season,target_title) VALUES(1,'第一季',?,1,1,'测试动画')`, server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := syncFeed(1); err != nil || n != 0 {
+		t.Fatalf("second seasons leaked into first: %d %v", n, err)
+	}
+	if _, err := db.Exec(`UPDATE feeds SET season_filter=2,allow_unknown_season=0 WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	for _, count := range []int{3, 0} {
+		if n, err := syncFeed(1); err != nil || n != count {
+			t.Fatalf("second season sync: %d want %d err=%v", n, count, err)
+		}
+	}
+	var wrong int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM items WHERE season_auto<>2`).Scan(&wrong); err != nil || wrong != 0 {
+		t.Fatalf("wrong archival seasons: %d err=%v", wrong, err)
 	}
 }
 

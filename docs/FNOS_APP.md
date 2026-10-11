@@ -26,6 +26,8 @@
 
 容器使用 `${TRIM_UID}:${TRIM_GID}`，移除全部 capabilities，并启用 `no-new-privileges`。不挂载整个存储空间、宿主应用包、配置目录或 Docker socket。Docker 启停由 `cmd/main` 管理，不再声明 `docker-project` 让应用中心重复管理。
 
+飞牛安装、升级可能将应用数据目录属主重置为 root。安装、升级以及运行中的配置回调会先将 `TRIM_PKGVAR` 的属主恢复为应用用户；无效用户、缺失目录或属主修改失败时，向应用中心错误日志报告中文原因并以非零状态退出，不继续启动或重建容器。遇到失败应先检查数据卷是否只读、数据目录权限及系统传入的应用用户配置，再重试；不会通过改为 root 容器绕过问题。没有新增向导选项或环境变量。
+
 非 root 容器在 `/data/runtime/<镜像程序 SHA-256>` 建立权限 700 的私有运行目录，复制程序与静态资源，镜像 `/app` 保持只读。同一镜像重启保留自更新程序；换镜像使用新副本。历史运行目录暂不自动删除，备份整个数据目录时包含它们。
 
 | 文件 | 用途 |
@@ -34,7 +36,7 @@
 | `fpk/config/resource` | 声明默认媒体共享目录与影视只读权限 |
 | `fpk/config/privilege` | 宿主脚本以 root 管理 Docker，服务在非 root 容器运行 |
 | `fpk/app/docker/docker-compose.yaml` | 基础编排、非 root 身份、权限限制及数据/媒体挂载 |
-| `fpk/cmd/storage` | 校验授权路径、生成 Compose 覆盖文件 |
+| `fpk/cmd/storage` | 恢复应用数据目录属主、校验授权路径、生成 Compose 覆盖文件 |
 | `fpk/cmd/main` | 创建、停止、检查容器 |
 | `fpk/cmd/config_callback` | 运行中配置变更时同步挂载；用户也可停止再启动 |
 | `fpk/wizard/install`、`fpk/cmd/install_init` | 安装向导与端口校验 |

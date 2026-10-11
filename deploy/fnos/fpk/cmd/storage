@@ -24,9 +24,15 @@ json_path() {
 # 统一改回应用用户；这三个回调都不是高频路径，整目录递归一次可以接受。
 ensure_data_owner() {
     local uid="${TRIM_UID:-}" gid="${TRIM_GID:-}" var="${TRIM_PKGVAR:-}"
-    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ ]] || return 0
-    [ -n "$var" ] && [ -d "$var" ] || return 0
-    chown -R "$uid:$gid" "$var" 2>/dev/null || true
+    local resolved detail
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ ]] || { mount_error '缺少有效的非 root 应用用户'; return 1; }
+    [[ "$var" = /* ]] && [ -d "$var" ] || { mount_error '应用数据目录不存在或不是绝对路径'; return 1; }
+    resolved="$(readlink -f -- "$var")" || { mount_error '无法解析应用数据目录'; return 1; }
+    [ -n "$resolved" ] && [ "$resolved" != / ] || { mount_error '不能修改根目录属主'; return 1; }
+    if ! detail="$(chown -R -- "$uid:$gid" "$resolved" 2>&1)"; then
+        mount_error "无法恢复应用数据目录属主，请检查存储空间是否只读及目录权限：$resolved；$detail"
+        return 1
+    fi
 }
 
 prepare_mounts() {
