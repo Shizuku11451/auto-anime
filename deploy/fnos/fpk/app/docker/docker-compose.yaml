@@ -1,0 +1,31 @@
+# 由 cmd/main 在宿主机生成授权目录挂载并启动。
+# TRIM_* 变量由飞牛系统提供，wizard_* 变量来自 wizard/install 表单。
+services:
+  auto-anime:
+    image: ghcr.io/shizuku11451/auto-anime:latest
+    container_name: "${TRIM_APPNAME:-auto-anime}"
+    restart: unless-stopped
+    stop_grace_period: 45s
+    # 以飞牛应用用户（TRIM_UID/TRIM_GID）运行，飞牛按「应用设置 → 访问权限」授予的
+    # 目录权限才会对容器生效；root 容器会绕过这些授权。
+    user: "${TRIM_UID:?缺少应用 UID}:${TRIM_GID:?缺少应用 GID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "${TRIM_SERVICE_PORT}:8000"
+      - "${wizard_bt_port}:${wizard_bt_port}/tcp"
+      - "${wizard_bt_port}:${wizard_bt_port}/udp"
+    environment:
+      DB_PATH: /data/auto-anime.db
+      DOWNLOAD_DIR: /data/downloads
+      LIBRARY_DIR: /media
+      DOWNLOAD_MODE: builtin
+      QBITTORRENT_DATA_DIR: /data/qbittorrent
+      QBITTORRENT_BT_PORT: "${wizard_bt_port}"
+      KEEP_SOURCE_FILES: "${wizard_keep_source}"
+    volumes:
+      - "${TRIM_PKGVAR}:/data"
+      # config/resource 声明的共享目录 auto-anime/media，用户在文件管理器中可见，并可交给飞牛影视扫描。
+      # TRIM_DATA_SHARE_PATHS 是飞牛给出的真实路径（实测 /vol1/@appshare/auto-anime/media）。
+      # 缺省值取飞牛在 /var/apps/auto-anime/shares/ 下自动建的软链（实测存在，指向同一个目录）。
+      - "${TRIM_DATA_SHARE_PATHS:-/var/apps/auto-anime/shares/media}:/media"

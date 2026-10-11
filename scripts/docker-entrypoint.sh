@@ -1,9 +1,30 @@
 #!/bin/sh
 # 容器启动引导：
 #   1. 记录镜像版本（若 /app 不可写，则把版本写到数据目录，供应用提示"更新未生效"）
-#   2. 尽量让 /app 可写，使应用的一键更新能在容器内替换自身并重启
+#   2. 非 root 容器使用数据目录内的私有程序副本，支持一键更新
 #   3. 实际启动应用
 set -e
+
+# 非 root 容器在持久化私有目录运行；镜像程序保持只读。以镜像摘要分目录，
+# 同一镜像重启保留自更新程序，更换镜像则使用新镜像的程序与静态资源。
+if [ "$(id -u)" != 0 ] && [ "${1:-}" = "./auto-anime" ]; then
+  runtime_base="$(dirname "${DB_PATH:-/data/auto-anime.db}")/runtime"
+  image_key="$(sha256sum /app/auto-anime | cut -d ' ' -f 1)"
+  runtime_dir="$runtime_base/$image_key"
+  mkdir -p "$runtime_base"
+  chmod 700 "$runtime_base"
+  if [ ! -d "$runtime_dir" ]; then
+    runtime_tmp="$(mktemp -d "$runtime_base/.prepare-XXXXXX")"
+    trap 'rm -rf "$runtime_tmp"' EXIT HUP INT TERM
+    cp /app/auto-anime "$runtime_tmp/auto-anime"
+    cp -R /app/static "$runtime_tmp/static"
+    if [ -f /app/meta.env ]; then cp /app/meta.env "$runtime_tmp/meta.env"; fi
+    chmod 700 "$runtime_tmp" "$runtime_tmp/auto-anime"
+    mv "$runtime_tmp" "$runtime_dir"
+    trap - EXIT HUP INT TERM
+  fi
+  cd "$runtime_dir"
+fi
 
 APP_DIR="$(pwd)"
 DATA_DIR="${DB_PATH:-/data/auto-anime.db}"
@@ -35,17 +56,11 @@ if [ -f /app/meta.env ]; then
   fi
 fi
 
-if ! ( : >/app/.auto-anime-write-probe ) 2>/dev/null; then
-  chmod -R a+rwX /app 2>/dev/null || true
-fi
-rm -f /app/.auto-anime-write-probe 2>/dev/null || true
-
-# 应用在容器内能替换 /app/auto-anime 时走直接替换；否则退回数据目录暂存，
-# 由下次启动的引导步骤完成替换。
-if ! ( : >/app/.auto-anime-write-probe ) 2>/dev/null; then
-  echo "[update] /app 不可写，一键更新将在数据目录暂存并在下次重启时生效" >&2
+# 运行目录可写时可直接替换，否则保留暂存包并明确提示需要调整权限。
+if ! ( : >"$APP_DIR/.auto-anime-write-probe" ) 2>/dev/null; then
+  echo "[update] 程序目录不可写，更新仅能暂存；请调整程序目录权限或更新容器镜像" >&2
   mirror_version
 fi
-rm -f /app/.auto-anime-write-probe 2>/dev/null || true
+rm -f "$APP_DIR/.auto-anime-write-probe" 2>/dev/null || true
 
 exec "$@"

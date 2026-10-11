@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# 应用中心不再管理 docker-project，由宿主生命周期脚本启动。
+"$(dirname "$0")/main" start

@@ -1,0 +1,17 @@
+appname                    = auto-anime
+version                    = 0.0.0
+display_name               = Auto-Anime 自动追番
+desc                       = 订阅 RSS 自动下载、整理番剧，供飞牛影视等媒体服务器扫描。
+source                     = thirdparty
+platform                   = all
+maintainer                 = Shizuku11451
+maintainer_url             = https://github.com/Shizuku11451/auto-anime
+distributor                = Shizuku11451
+distributor_url            = https://github.com/Shizuku11451/auto-anime
+desktop_uidir              = ui
+desktop_applaunchname      = auto-anime.Application
+service_port               = 8000
+checkport                  = true
+ctl_stop                   = true
+disable_authorization_path = false
+changelog                  = 按授权目录挂载媒体，隔离宿主应用配置，支持目录读写检测与非 root 自更新。

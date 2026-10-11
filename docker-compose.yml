@@ -1,76 +1,28 @@
+# 默认直接使用发布镜像，无需源码构建。飞牛图形界面安装见 docs/FNOS.md。
+# 外部下载器、代理及其他可选参数见 docs/CONFIGURATION.md。
 services:
   auto-anime:
-    # 二选一：
-    #   本地构建：保留 build，执行 docker compose up -d --build
-    #   使用发布镜像：注释掉 build，改用 image（发布流程会把镜像推到 ghcr.io）
-    build: .
     image: ghcr.io/shizuku11451/auto-anime:latest
     container_name: auto-anime
     restart: unless-stopped
     stop_grace_period: 45s
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     ports:
+      # 左侧为 NAS 端口；网页端口冲突时可改成 "18000:8000"。
       - "8000:8000"
+      # BT 端口需同时修改 TCP、UDP 两行和 QBITTORRENT_BT_PORT。
       - "6881:6881/tcp"
       - "6881:6881/udp"
     environment:
+      DB_PATH: /data/auto-anime.db
       DOWNLOAD_DIR: /data/downloads
-      # 可选：媒体库目录（番剧文件夹的根目录），供飞牛影视/Emby/Jellyfin 扫描；
-      # 留空时番剧归档到 DOWNLOAD_DIR。登录后也可在设置页修改
+      # 保持已有部署的默认归档位置；留空使用 /data/downloads。
+      # 改用 /media 时，还须添加对应 NAS 文件夹的 volume 映射。
       LIBRARY_DIR: ""
-      POLL_MINUTES: "30"
-      # 镜像内置无界面 qBittorrent，自动启动、鉴权并恢复会话
       DOWNLOAD_MODE: builtin
       QBITTORRENT_DATA_DIR: /data/qbittorrent
-      EMBEDDED_QBIT_PORT: "8080"
       QBITTORRENT_BT_PORT: "6881"
-      # 内置 WebUI 只监听容器回环地址，无需映射 8080 端口
-      # 使用外部 Aria2 时将 DOWNLOAD_MODE 改为 aria2，并填写以下配置
-      ARIA2_URL: ""
-      ARIA2_TOKEN: ""
-      # ARIA2_DIR 是 Aria2 容器内的下载目录；ARIA2_LOCAL_DIR 是同一目录在本容器内的路径
-      ARIA2_DIR: ""
-      ARIA2_LOCAL_DIR: ""
-      # 如使用外部 qBittorrent，将 DOWNLOAD_MODE 改为 qbittorrent
-      QBIT_URL: ""
-      QBIT_USER: ""
-      QBIT_PASSWORD: ""
-      QBIT_SAVE_PATH: ""
-      # QBIT_LOCAL_DIR 是 QBIT_SAVE_PATH 在本容器内的对应路径
-      QBIT_LOCAL_DIR: ""
-      # 下载器任务轮询间隔（秒），最小 5
-      DOWNLOADER_POLL_SECONDS: "10"
-      # 可选：出站代理，RSS/直链下载/Bangumi/Webhook 走代理；下载器 RPC 始终直连
-      # 支持 http:// https:// socks5:// socks5h://，认证写法 http://用户名:密码@主机:端口
-      PROXY_URL: ""
-      WEBHOOK_URL: ""
-      # 可选：同时设置 WEB_USER 和 WEB_PASSWORD 后启用 Web 登录
-      # 网页登录与 Basic Auth 共用限流：同一来源连续失败 5 次锁定 15 分钟
-      WEB_USER: ""
-      WEB_PASSWORD: ""
-      # 版本检查与一键更新（设置页与侧边栏提醒）
-      # UPDATE_CHECK=0 关闭联网检查；=1（默认）在启动后与每 6 小时检查一次
-      UPDATE_CHECK: "1"
-      # 可选：自定义更新源。留空使用项目仓库；也可填 用户名/仓库、
-      # GitHub 仓库地址，或自建更新源前缀（读取 <前缀>/latest.json）
-      UPDATE_SOURCE: ""
-      # 可选：访问 GitHub API 的令牌（私有仓库必填，或用于提高接口限额）
-      GITHUB_TOKEN: ""
-      # 可选：仅更新流量使用的代理；留空沿用上面的 PROXY_URL
-      UPDATE_PROXY: ""
-      # 如使用 Transmission，将 DOWNLOAD_MODE 改为 transmission
-      TRANSMISSION_URL: ""
-      TRANSMISSION_USER: ""
-      TRANSMISSION_PASSWORD: ""
-      TRANSMISSION_DOWNLOAD_DIR: ""
-      # TRANSMISSION_LOCAL_DIR 是 TRANSMISSION_DOWNLOAD_DIR 在本容器内的对应路径
-      TRANSMISSION_LOCAL_DIR: ""
+      # true 保留下载源文件做种；改为 false 时仅在归档成功后删除源文件。
+      KEEP_SOURCE_FILES: "true"
     volumes:
-      # 容器数据目录。刻意与本地开发用的 data/ 分开（README「本地开发」在 backend/ 下写入
-      # backend/data/），否则本机调试留下的数据库会被挂进容器，看起来像「没订阅却有一堆番」
+      # 保留已有部署目录，与本地开发的 backend/data/ 分开。
       - ./docker-data:/data

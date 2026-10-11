@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useEventListener, useMediaQuery } from '@vueuse/core'
 import { onBeforeRouteLeave } from 'vue-router'
 import { confirmDialog } from '@/stores/confirm'
 import { FolderTree, Globe, HardDrive, RefreshCw, Rocket, Save, UserRound } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import { http, errorMessage } from '@/api/client'
+import { api, http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { useUpdateStore } from '@/stores/update'
-import { MODE_LABEL, type Settings, type SettingsInput } from '@/api/types'
+import { MODE_LABEL, type Settings, type SettingsInput, type SetupStorageResult, type StorageCheckInput } from '@/api/types'
 
 const store = useAppStore()
 const update = useUpdateStore()
@@ -51,11 +51,48 @@ const form = reactive({
   discover_search_template: '',
   library_dir: '',
   auto_cleanup_empty_anime: false,
+  keep_source_files: true,
 })
 
 const info = ref<Settings | null>(null)
 const loading = ref(true)
 const saving = ref(false)
+const storageLoading = ref(false)
+const storageResult = ref<SetupStorageResult | null>(null)
+const storageError = ref('')
+let storageController: AbortController | null = null
+let storageVersion = 0
+function clearStorageCheck() {
+  storageVersion++
+  storageController?.abort()
+  storageLoading.value = false
+  storageResult.value = null
+  storageError.value = ''
+}
+watch(() => form.library_dir, clearStorageCheck, { flush: 'sync' })
+onBeforeUnmount(clearStorageCheck)
+async function checkStorage() {
+  if (loading.value || saving.value || storageLoading.value || loadErr.value) return
+  const path = form.library_dir.trim()
+  const version = ++storageVersion
+  storageController?.abort()
+  const controller = new AbortController()
+  storageController = controller
+  storageLoading.value = true
+  storageError.value = ''
+  storageResult.value = null
+  try {
+    const body: StorageCheckInput = { path }
+    const result = await api<SetupStorageResult>('/api/settings/storage', { method: 'POST', json: body, signal: controller.signal })
+    if (version !== storageVersion || path !== form.library_dir.trim()) return
+    if (result.path !== (path || info.value?.download_dir) || typeof result.writable !== 'boolean' || typeof result.message !== 'string' || !['mapped', 'unmapped', 'unknown', 'not_required'].includes(result.mount_status)) throw new Error('目录检测结果不完整')
+    storageResult.value = result
+  } catch (e) {
+    if (version === storageVersion) storageError.value = errorMessage(e)
+  } finally {
+    if (version === storageVersion) storageLoading.value = false
+  }
+}
 const msg = ref('')
 const loadErr = ref('')
 const section = ref('download')
@@ -101,6 +138,7 @@ async function load() {
     form.discover_search_template = s.discover_search_template || ''
     form.library_dir = s.library_dir || ''
     form.auto_cleanup_empty_anime = s.auto_cleanup_empty_anime === true
+    form.keep_source_files = s.keep_source_files !== false
     savedForm.value = JSON.stringify(form)
   } catch (e) {
     loadErr.value = errorMessage(e)
@@ -137,6 +175,7 @@ async function save() {
     discover_search_template: form.discover_search_template.trim(),
     library_dir: form.library_dir.trim(),
     auto_cleanup_empty_anime: form.auto_cleanup_empty_anime,
+    keep_source_files: form.keep_source_files,
   }
   /* 敏感字段留空表示保持不变，只有填写时才提交 */
   if (form.aria2_token) body.aria2_token = form.aria2_token
@@ -335,9 +374,22 @@ async function save() {
         <div class="field">
           <label for="st-library">媒体库目录（番剧文件夹的根目录；留空使用下载目录）</label>
           <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" placeholder="例如 /vol1/1000/番剧" />
+          <BaseButton :icon="FolderTree" :loading="storageLoading" :disabled="loading || saving || !!loadErr" @click="checkStorage">检测保存目录</BaseButton>
+          <p v-if="storageResult" class="field-hint" role="status">{{ storageResult.message }}</p>
+          <p v-if="storageError" class="form-msg" role="alert">{{ storageError }}</p>
           <p class="field-hint">
             媒体服务器扫描该目录即可。目录需已映射进容器（docker-compose.yml 的 volumes），否则文件写进容器内部、NAS 上看不到。当前下载目录：<code>{{ info?.download_dir || '未知' }}</code>
           </p>
+          <p class="field-hint">
+            飞牛应用包用户：先在「应用设置 → 访问权限」授权目录，再重启应用同步挂载，最后填写同一个路径。使用 Docker Compose 安装时，可用<a href="/install" target="_blank" rel="noopener noreferrer">部署配置页</a>修改映射，并保留原来的 data 目录。
+          </p>
+        </div>
+        <div class="field">
+          <label class="check" for="st-keep-source">
+            <input id="st-keep-source" v-model="form.keep_source_files" type="checkbox" />
+            保留下载器原文件做种
+          </label>
+          <p class="field-hint">默认开启。关闭后，成功归档并写入数据库才停止对应下载任务、清理源文件；失败会保留并提示原因。仅影响后续归档，不批量清理旧文件。外部下载器须配置明确的下载目录/本地映射。重新开启可取消待清理任务，无法恢复已删除文件。</p>
         </div>
         <div class="field">
           <label class="check" for="st-cleanup-empty">

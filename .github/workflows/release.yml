@@ -71,9 +71,19 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
+          desktop_flags=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            desktop_flags="-H windowsgui -X main.desktopDefault=true"
+          fi
           go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }} -X main.defaultUpdateSource=${{ github.repository }}" \
+            -ldflags "-s -w $desktop_flags -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }} -X main.defaultUpdateSource=${{ github.repository }}" \
             -o "../dist/auto-anime-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" .
+      - name: Package Windows desktop with qBittorrent
+        if: matrix.goos == 'windows'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full
+          python3 tools/package_windows.py "dist/auto-anime-${{ steps.meta.outputs.version }}-windows-amd64.exe"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -81,8 +91,34 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  fpk:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - name: Resolve version
+        id: meta
+        run: |
+          TAG="$REQUESTED_TAG"
+          [[ "$TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]] || { echo "版本标签无效"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Build fnOS app package
+        run: |
+          # build-fpk.sh 会下载官方 fnpack 并校验 SHA-256，再把版本号写进 manifest 与镜像标签
+          chmod +x deploy/fnos/build-fpk.sh
+          deploy/fnos/build-fpk.sh "${{ steps.meta.outputs.version }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-anime-fpk
+          path: dist/fnos/*.fpk
+          if-no-files-found: error
+
   release:
-    needs: binaries
+    needs: [binaries, fpk]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

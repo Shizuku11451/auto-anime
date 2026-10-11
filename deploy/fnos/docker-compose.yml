@@ -1,0 +1,25 @@
+# 飞牛 Docker → Compose → 创建项目：将本文件完整粘贴到配置编辑框。
+# data 与 media 位于所选项目目录下，请将项目放在持久化存储空间中。
+services:
+  auto-anime:
+    image: ghcr.io/shizuku11451/auto-anime:latest
+    restart: unless-stopped
+    stop_grace_period: 45s
+    ports:
+      # 网页端口冲突时只改左侧，例如 "18000:8000"。
+      - "8000:8000"
+      # BT 端口冲突时同时修改下面两行及 QBITTORRENT_BT_PORT。
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    environment:
+      DB_PATH: /data/auto-anime.db
+      DOWNLOAD_DIR: /data/downloads
+      LIBRARY_DIR: /media
+      DOWNLOAD_MODE: builtin
+      QBITTORRENT_DATA_DIR: /data/qbittorrent
+      QBITTORRENT_BT_PORT: "6881"
+      # true 保留下载源文件做种；改为 false 时仅在归档成功后删除源文件。
+      KEEP_SOURCE_FILES: "true"
+    volumes:
+      - ./data:/data
+      - ./media:/media

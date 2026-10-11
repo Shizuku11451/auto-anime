@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ArrowLeft, ArrowRight, Check, Globe, HardDrive, UserRound } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ArrowLeft, ArrowRight, Check, FolderOpen, Globe, HardDrive, UserRound } from '@lucide/vue'
 import AuthShell from '@/components/auth/AuthShell.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ConfirmHost from '@/components/ui/ConfirmHost.vue'
 import { confirmDialog } from '@/stores/confirm'
 import { MODE_LABEL } from '@/api/types'
+import type { SetupResult, SetupStatus, SetupStorageResult } from '@/api/types'
 
 const STEPS = [
-  { key: 'account', title: '管理员账户', icon: UserRound, hint: '设置后访问面板需要登录；留空则暂不启用登录，之后可在设置页开启。' },
+  { key: 'account', title: '管理员账户', icon: UserRound, hint: '建议创建账户，保护订阅与下载管理；这是 Auto-Anime 的账户，与 NAS 账户无关。' },
   { key: 'download', title: '下载方式', icon: HardDrive, hint: 'Docker 默认使用内置 qBittorrent，也可连接已有下载器或选择本地直链。' },
-  { key: 'network', title: '网络与同步', icon: Globe, hint: '代理只作用于 RSS、找番、直链下载与封面；下载器 RPC 始终直连。' },
+  { key: 'storage', title: '保存目录', icon: FolderOpen, hint: '选择整理好的番剧放在哪里，飞牛影视、Emby 或 Jellyfin 扫描这个目录。' },
+  { key: 'network', title: '确认并开始', icon: Globe, hint: '已沿用部署配置；未配置时默认直连、每 30 分钟同步。确认后即可开始添加订阅。' },
 ] as const
 
 const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
@@ -19,12 +21,31 @@ const step = ref(0)
 const dir = ref<1 | -1>(1)
 const msg = ref('')
 const busy = ref(false)
+const confirming = ref(false)
+const statusLoaded = ref(false)
+const statusLoading = ref(false)
+const statusError = ref('')
+const defaultDownloadDir = ref('')
+const deploymentRoot = ref('')
+const storageResult = ref<SetupStorageResult | null>(null)
+const storageLoading = ref(false)
+const storageError = ref('')
+let storageController: AbortController | null = null
+let storageVersion = 0
+const deploymentProxyEnabled = ref(false)
+const completed = ref(false)
+const libraryWarning = ref('')
+const loginFailed = ref(false)
+const locked = computed(() => busy.value || confirming.value || !statusLoaded.value)
+let statusController: AbortController | null = null
+let statusVersion = 0
 
 const form = reactive({
   user: '',
   pass: '',
   pass2: '',
   mode: 'direct' as (typeof MODES)[number],
+  library_dir: '',
   aria2_url: '',
   aria2_token: '',
   aria2_dir: '',
@@ -41,21 +62,82 @@ const form = reactive({
   transmission_local_dir: '',
   proxy_url: '',
   poll_minutes: 30,
+  keep_source_files: true,
 })
 
 const current = computed(() => STEPS[step.value]!)
 const isLast = computed(() => step.value === STEPS.length - 1)
-
-onMounted(async () => {
-  try {
-    const r = await fetch('/api/setup/status')
-    const s = (await r.json()) as { required: boolean; download_mode?: (typeof MODES)[number] }
-    if (!s.required) location.replace('/')
-    if (s.download_mode && MODES.includes(s.download_mode)) form.mode = s.download_mode
-  } catch {
-    /* 状态接口不可用时留在向导页 */
-  }
+const archiveRoot = computed(() => form.library_dir.trim() || defaultDownloadDir.value)
+const canCheckStorage = computed(() => archiveRoot.value === deploymentRoot.value)
+watch(archiveRoot, () => {
+  storageVersion++
+  storageController?.abort()
+  storageResult.value = null
+  storageError.value = ''
+  storageLoading.value = false
 })
+const proxyLabel = computed(() => form.proxy_url.trim() ? '使用出站代理' : deploymentProxyEnabled.value ? '沿用部署代理' : '直连，无需代理')
+
+async function loadStatus() {
+  const version = ++statusVersion
+  statusController?.abort()
+  statusController = new AbortController()
+  const requestController = statusController
+  const timeout = setTimeout(() => requestController.abort(), 15000)
+  statusLoaded.value = false
+  statusLoading.value = true
+  statusError.value = ''
+  try {
+    const r = await fetch('/api/setup/status', { signal: statusController.signal })
+    if (!r.ok) throw new Error('读取失败')
+    const s = (await r.json()) as SetupStatus
+    if (version !== statusVersion) return
+    if (typeof s.required !== 'boolean' || !MODES.includes(s.download_mode)) throw new Error('配置不完整')
+    if (!s.required) { location.replace('/'); return }
+    form.mode = s.download_mode
+    form.library_dir = s.library_dir ?? ''
+    defaultDownloadDir.value = s.download_dir ?? ''
+    deploymentRoot.value = s.library_dir?.trim() || defaultDownloadDir.value
+    form.poll_minutes = s.poll_minutes ?? 30
+    deploymentProxyEnabled.value = s.proxy_enabled ?? false
+    form.keep_source_files = s.keep_source_files !== false
+    statusLoaded.value = true
+  } catch {
+    if (version === statusVersion) statusError.value = '无法读取安装配置，请检查服务是否已启动，然后重试。'
+  } finally {
+    clearTimeout(timeout)
+    if (version === statusVersion) statusLoading.value = false
+  }
+}
+
+onMounted(loadStatus)
+onBeforeUnmount(() => { statusVersion++; statusController?.abort(); storageVersion++; storageController?.abort() })
+
+async function checkStorage() {
+  if (!canCheckStorage.value || storageLoading.value || completed.value) return
+  const version = ++storageVersion
+  const root = archiveRoot.value
+  storageController?.abort()
+  const controller = new AbortController()
+  storageController = controller
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  storageLoading.value = true
+  storageError.value = ''
+  storageResult.value = null
+  try {
+    const response = await fetch('/api/setup/storage', { method: 'POST', signal: controller.signal })
+    if (!response.ok) throw new Error('检测失败')
+    const result = await response.json() as SetupStorageResult
+    if (version !== storageVersion || root !== archiveRoot.value) return
+    if (result.path !== root || typeof result.writable !== 'boolean' || !['mapped', 'unmapped', 'unknown', 'not_required'].includes(result.mount_status) || typeof result.message !== 'string') throw new Error('检测结果不完整')
+    storageResult.value = result
+  } catch {
+    if (version === storageVersion) storageError.value = '未能完成目录检测，请检查服务后重试。'
+  } finally {
+    clearTimeout(timeout)
+    if (version === storageVersion) storageLoading.value = false
+  }
+}
 
 function validateAccount(): string {
   const u = form.user.trim()
@@ -71,10 +153,21 @@ function validateNetwork(): string {
   return ''
 }
 
+function validateDownloader(): string {
+  const address = form.mode === 'aria2' ? form.aria2_url : form.mode === 'qbittorrent' ? form.qbit_url : form.mode === 'transmission' ? form.transmission_url : null
+  if (address === null) return ''
+  try {
+    const url = new URL(address.trim())
+    if (url.protocol === 'http:' || url.protocol === 'https:') return ''
+  } catch { /* 显示统一的连接地址提示 */ }
+  return '请填写下载器的 HTTP 或 HTTPS 地址；另一个容器的地址请使用 NAS 局域网 IP 或服务名。'
+}
+
 function go(delta: 1 | -1) {
+  if (locked.value) return
   msg.value = ''
   if (delta > 0) {
-    const err = step.value === 0 ? validateAccount() : step.value === 2 ? validateNetwork() : ''
+    const err = step.value === 0 ? validateAccount() : step.value === 1 ? validateDownloader() : ''
     if (err) {
       msg.value = err
       return
@@ -87,9 +180,13 @@ function go(delta: 1 | -1) {
 function collect() {
   const body: Record<string, unknown> = {
     download_mode: form.mode,
-    proxy_url: form.proxy_url.trim(),
+    library_dir: form.library_dir.trim(),
     poll_minutes: Number.parseInt(String(form.poll_minutes), 10) || 30,
+    keep_source_files: form.keep_source_files,
   }
+  // Empty input preserves a deployment proxy without exposing its address or
+  // credentials through the anonymous setup status endpoint.
+  if (form.proxy_url.trim()) body.proxy_url = form.proxy_url.trim()
   const u = form.user.trim()
   if (u || form.pass) {
     body.web_user = u
@@ -128,53 +225,88 @@ async function submit(body: Record<string, unknown>) {
       msg.value = (await res.text()).trim() || '保存失败'
       return
     }
+    // The configuration is committed; never offer to submit setup again if
+    // login fails or a mount warning requires the user's attention.
+    completed.value = true
+    try {
+      const result = (await res.json()) as SetupResult
+      libraryWarning.value = result.library_warning ?? ''
+    } catch {
+      libraryWarning.value = '设置已保存，但未能读取目录检查结果。请进入设置页确认媒体库目录。'
+    }
     if (body.web_user && body.web_password) {
-      await fetch('/api/login', {
+      const login = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: body.web_user, password: body.web_password }),
       })
+      loginFailed.value = !login.ok
     }
-    location.replace('/')
   } catch {
-    msg.value = '网络错误，请稍后重试'
+    if (completed.value) loginFailed.value = true
+    else msg.value = '网络错误，请稍后重试'
   } finally {
     busy.value = false
   }
 }
 
 async function finish() {
+  if (locked.value || completed.value) return
   msg.value = ''
-  const err = validateAccount() || validateNetwork()
+  const err = validateAccount() || validateDownloader() || validateNetwork()
   if (err) {
     msg.value = err
     return
   }
   const body = collect()
-  const hasDownloader = !!(body.aria2_url || body.qbit_url || body.transmission_url)
-  if (hasDownloader && !body.web_user) {
-    // 配置了下载器但没设置登录：确认一次，避免面板裸奔
-    const ok = await confirmDialog('尚未设置管理员账户', '面板任何人都可访问，下载器凭据也可能被读取。仍要继续吗？', {
-      okText: '仍要继续',
-      danger: true,
-    })
+  if (!body.web_user) {
+    confirming.value = true
+    let ok = false
+    try {
+      ok = await confirmDialog('尚未设置管理员账户', '能访问此服务的人都可以管理订阅、下载和设置。仍要在不启用登录的情况下继续吗？', { okText: '仍要继续', danger: true })
+    } finally { confirming.value = false }
     if (!ok) return
   }
   await submit(body)
 }
 
 async function skip() {
+  if (locked.value || completed.value) return
   msg.value = ''
-  const ok = await confirmDialog('跳过初始设置', '将使用默认配置启动，不启用登录；之后可以在设置页随时修改。', {
-    okText: '跳过并进入',
-  })
+  confirming.value = true
+  let ok = false
+  try {
+    ok = await confirmDialog('使用部署默认配置', '不保存当前填写的内容，也不启用登录。能访问此服务的人都可以管理订阅与下载；之后可在设置页创建账户。', { okText: '使用默认配置', danger: true })
+  } finally { confirming.value = false }
   if (!ok) return
   await submit({})
+}
+
+function enterPanel() {
+  location.replace(loginFailed.value ? '/login' : libraryWarning.value ? '/#/settings' : '/#/discover')
 }
 </script>
 
 <template>
   <AuthShell subtitle="首次安装 · 完成基本设置即可开始使用" wide>
+    <section v-if="completed" class="completion" aria-live="polite">
+      <h2>安装设置已保存</h2>
+      <p v-if="loginFailed">自动登录未成功，请使用刚设置的账户登录，无需重新安装。</p>
+      <template v-else>
+        <p v-if="libraryWarning" class="storage-warning" role="alert">{{ libraryWarning }}</p>
+        <p v-if="libraryWarning">请在设置页确认媒体库目录。容器内目录需要映射到 NAS 文件夹，再开始下载。</p>
+        <p v-else>下一步在「找番」搜索番名，预览资源并添加订阅。使用媒体服务器时，扫描 Compose 中映射的 NAS 媒体文件夹。</p>
+      </template>
+      <BaseButton variant="primary" :icon="ArrowRight" :disabled="busy" @click="enterPanel">{{ loginFailed ? '前往登录' : libraryWarning ? '检查媒体库目录' : '开始添加订阅' }}</BaseButton>
+    </section>
+    <section v-else-if="!statusLoaded" aria-live="polite">
+      <p v-if="statusLoading">正在读取部署配置…</p>
+      <template v-else>
+        <p role="alert">{{ statusError }}</p>
+        <BaseButton :loading="statusLoading" @click="loadStatus">重新读取配置</BaseButton>
+      </template>
+    </section>
+    <template v-else>
     <ol class="steps" aria-label="设置步骤">
       <li
         v-for="(st, i) in STEPS"
@@ -309,15 +441,59 @@ async function skip() {
             </Transition>
           </template>
 
-          <template v-else>
+          <template v-else-if="current.key === 'storage'">
+            <div class="storage-note">
+              <p>整理好的番剧将保存到安装时配置的媒体文件夹，当前目录为 <strong class="storage-path">{{ archiveRoot }}</strong>。</p>
+              <p>使用飞牛模板时，无需重复填写 NAS 路径。飞牛影视选择 Compose 中映射的 NAS 文件夹。</p>
+              <p>想换到其他 NAS 文件夹或端口，打开<a href="/install" target="_blank" rel="noopener noreferrer">部署配置页</a>生成新的 Compose，再在飞牛重建项目；重建时保留原来的 data 映射。</p>
+              <p>订阅的「保存位置」留空时沿用这里。BT 原文件保留供做种，整理后的番剧另存一份。</p>
+            </div>
+            <div class="storage-check">
+              <BaseButton :icon="FolderOpen" :loading="storageLoading" :disabled="!canCheckStorage || locked" @click="checkStorage">检测保存目录</BaseButton>
+              <p class="field-hint">仅检测部署时配置的目录，创建、写入并删除一个临时文件。</p>
+              <p v-if="!canCheckStorage" class="field-hint">当前选择已不同于部署目录。请先核对 Docker 映射；此安装检测仅适用于部署目录。</p>
+              <p v-if="storageError" class="storage-warning" role="alert">{{ storageError }}</p>
+              <p v-if="storageResult" :class="{ 'storage-warning': !storageResult.writable || storageResult.mount_status === 'unknown' }" role="status">{{ storageResult.message }}</p>
+            </div>
             <div class="field">
-              <label for="su-proxy">出站代理（可选，支持 http、socks5；留空直连）</label>
+              <label class="check" for="su-keep-source">
+                <input id="su-keep-source" v-model="form.keep_source_files" type="checkbox" />
+                保留下载器原文件做种
+              </label>
+              <p class="field-hint">默认开启。关闭后，归档成功并写入数据库才停止对应任务、清理源文件；失败保留原文件。归档时仍需预留两份文件空间。外部下载器须配置明确的目录映射。</p>
+            </div>
+            <details>
+              <summary>高级：修改容器内媒体目录</summary>
+            <div class="field">
+              <label for="su-library">媒体库目录（整理好的番剧）</label>
+              <input id="su-library" v-model="form.library_dir" type="text" :placeholder="`留空使用 ${defaultDownloadDir}`" spellcheck="false" />
+              <p class="field-hint">已按部署配置填写；留空沿用下载目录。修改这里不会搬迁已有文件。</p>
+            </div>
+              <p>预计保存到：<strong class="storage-path">{{ archiveRoot }}/番剧名/Season XX/</strong></p>
+              <p>Docker 中填写容器内路径。例如 Compose 将 NAS 文件夹映射为 <code>/media</code>，这里就填 <code>/media</code>，飞牛影视扫描对应的 NAS 文件夹。</p>
+            </details>
+          </template>
+
+          <template v-else>
+            <dl class="setup-summary">
+              <dt>登录账户</dt><dd>{{ form.user.trim() || '未启用登录' }}</dd>
+              <dt>下载方式</dt><dd>{{ MODE_LABEL[form.mode] }}</dd>
+              <dt>媒体库目录</dt><dd class="storage-path">{{ archiveRoot }}</dd>
+              <dt>原文件做种</dt><dd>{{ form.keep_source_files ? '保留并继续做种' : '归档后删除' }}</dd>
+              <dt>网络与同步</dt><dd>{{ proxyLabel }} · 每 {{ form.poll_minutes }} 分钟</dd>
+            </dl>
+            <details>
+              <summary>调整代理与同步周期（可选）</summary>
+            <div class="field">
+              <label for="su-proxy">出站代理（可选，支持 http、socks5）</label>
               <input id="su-proxy" v-model="form.proxy_url" type="text" placeholder="例如 http://192.168.1.10:7890 或 socks5://…" spellcheck="false" />
+              <p class="field-hint">留空沿用部署配置，未配置代理时直连。需要关闭已有代理时，可在安装后的设置页修改。</p>
             </div>
             <div class="field">
               <label for="su-poll">RSS 同步周期（分钟，最小 5）</label>
               <input id="su-poll" v-model.number="form.poll_minutes" type="number" min="5" max="1440" />
             </div>
+            </details>
           </template>
         </section>
       </Transition>
@@ -326,17 +502,28 @@ async function skip() {
     <p class="form-msg" role="alert">{{ msg }}</p>
 
     <div class="actions">
-      <BaseButton variant="ghost" :disabled="busy" @click="skip">跳过，稍后设置</BaseButton>
+      <BaseButton variant="ghost" :disabled="locked" @click="skip">使用默认配置</BaseButton>
       <span class="spacer" />
-      <BaseButton v-if="step > 0" :icon="ArrowLeft" :disabled="busy" @click="go(-1)">上一步</BaseButton>
-      <BaseButton v-if="!isLast" variant="primary" :icon="ArrowRight" @click="go(1)">下一步</BaseButton>
-      <BaseButton v-else variant="primary" :icon="Check" :loading="busy" @click="finish">完成设置，开始使用</BaseButton>
+      <BaseButton v-if="step > 0" :icon="ArrowLeft" :disabled="locked" @click="go(-1)">上一步</BaseButton>
+      <BaseButton v-if="!isLast" variant="primary" :icon="ArrowRight" :disabled="locked" @click="go(1)">下一步</BaseButton>
+      <BaseButton v-else variant="primary" :icon="Check" :disabled="locked" :loading="busy" @click="finish">完成设置</BaseButton>
     </div>
+    </template>
   </AuthShell>
   <ConfirmHost />
 </template>
 
 <style scoped>
+.completion p { margin: 12px 0; color: var(--text-2); line-height: 1.7; }
+.storage-warning { color: var(--amber) !important; }
+.storage-check { margin: 16px 0; font-size: 13px; line-height: 1.7; }
+.storage-note { padding: 14px; border-radius: var(--r-md); background: var(--surface-2); color: var(--text-2); font-size: 13px; line-height: 1.7; }
+.storage-note p + p { margin-top: 8px; }
+.storage-path { overflow-wrap: anywhere; }
+.setup-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 18px; margin-bottom: 22px; font-size: 13px; }
+.setup-summary dt { color: var(--text-2); }
+.setup-summary dd { margin: 0; }
+summary { cursor: pointer; color: var(--text-2); margin-bottom: 16px; }
 .steps {
   list-style: none;
   margin: 0 0 24px;

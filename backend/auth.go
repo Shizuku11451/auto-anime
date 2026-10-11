@@ -231,7 +231,7 @@ func loginPage(w http.ResponseWriter, r *http.Request) {
 // reachable without a session; everything else requires one.
 func isPublicPath(p string) bool {
 	return p == "/api/health" || p == "/login" || p == "/api/login" ||
-		p == "/setup" || p == "/api/setup" || p == "/api/setup/status" ||
+		p == "/setup" || p == "/install" || p == "/api/setup" || p == "/api/setup/status" || p == "/api/setup/storage" ||
 		strings.HasPrefix(p, "/static/")
 }
 

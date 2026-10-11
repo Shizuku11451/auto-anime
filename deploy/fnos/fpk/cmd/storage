@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# 此脚本仅在宿主机以 root 执行，生成文件和 Docker socket 均不挂进容器。
+mount_error() {
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+        printf '%s\n' "$1" > "$TRIM_TEMP_LOGFILE"
+    else
+        printf '%s\n' "$1" >&2
+    fi
+    return 1
+}
+
+json_path() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    # Compose 会插值 JSON/YAML 中的美元符号。
+    value="${value//\$/\$\$}"
+    printf '"%s"' "$value"
+}
+
+prepare_mounts() {
+    local uid="${TRIM_UID:-}" gid="${TRIM_GID:-}" path resolved tmp prefix
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ ]] || { mount_error '缺少有效的非 root 应用用户'; return 1; }
+    local output="${TRIM_PKGETC:?}/authorized-mounts.json"
+    tmp="$(mktemp "${TRIM_PKGETC}/.mounts-XXXXXX")" || return 1
+    chmod 600 "$tmp"
+    printf '{"services":{"auto-anime":{"volumes":[' > "$tmp"
+    prefix=''
+    local -a paths
+    IFS=: read -r -a paths <<< "${TRIM_DATA_ACCESSIBLE_PATHS:-}"
+    for path in "${paths[@]}"; do
+        [ -n "$path" ] || continue
+        # 只接受存储空间下的具体目录；拒绝系统目录及包目录的任何别名。
+        if [[ "$path" =~ [[:cntrl:]] ]]; then
+            rm -f "$tmp"; mount_error '授权目录包含不支持的控制字符'; return 1
+        fi
+        resolved="$(readlink -f -- "$path")" || resolved=''
+        case "$resolved" in
+            /vol[0-9]*/@* | /vol[0-9]*/thumb | /vol[0-9]*/thumb/* | /vol[0-9]*/mediasrv.* | /vol[0-9]*/appcenter-downloads*)
+                rm -f "$tmp"; mount_error "不能挂载飞牛系统或应用目录：$path"; return 1 ;;
+        esac
+        if [[ ! "$resolved" =~ ^/vol[1-9][0-9]*/[^/]+(/.*)?$ ]] || [ ! -d "$resolved" ] || [ "$resolved" != "$path" ]; then
+            rm -f "$tmp"; mount_error "授权目录不存在、含软链或不是存储空间下的具体目录：$path"; return 1
+        fi
+        printf '%s{"type":"bind","source":' "$prefix" >> "$tmp"
+        json_path "$resolved" >> "$tmp"
+        printf ',"target":' >> "$tmp"
+        json_path "$resolved" >> "$tmp"
+        printf ',"bind":{"create_host_path":false}}' >> "$tmp"
+        prefix=','
+    done
+    printf ']}}}\n' >> "$tmp"
+    mv -f -- "$tmp" "$output"
+}
+
+run_compose() {
+    local base="${TRIM_APPDEST:?}/docker/docker-compose.yaml"
+    local mounts="${TRIM_PKGETC:?}/authorized-mounts.json"
+    if [ -f "$mounts" ]; then
+        docker compose --project-name "${TRIM_APPNAME:-auto-anime}" -f "$base" -f "$mounts" "$@"
+    else
+        docker compose --project-name "${TRIM_APPNAME:-auto-anime}" -f "$base" "$@"
+    fi
+}

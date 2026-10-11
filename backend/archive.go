@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -98,8 +97,9 @@ func safeComponent(raw string) string {
 	if name == "" {
 		return "未命名资源"
 	}
-	base := strings.ToUpper(strings.SplitN(name, ".", 2)[0])
-	if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || (len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9') {
+	base := strings.ToUpper(strings.TrimRight(strings.SplitN(name, ".", 2)[0], " "))
+	device := strings.NewReplacer("¹", "1", "²", "2", "³", "3").Replace(base)
+	if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || base == "CONIN$" || base == "CONOUT$" || (len(device) == 4 && (strings.HasPrefix(device, "COM") || strings.HasPrefix(device, "LPT")) && device[3] >= '1' && device[3] <= '9') {
 		name = "_" + name
 	}
 	return name
@@ -164,7 +164,7 @@ func resolveSeason(animeTitle string, itemSeason, autoSeason int) int {
 func archiveBaseRoot() string {
 	cfg := runtimeConfig()
 	if d := strings.TrimSpace(cfg.libraryDir); d != "" {
-		return path.Clean(filepath.ToSlash(d))
+		return cleanStoragePath(d)
 	}
 	return downloadDir
 }
@@ -175,7 +175,7 @@ func archiveRootFor(series string) string {
 	root := filepath.Join(archiveBaseRoot(), safeComponent(series))
 	if dir, _, ok := queryAnimeStorage(series); ok {
 		if d := strings.TrimSpace(dir); d != "" {
-			root = path.Clean(filepath.ToSlash(d))
+			root = cleanStoragePath(d)
 		}
 	}
 	return root
@@ -209,8 +209,26 @@ func checkSeriesRoot(root string) error {
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return err
 	}
-	if info, err := os.Lstat(root); err != nil || info.Mode()&os.ModeSymlink != 0 {
+	if info, err := os.Lstat(root); err != nil || archivePathIsLink(root, info) {
 		return fmt.Errorf("归档目录不可用或是符号链接")
+	}
+	return nil
+}
+
+func checkArchiveChild(root, child string) error {
+	if child == "" {
+		return nil
+	}
+	dir := filepath.Join(root, child)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if archivePathIsLink(dir, info) {
+		return fmt.Errorf("归档季目录不可用或是符号链接")
 	}
 	return nil
 }
@@ -232,7 +250,7 @@ func uniqueChildName(dir, base string) string {
 // target name is taken.
 func commitLinked(workPath, dstPath string) error {
 	if err := os.Link(workPath, dstPath); err != nil {
-		return err
+		return commitWithoutHardlink(workPath, dstPath, err)
 	}
 	return os.Remove(workPath)
 }
@@ -436,7 +454,7 @@ func saveArchiveContext(ctx context.Context, m archiveMetadata, res *http.Respon
 	// Pick a free "base", "base (2)"… name and link the media in first; the
 	// metadata follows under the same final base name.
 	finalDir := filepath.Join(seriesRoot, seasonDir)
-	if err := os.MkdirAll(finalDir, 0755); err != nil {
+	if err := checkArchiveChild(seriesRoot, seasonDir); err != nil {
 		return "", err
 	}
 	final := base
@@ -590,7 +608,7 @@ func archiveFromFiles(id int, files []archiveFile) (string, error) {
 		return "", err
 	}
 	finalDir := filepath.Join(seriesRoot, seasonDir)
-	if err := os.MkdirAll(finalDir, 0755); err != nil {
+	if err := checkArchiveChild(seriesRoot, seasonDir); err != nil {
 		return "", err
 	}
 	name := uniqueChildName(finalDir, base)

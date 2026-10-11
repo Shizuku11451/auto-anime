@@ -105,8 +105,8 @@ func TestSubscriptionStorageWarnsUnmappedPath(t *testing.T) {
 	}
 }
 
-// 设置页保存媒体库目录时同样提示。
-func TestLibraryDirWarnsWhenUnmapped(t *testing.T) {
+// 设置页拒绝尚未挂载的媒体目录。
+func TestLibraryDirRejectsWhenUnmapped(t *testing.T) {
 	testDatabase(t)
 	useMountInfo(t, containerMountTable)
 	setWebAuth(t, "", "")
@@ -115,17 +115,8 @@ func TestLibraryDirWarnsWhenUnmapped(t *testing.T) {
 	t.Cleanup(func() { setupDone = false; webHash = ""; libraryDir = old })
 	base := filepath.ToSlash(t.TempDir())
 	rec := settingsPUT(t, `{"library_dir":"`+base+`"}`)
-	if rec.Code != 200 {
-		t.Fatalf("put library dir: %d %s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		LibraryWarning string `json:"library_warning"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.LibraryWarning, "没有映射进容器") {
-		t.Fatalf("缺少媒体库目录提示：%s", rec.Body.String())
+	if rec.Code != 400 || libraryDir != old || !strings.Contains(rec.Body.String(), "未映射") {
+		t.Fatalf("unmapped directory accepted: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

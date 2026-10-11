@@ -33,6 +33,8 @@ jobs:
         with:
           go-version: '1.23'
           cache-dependency-path: backend/go.sum
+      - name: fnOS package scripts
+        run: bash deploy/fnos/test-fpk.sh
       - name: Backend tests and vet
         working-directory: backend
         env:
@@ -44,3 +46,25 @@ jobs:
       - name: Race detector
         working-directory: backend
         run: go test -race -run TestConcurrentRuntimeConfig . -count=1 -timeout=240s
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+      - name: Windows tests, vet and desktop build
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test ./... -count=1 -timeout=240s
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -ldflags '-H windowsgui -X main.desktopDefault=true' -o ../dist/Auto-Anime.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

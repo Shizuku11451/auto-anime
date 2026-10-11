@@ -11,11 +11,11 @@ import (
 	"io"
 	"log"
 	_ "modernc.org/sqlite"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -47,6 +47,10 @@ var aria2Dir = env("ARIA2_DIR", "")
 var aria2LocalDir = env("ARIA2_LOCAL_DIR", "")
 var qbitLocalDir = env("QBIT_LOCAL_DIR", "")
 var transmissionLocalDir = env("TRANSMISSION_LOCAL_DIR", "")
+
+// Keep completed downloader files for seeding by default. Disabling this only
+// removes source files after the archived copy is committed successfully.
+var keepSourceFiles = envBool("KEEP_SOURCE_FILES", true)
 var downloaderPollSeconds = 10
 var webhookURL = strings.TrimSpace(env("WEBHOOK_URL", ""))
 var listenPort = env("PORT", "8000")
@@ -264,6 +268,9 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS source_cleanup(item_id INTEGER PRIMARY KEY,downloader TEXT NOT NULL,task_id TEXT NOT NULL,submitted_at INTEGER NOT NULL,archive_path TEXT NOT NULL,files TEXT NOT NULL,source_root TEXT NOT NULL,stopped INTEGER NOT NULL DEFAULT 0)`); err != nil {
+		log.Fatal(err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS archive_commits(item_id INTEGER PRIMARY KEY,signature TEXT NOT NULL,file_path TEXT NOT NULL,marker TEXT NOT NULL,saved_at TEXT NOT NULL)`); err != nil {
 		log.Fatal(err)
 	}
@@ -661,9 +668,9 @@ func sanitizeStorageDir(raw string) (string, error) {
 			return "", fmt.Errorf("存储位置不能包含 ..")
 		}
 	}
-	// Keep forward slashes: the storage dir runs inside the Linux container,
-	// and path.Clean avoids the platform-dependent separator of filepath.Clean.
-	return path.Clean(filepath.ToSlash(d)), nil
+	// Persist forward slashes while retaining the host filesystem's volume
+	// semantics, including Windows UNC shares.
+	return cleanStoragePath(d), nil
 }
 
 // animeStorageAPI keeps the legacy /api/anime/{title}/storage endpoint working
@@ -1300,6 +1307,10 @@ func main() {
 	}
 	// 启动引导：若上一次更新把新版本暂存在数据目录，先应用它再启动服务。
 	bootstrapStagedUpdate()
+	if desktopRequested() {
+		runDesktop()
+		return
+	}
 	// 仅用于演练/联调：让重启后的新进程与旧进程错开端口释放时间。
 	if raw := os.Getenv("AUTO_ANIME_STARTUP_DELAY_SECONDS"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 60 {
@@ -1315,6 +1326,17 @@ func main() {
 func runApplication() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	return runApplicationContext(ctx, nil, nil)
+}
+
+// Desktop owns the listener from startup, so no port probe/rebind race can
+// navigate the window to an unrelated local server.
+func runApplicationContext(ctx context.Context, listener net.Listener, ready func()) error {
+	releaseLock, err := acquireApplicationLock(env("DB_PATH", defaultDBPath()))
+	if err != nil {
+		return err
+	}
+	defer releaseLock()
 	initDB()
 	defer db.Close()
 	cleanupSessions()
@@ -1324,7 +1346,7 @@ func runApplication() error {
 	}
 	if raw := env("PROXY_URL", ""); raw != "" {
 		if err := applyProxyConfig(raw); err != nil {
-			log.Fatalf("PROXY_URL 无效: %v", err)
+			return fmt.Errorf("PROXY_URL 无效: %w", err)
 		}
 		log.Printf("出站代理已启用: %s（RSS/下载/封面走代理，下载器 RPC 始终直连）", redactProxy(currentProxy()))
 	}
@@ -1374,11 +1396,14 @@ func runApplication() error {
 	})
 	http.HandleFunc("/login", loginPage)
 	http.HandleFunc("/setup", setupPage)
+	http.HandleFunc("/install", installPage)
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/logout", handleLogout)
 	http.HandleFunc("/api/settings", settingsHandler)
+	http.HandleFunc("/api/settings/storage", settingsStorageHandler)
 	http.HandleFunc("/api/setup", setupHandler)
 	http.HandleFunc("/api/setup/status", setupStatusHandler)
+	http.HandleFunc("/api/setup/storage", setupStorageHandler)
 	http.HandleFunc("/api/feeds", feeds)
 	http.HandleFunc("/api/preview", preview)
 	http.HandleFunc("/api/backup", backup)
@@ -1422,7 +1447,16 @@ func runApplication() error {
 	log.Printf("自动追番运行在 :%s", listenPort)
 	server := &http.Server{Addr: ":" + listenPort, Handler: auth(http.DefaultServeMux), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- server.ListenAndServe() }()
+	go func() {
+		if listener != nil {
+			if ready != nil {
+				ready()
+			}
+			serveErr <- server.Serve(listener)
+		} else {
+			serveErr <- server.ListenAndServe()
+		}
+	}()
 	select {
 	case <-ctx.Done():
 	case err := <-serveErr:

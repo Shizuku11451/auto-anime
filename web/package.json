@@ -6,7 +6,7 @@
   "description": "自动追番管理界面（Vue 3 + Vite），构建产物输出到 ../backend/static",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "vue-tsc -b && vite build && node scripts/build-install.mjs",
     "typecheck": "vue-tsc -b",
     "preview": "vite preview"
   },

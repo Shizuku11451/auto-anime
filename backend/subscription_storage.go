@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,7 +24,7 @@ func subscriptionSeriesRoot(base, title string) string {
 	if base == "" || title == "" {
 		return ""
 	}
-	return path.Join(path.Clean(filepath.ToSlash(base)), safeComponent(title))
+	return cleanStoragePath(filepath.Join(base, safeComponent(title)))
 }
 
 // appendWarning 拼接多条给用户看的提示，避免后一条覆盖前一条；空提示忽略。

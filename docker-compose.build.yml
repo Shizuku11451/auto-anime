@@ -1,0 +1,6 @@
+# 源码构建专用；在仓库根目录执行：
+# docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  auto-anime:
+    image: auto-anime:local
+    build: .

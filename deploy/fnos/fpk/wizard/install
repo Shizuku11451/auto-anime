@@ -1,0 +1,27 @@
+[
+  {
+    "stepTitle": "配置 Auto-Anime",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_bt_port",
+        "label": "BT 监听端口",
+        "initValue": "6881",
+        "rules": [
+          { "required": true, "message": "请填写 BT 监听端口" },
+          { "pattern": "^[0-9]{1,5}$", "message": "只能填写数字" }
+        ]
+      },
+      {
+        "type": "switch",
+        "field": "wizard_keep_source",
+        "label": "保留下载器原文件做种",
+        "initValue": "true"
+      },
+      {
+        "type": "tips",
+        "helpText": "番剧默认保存在应用共享目录 auto-anime/media。自定义位置：在「应用设置 → 访问权限」授权番剧文件夹，重启应用同步挂载，再在网页「设置 → 媒体库目录」填同一路径并检测。BT 端口不能与网页端口 8000 相同；安装后改 BT 端口需修改部署配置，网页设置仅支持修改做种策略。"
+      }
+    ]
+  }
+]

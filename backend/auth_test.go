@@ -94,7 +94,8 @@ func TestAuthRedirectsPagesAndKeepsLoginAssetsPublic(t *testing.T) {
 		t.Fatalf("page redirect: %d %s", recorder.Code, recorder.Header().Get("Location"))
 	}
 
-	for _, path := range []string{"/login", "/static/app.js", "/static/style.css", "/api/health", "/api/login"} {
+	// /setup 与 /install 是安装期入口：不能因为还没登录就被重定向掉。
+	for _, path := range []string{"/login", "/setup", "/install", "/static/app.js", "/static/style.css", "/api/health", "/api/login"} {
 		recorder = httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest("GET", path, nil))
 		if recorder.Code == http.StatusUnauthorized || recorder.Code == http.StatusFound {

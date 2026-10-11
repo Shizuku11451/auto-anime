@@ -17,18 +17,19 @@ function setup() {
   let allowLeave = false
   let leave
   let beforeUnload
+  let probe = async () => ({ path: '/temporary/library', writable: true, mount_status: 'mapped', message: '已映射，可以写入' })
   const data = { download_mode: 'direct', poll_minutes: 30, library_dir: '/temporary/library' }
   const location = { href: '' }
   const stub = { render: () => null }
   const modules = {
-    vue: { ...vue, onMounted: () => {} },
+    vue: { ...vue, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-router': { onBeforeRouteLeave: fn => { leave = fn } },
     '@vueuse/core': { useMediaQuery: () => vue.ref(false), useEventListener: (_target, _event, fn) => { beforeUnload = fn } },
     '@lucide/vue': new Proxy({}, { get: () => stub }),
     '@/components/ui/PageHeader.vue': stub,
     '@/components/ui/BaseButton.vue': stub,
     '@/api/types': { MODE_LABEL: {} },
-    '@/api/client': { http: {
+    '@/api/client': { api: (...args) => probe(...args), http: {
       get: async () => { if (fail) throw new Error('模拟读取失败'); return data },
       put: async (_url, body) => { writes.push(body); Object.assign(data, body); return { ok: true, reauth_required: !!body.web_password } },
     }, errorMessage: e => e.message },
@@ -38,10 +39,10 @@ function setup() {
     '@/stores/toast': { toast: { success() {}, error() {}, info() {} } },
     '@/stores/confirm': { confirmDialog: async () => allowLeave },
   }
-  const context = { exports: {}, window: {}, location, require: id => { assert.ok(id in modules, id); return modules[id] } }
+  const context = { exports: {}, window: {}, location, AbortController, require: id => { assert.ok(id in modules, id); return modules[id] } }
   runInNewContext(compiled, context)
   const state = context.exports.default.setup({}, { expose() {} })
-  return { state, writes, location, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
+  return { state, writes, location, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
 }
 
 test('设置未读取或读取失败时不得提交默认值，重试成功后才允许保存', async () => {
@@ -78,6 +79,16 @@ test('分类切换保留输入，取消离开保留更改，明确放弃才允�
   assert.equal(h.writes.length, 0)
 })
 
+test('做种保留默认开启，关闭保存后刷新仍保留 false', async () => {
+  const h = setup()
+  await h.state.load()
+  assert.equal(h.state.form.keep_source_files, true)
+  h.state.form.keep_source_files = false
+  await h.state.save()
+  assert.equal(h.writes[0].keep_source_files, false)
+  assert.equal(h.state.form.keep_source_files, false)
+})
+
 test('未更改时不重复保存，未保存输入触发刷新保护，保存中阻止离开', async () => {
   const h = setup()
   await h.state.load()
@@ -103,4 +114,25 @@ test('修改密码保存成功后跳转登录，不误报尚有未保存的更�
   let prevented = false
   h.unload({ preventDefault: () => { prevented = true } })
   assert.equal(prevented, false)
+})
+
+test('目录检测失败可重试，更换目录取消请求且旧结果不得覆盖新输入', async () => {
+  const h = setup()
+  await h.state.load()
+  h.probe(async () => { throw new Error('没有写入权限') })
+  await h.state.checkStorage()
+  assert.equal(h.state.storageError.value, '没有写入权限')
+  let resolve
+  let signal
+  h.probe((_url, options) => { signal = options.signal; return new Promise(done => { resolve = done }) })
+  const pending = h.state.checkStorage()
+  h.state.form.library_dir = '/temporary/new-library'
+  assert.equal(signal.aborted, true)
+  resolve({ path: '/temporary/library', writable: true, mount_status: 'mapped', message: '旧结果' })
+  await pending
+  assert.equal(h.state.storageResult.value, null)
+  h.probe(async () => ({ path: '/temporary/new-library', writable: true, mount_status: 'mapped', message: '已映射，可以写入' }))
+  await h.state.checkStorage()
+  assert.equal(h.state.storageResult.value.path, '/temporary/new-library')
+  assert.equal(h.writes.length, 0)
 })

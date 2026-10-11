@@ -102,6 +102,9 @@ func applyStoredSettings(stored map[string]string) {
 	if v, ok := stored["transmission_local_dir"]; ok {
 		transmissionLocalDir = v
 	}
+	if v, ok := stored["keep_source_files"]; ok {
+		keepSourceFiles = v == "1"
+	}
 	// 只写不读的敏感字段：仅在有值时更新，无法通过设置页清除。
 	for key, target := range map[string]*string{
 		"aria2_token":           &aria2Token,
@@ -274,6 +277,7 @@ type settingsInput struct {
 	DiscoverSearchTemplate  *string `json:"discover_search_template"`
 	LibraryDir              *string `json:"library_dir"`
 	AutoCleanupEmptyAnime   *bool   `json:"auto_cleanup_empty_anime"`
+	KeepSourceFiles         *bool   `json:"keep_source_files"`
 }
 
 func decodeSettings(w http.ResponseWriter, r *http.Request) (*settingsInput, bool) {
@@ -458,6 +462,9 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 	if in.AutoCleanupEmptyAnime != nil {
 		values["auto_cleanup_empty_anime"] = strconv.Itoa(boolInt(*in.AutoCleanupEmptyAnime))
 	}
+	if in.KeepSourceFiles != nil {
+		values["keep_source_files"] = strconv.Itoa(boolInt(*in.KeepSourceFiles))
+	}
 	revokeSessions := false
 	if in.WebPassword != nil && *in.WebPassword != "" {
 		user := cfg.webUser
@@ -499,6 +506,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			"discover_search_template": cfg.discoverSearchTemplate,
 			"library_dir":              cfg.libraryDir,
 			"auto_cleanup_empty_anime": getSetting("auto_cleanup_empty_anime") == "1",
+			"keep_source_files":        cfg.keepSourceFiles,
 			"download_dir":             downloadDir,
 			"setup_done":               cfg.setupDone,
 		})
@@ -506,6 +514,21 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		in, ok := decodeSettings(w, r)
 		if !ok {
 			return
+		}
+		// 目录变更在写数据库前检测，失败时整份设置不落库。
+		if in.LibraryDir != nil && strings.TrimSpace(*in.LibraryDir) != cfg.libraryDir {
+			dir, err := validateLibraryDir(*in.LibraryDir)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if dir == "" {
+				dir = downloadDir
+			}
+			if result := probeSetupStorage(dir); !result.Writable {
+				http.Error(w, result.Message, http.StatusBadRequest)
+				return
+			}
 		}
 		if err := applySettings(in); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -539,7 +562,16 @@ func setupStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, map[string]any{"required": setupRequired(), "download_mode": cfg.downloadMode})
+	response := map[string]any{"required": setupRequired(), "download_mode": cfg.downloadMode}
+	// Only the uninitialized wizard needs paths. This endpoint is public.
+	if response["required"] == true {
+		response["library_dir"] = cfg.libraryDir
+		response["download_dir"] = downloadDir
+		response["poll_minutes"] = cfg.pollMinutes
+		response["proxy_enabled"] = currentProxy() != nil
+		response["keep_source_files"] = cfg.keepSourceFiles
+	}
+	jsonOut(w, response)
 }
 
 // setupHandler runs the first-run wizard. It stays reachable without
@@ -548,6 +580,9 @@ func setupStatusHandler(w http.ResponseWriter, r *http.Request) {
 func setupHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "方法不支持", 405)
+		return
+	}
+	if !allowSetupWrite(w, r) {
 		return
 	}
 	in, ok := decodeSettings(w, r)
@@ -566,7 +601,11 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("首次安装引导已完成")
-	jsonOut(w, map[string]bool{"ok": true})
+	root := strings.TrimSpace(runtimeConfig().libraryDir)
+	if root == "" {
+		root = downloadDir
+	}
+	jsonOut(w, map[string]any{"ok": true, "library_warning": unmappedPathWarning(root)})
 }
 
 func setupPage(w http.ResponseWriter, r *http.Request) {
@@ -580,4 +619,14 @@ func setupPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	serveWebPage(w, r, "setup.html")
+}
+
+// installPage 提供与离线安装配置页相同的 Compose 生成器。容器启动后可在局域网任意设备
+// 访问 /install，用于更换 NAS 媒体目录或端口时重新生成配置，无需联网下载文件。
+func installPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "方法不支持", http.StatusMethodNotAllowed)
+		return
+	}
+	serveWebPage(w, r, "install.html")
 }

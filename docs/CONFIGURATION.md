@@ -8,16 +8,40 @@
 
 环境变量用于启动配置；修改后执行 `docker compose up -d` 重建容器。仅重启容器不会更新环境变量。首次访问未初始化的实例时会进入设置向导，已通过环境变量配置完整登录账户时直接进入登录页。
 
+## 安装入口与首次设置
+
+- 飞牛图形界面安装：见 [飞牛安装指南](FNOS.md)，使用 [专用 Compose](../deploy/fnos/docker-compose.yml)。它将项目目录下的 `data/` 映射为 `/data`、`media/` 映射为 `/media`，默认媒体库为 `/media`。
+- 自定义 NAS 番剧目录：可以直接把专用 Compose 里 `./media:/media` 左侧改成实际绝对路径；也可以下载[离线安装配置页](../deploy/fnos/install.html)后用浏览器打开，填写路径生成完整 Compose。配置页不访问网络；支持复制和下载，端口冲突时可一起调整。生成的新安装配置仍映射 `./data:/data`，旧安装须保留原数据卷。同一页面也随应用分发，容器启动后可在局域网访问 `http://NAS地址:8000/install`（改过端口用新端口）重新生成配置。页面由 `web/src/install/` 源码与现有设计 token 生成，`npm run build` 同时更新离线产物与镜像内 `/install` 页面。
+- 飞牛应用包：官方 fnpack 构建 `.fpk`，默认媒体位于共享目录 `auto-anime/media`。宿主 root 生命周期脚本管理容器并按 `TRIM_DATA_ACCESSIBLE_PATHS` 生成具体授权目录挂载，不挂载整卷、宿主应用包、配置或 Docker socket。容器使用非 root 应用用户并移除 capabilities。用户授权后重启应用，再在网页填写路径并检测；目录变更保存前检查写入，失败不保存。非 root 程序副本位于 `/data/runtime/<镜像程序摘要>`，支持自更新；备份整个数据目录包含该目录。详见[飞牛应用包](FNOS_APP.md)。
+- 通用 Docker 安装：仓库根目录 `docker-compose.yml` 默认拉取发布镜像，仍保留 `./docker-data:/data`、媒体库留空回退 `/data/downloads`，不会自动迁移已有数据。
+- 源码构建：在完整仓库根目录执行 `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`；不要在只有 Compose 文本的飞牛项目中使用构建覆盖文件。
+
+`KEEP_SOURCE_FILES` 默认 `true`，归档后保留下载器源文件继续做种；设为 `false` 或在首次向导/设置页关闭「保留下载器原文件做种」时，归档文件成功提交到数据库后，后台先停止对应下载任务，再删除本次下载器返回的普通源文件，归档副本保留。普通直链无独立做种源文件，不受影响。归档或提交失败不会清理；清理队列持久化，重启后可继续，失败在条目中显示原因并重试。重新开启开关会取消尚未处理的清理，不能恢复已删除的源文件。已经保存的旧条目不会因关闭开关而批量删除。
+
+自动清理支持内置/外部 qBittorrent、Aria2、Transmission。外部下载器须提前配置明确的下载目录/本地映射根目录，源文件超出该目录、与归档重叠、被修改或替换、其他条目共用任务、下载器连接或映射发生变化时保留原文件。只清理返回的源文件，不递归删除目录或控制文件；下载器保留停止的任务记录。归档时仍需同时容纳源文件与副本，关闭做种也要预留归档空间。未配置映射的已有清理记录需手动处理。
+
+首次向导依次设置管理员账户、下载方式、保存目录并确认。它读取当前部署中的下载方式与目录，读取失败时须重试成功后才能保存，避免误用默认值。没有自建下载器时保留内置模式；代理和同步周期为可选项，默认直连与 30 分钟。
+
+保存目录默认沿用部署值，手动修改收在高级选项。未初始化时可点击「检测保存目录」：仅对部署根目录创建、写入、同步并删除临时文件，不接受任意路径，不创建缺失目录，不改变设置。挂载状态区分已映射、未映射、无法确认和非 overlay 环境无需检查；不能确认时不得当作已映射。接口在初始化完成或已配置完整账户后关闭。该检查不能替代真实 NAS 的下载、归档与重建验收，也不会修改 Docker 挂载。
+
+已有部署通过环境变量配置的同步周期会被回填。向导不公开代理地址或凭据，代理输入留空时沿用已有部署代理；没有配置代理时保持直连。需要关闭已有代理时，在安装后的设置页修改。
+
+目录填写的是容器内路径，不能只在网页中填写 NAS 文件夹就认为已经映射。完成后若报告媒体库未映射，页面会保留提示并引导进入设置检查；该检测不等于磁盘、权限与真实 NAS 验收。自动登录失败时使用新账户登录，无需重复安装。正常完成后进入「找番」添加订阅。
+
+网页端口冲突只需改宿主机一侧（如 `18000:8000`），无需改 `PORT` 或健康检查。内置 BT 端口冲突时应同步修改 TCP/UDP 映射两侧与 `QBITTORRENT_BT_PORT`。镜像自带健康检查，精简 Compose 沿用它。
+
+原 Compose 中的外部下载器、代理、账户、Webhook 和更新源等可选环境变量仍受支持，按下表与相应章节自行添加；这一轮只精简示例，并未移除后端配置能力。
+
 ## 基础环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DOWNLOAD_MODE` | Docker：`builtin`；源码：`direct` | 下载方式，见下表 |
+| `DOWNLOAD_MODE` | Docker/Windows 桌面完整包：`builtin`；源码/无下载器单文件版：`direct` | 下载方式，见下表；数据库设置优先 |
 | `DOWNLOAD_DIR` | `/data/downloads`（Windows：程序同级 `data\downloads`） | 默认归档目录 |
 | `LIBRARY_DIR` | 空 | 媒体库根目录；空时使用 `DOWNLOAD_DIR`，单部番的存储位置优先 |
 | `DB_PATH` | `/data/auto-anime.db`（Windows：程序同级 `data\auto-anime.db`） | SQLite 数据库路径 |
 | `COVERS_DIR` | 数据库同级的 `covers` | 本地封面缓存目录 |
-| `PORT` | `8000` | Web 监听端口；修改时同步调整端口映射和健康检查 |
+| `PORT` | `8000` | Web 监听端口；桌面入口仅监听 `127.0.0.1`；Docker 修改时同步调整端口映射和健康检查 |
 | `POLL_MINUTES` | `30` | RSS 同步周期，单位分钟，最小 5 |
 | `DOWNLOADER_POLL_SECONDS` | `10` | 下载器进度轮询间隔，单位秒，最小 5 |
 | `PROXY_URL` | 空 | 默认直连，代理作用范围见下文 |
@@ -46,13 +70,13 @@
 
 ## 内置 qBittorrent
 
-Docker 部署无需填写下载器连接信息。源码运行时需自行安装下载器，程序会为它创建独立配置，不使用桌面客户端的默认配置。Windows Release `.exe` 不包含 qBittorrent 程序；Windows 上请选择 `direct` 或外部下载器，或者自行安装 qBittorrent 并设置 `QBITTORRENT_PATH`。如果数据库或环境变量里仍是 `builtin` 而没有 `QBITTORRENT_PATH`，Windows 版启动时会明确告警并临时降级成 `direct`（老的配置因此不再导致启动即退出，可在设置页改成 `direct`/外部下载器，或装好 qBittorrent 后重启）；库里已有的内置条目会提示重新提交。
+Docker 和 Windows 桌面完整包部署无需填写下载器连接信息。Windows `-desktop.zip` 带有 `qbittorrent/`，桌面入口首次运行默认使用 `builtin`，数据库中已保存的选择优先；仅 `.exe` 和源码运行需提供下载器。程序创建独立配置，不使用电脑上其他客户端的默认配置。Windows 先使用显式 `QBITTORRENT_PATH`，未设置时查找程序同级 `qbittorrent/qbittorrent-nox.exe` 或 `qbittorrent/qbittorrent.exe`，再从 PATH 查找 `qbittorrent-nox`。找不到时仍明确告警并临时降级成 `direct`，已有内置任务不会被改写成外部任务。详见 [Windows 桌面版](WINDOWS.md)。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `QBITTORRENT_DATA_DIR` | 数据库同级的 `qbittorrent/`；镜像为 `/data/qbittorrent` | 配置、凭据、续传数据与下载源文件 |
-| `QBITTORRENT_PATH` | 从 PATH 查找 `qbittorrent-nox` | 可指定完整程序路径，Windows 可指向 `qbittorrent.exe` |
-| `EMBEDDED_QBIT_PORT` | `8080` | 仅监听容器回环地址的 WebUI 端口，无需映射到宿主机 |
+| `QBITTORRENT_PATH` | Windows 优先程序同级 `qbittorrent/`，否则从 PATH 查找 `qbittorrent-nox` | 可指定完整程序路径，Windows 可指向 `qbittorrent.exe` |
+| `EMBEDDED_QBIT_PORT` | `8080` | 仅监听回环地址的 WebUI 端口，Docker 无需映射到宿主机 |
 | `QBITTORRENT_BT_PORT` | `6881` | BT / DHT 端口，需与 TCP、UDP 映射一致 |
 
 数据目录中的 `profile/` 保存配置与恢复数据，`downloads/` 保存源文件。连接凭据自动生成并持久化，不包含在设置响应或 JSON 备份中。
@@ -126,7 +150,7 @@ QBIT_LOCAL_DIR: /source-downloads
 
 上面的根目录（`LIBRARY_DIR`、番剧存储位置、订阅保存位置）都是**容器内路径**。Docker 不会阻止程序写入未映射的绝对路径，但文件会落在容器自己的文件系统里：任务显示「已保存」，NAS 文件管理里却没有，容器重建后还会丢失。
 
-在飞牛 fnOS 上，存储空间挂载为 `/vol1`、`/vol2`…，第一个用户（UID 1000）的「我的文件」是 `/vol1/1000`；用户文件/共享文件使用 Windows ACL，Docker 目录仍用 POSIX ACL，因此容器能否写入取决于**目录是否被映射进来**，而不是 ACL。群晖等 NAS 同理使用 `/volume1/…`。
+飞牛 fnOS 的实际文件夹路径以文件管理器显示为准，不同存储空间和用户的路径可能不同；不要直接照搬示例中的用户 ID。目录既要映射进容器，也要允许容器进程读取和写入。映射存在不代表权限一定正确；群晖等 NAS 同样需要检查实际路径与权限。
 
 ```yaml
 volumes:
@@ -176,7 +200,7 @@ volumes:
 | --- | --- |
 | 发布镜像（`ghcr.io/shizuku11451/auto-anime`），`/app` 可写 | 更新包直接替换容器内可执行文件，并写入 `/data` 暂存副本，重启后即为新版本 |
 | 发布镜像，`/app` 只读（默认行为时通常可写，容器以 root 运行） | 更新包写入 `/data` 暂存；下次启动由容器入口与应用引导步骤替换程序文件并自动重启 |
-| 本地构建镜像（`docker compose up -d --build`） | 可正常更新，但**下次构建镜像会覆盖为新镜像里的旧版本**；把源码更新并重新构建，或把 `/app/auto-anime` 做成挂载卷 |
+| 本地构建镜像（使用 `docker-compose.build.yml` 覆盖文件） | 可正常更新，但**下次构建镜像会覆盖为新镜像里的旧版本**；把源码更新并重新构建，或把 `/app/auto-anime` 做成挂载卷 |
 | 源码运行 | 不提供自动更新（版本为 `dev`），设置页只提示有新版本 |
 
 容器被重建（`docker compose up -d --force-recreate`）时，如果镜像是旧版本，程序文件会回到旧版本，但 `/data` 中保留的暂存更新包会在启动引导阶段重新替换，重启一次即恢复新版本。因此升级镜像与一键更新可以并存：任一路径都能把版本推到最新。

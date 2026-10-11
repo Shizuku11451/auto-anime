@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -149,11 +148,11 @@ func retargetSeriesDirPath(dir, oldTitle, newTitle string) string {
 	if dir == "" {
 		return ""
 	}
-	clean := path.Clean(filepath.ToSlash(dir))
-	if path.Base(clean) != safeComponent(oldTitle) {
+	clean := cleanStoragePath(dir)
+	if filepath.Base(clean) != safeComponent(oldTitle) {
 		return ""
 	}
-	target := path.Join(path.Dir(clean), safeComponent(newTitle))
+	target := cleanStoragePath(filepath.Join(filepath.Dir(clean), safeComponent(newTitle)))
 	if target == clean {
 		return ""
 	}

@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# 安装前校验向导输入。失败时把用户可见的错误写进 TRIM_TEMP_LOGFILE 并以非零状态退出。
+: "${TRIM_TEMP_LOGFILE:=/dev/null}"
+
+bt_port="${wizard_bt_port:-}"
+
+if ! printf '%s' "$bt_port" | grep -Eq '^[0-9]{1,5}$'; then
+    echo "BT 监听端口必须是数字，当前值：${bt_port}" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+fi
+
+if [ "$bt_port" -lt 1 ] || [ "$bt_port" -gt 65535 ]; then
+    echo "BT 监听端口需在 1-65535 之间，当前值：${bt_port}" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+fi
+
+if [ "$bt_port" -eq "${TRIM_SERVICE_PORT:-8000}" ]; then
+    echo "BT 监听端口不能与网页端口 ${TRIM_SERVICE_PORT:-8000} 相同" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+fi
+
+# switch 字段在不同版本的飞牛上可能提交 true/false，也可能提交 1/0，这里两种都接受。
+keep_source="$(printf '%s' "${wizard_keep_source:-true}" | tr '[:upper:]' '[:lower:]')"
+case "$keep_source" in
+true | false | 1 | 0 | yes | no | on | off) ;;
+*)
+    echo "保留下载器原文件做种只能取 true 或 false（1/0 也可），当前值：${wizard_keep_source}" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+    ;;
+esac
+
+exit 0

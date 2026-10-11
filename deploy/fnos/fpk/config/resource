@@ -1,0 +1,14 @@
+{
+    "data-share": {
+        "shares": [
+            {
+                "name": "auto-anime/media",
+                "permission": {
+                    "ro": [
+                        "trim.photos"
+                    ]
+                }
+            }
+        ]
+    }
+}

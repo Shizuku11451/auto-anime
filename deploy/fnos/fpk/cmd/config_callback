@@ -1,0 +1,9 @@
+#!/bin/bash
+
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+. "$script_dir/storage"
+if docker inspect --format '{{.State.Running}}' "${TRIM_APPNAME:-auto-anime}" 2>/dev/null | grep -q '^true$'; then
+    prepare_mounts && run_compose up -d --remove-orphans
+    exit $?
+fi
+exit 0

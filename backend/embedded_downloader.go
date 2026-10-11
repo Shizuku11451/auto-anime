@@ -54,16 +54,33 @@ func embeddedQbitPort(key string, fallback int) (int, error) {
 func embeddedQbitExecutable() (string, error) {
 	name := strings.TrimSpace(env("QBITTORRENT_PATH", ""))
 	if name == "" {
+		if runtime.GOOS == "windows" {
+			if app, err := os.Executable(); err == nil {
+				if bundled := bundledQbitExecutable(filepath.Dir(app)); bundled != "" {
+					return bundled, nil
+				}
+			}
+		}
 		name = "qbittorrent-nox"
 	}
 	exe, err := exec.LookPath(name)
 	if err != nil {
 		if runtime.GOOS == "windows" && strings.TrimSpace(env("QBITTORRENT_PATH", "")) == "" {
-			return "", fmt.Errorf("Windows Release 程序不包含 qBittorrent；请安装 qBittorrent 并设置 QBITTORRENT_PATH，或改用 direct/外部下载器模式")
+			return "", fmt.Errorf("未找到随包 qBittorrent，请完整解压 Windows 桌面包，或设置 QBITTORRENT_PATH")
 		}
 		return "", fmt.Errorf("找不到 qbittorrent-nox，请使用包含内置下载器的镜像，或设置 QBITTORRENT_PATH")
 	}
 	return exe, nil
+}
+
+func bundledQbitExecutable(dir string) string {
+	for _, name := range []string{"qbittorrent-nox.exe", "qbittorrent.exe"} {
+		candidate := filepath.Join(dir, "qbittorrent", name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // The private profile and credentials are independent of external downloaders.
@@ -229,7 +246,7 @@ func startEmbeddedQBittorrent() error {
 			return nil
 		}
 	}
-	// Windows Release 不带 qBittorrent。找不到可执行文件时（没设 QBITTORRENT_PATH，或指到了
+	// 精简单文件版可能不带 qBittorrent。找不到可执行文件时（没有随包文件，或指到了
 	// 不存在的路径）不能让整个服务拉不起来：启动即退出会让界面进不去、设置也改不回来，
 	// 所以降级到 direct 并明确告警。其它失败（端口被占、进程退出）仍然照常报错退出。
 	if runtime.GOOS == "windows" {

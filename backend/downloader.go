@@ -46,8 +46,10 @@ type taskRef struct {
 // archiveFile copies Src (a local path inside this container) into Rel inside
 // the resource archive directory.
 type archiveFile struct {
-	Rel string
-	Src string
+	Rel            string
+	Src            string
+	CleanupSize    int64 `json:",omitempty"`
+	CleanupModTime int64 `json:",omitempty"`
 }
 
 type taskState struct {
@@ -105,6 +107,7 @@ func pollDownloaderTasks() {
 	if err := recoverArchiveCommits(); err != nil {
 		log.Printf("恢复归档提交失败: %v", err)
 	}
+	processSourceCleanup()
 	refs, err := activeTaskRefs()
 	if err != nil {
 		log.Println("查询下载任务失败:", err)
@@ -236,8 +239,15 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 			db.Exec("UPDATE items SET status='下载中',task_error=? WHERE id=? AND status IN ("+activeTaskStatusSQL+")", "归档失败："+err.Error(), t.ID)
 			return
 		}
+		if !runtimeConfig().keepSourceFiles {
+			if err := queueSourceCleanup(t, path, s.Files); err != nil {
+				log.Printf("条目 %d 记录源文件清理失败: %v", t.ID, err)
+				return
+			}
+		}
 		if err := commitSavedArchive(t.ID, path); err != nil {
 			log.Printf("条目 %d 归档记录提交失败，下轮重试: %v", t.ID, err)
+			return
 		}
 		return
 	}

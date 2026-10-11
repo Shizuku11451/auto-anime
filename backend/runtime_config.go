@@ -22,6 +22,7 @@ type runtimeSettings struct {
 	transmissionPassword    string
 	transmissionDownloadDir string
 	transmissionLocalDir    string
+	keepSourceFiles         bool
 	pollMinutes             int
 	libraryDir              string
 	webUser                 string
@@ -50,6 +51,7 @@ func runtimeConfig() runtimeSettings {
 		transmissionPassword:    transmissionPassword,
 		transmissionDownloadDir: transmissionDownloadDir,
 		transmissionLocalDir:    transmissionLocalDir,
+		keepSourceFiles:         keepSourceFiles,
 		pollMinutes:             pollMinutes,
 		libraryDir:              libraryDir,
 		webUser:                 webUser,

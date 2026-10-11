@@ -23,7 +23,8 @@ COPY --from=build /auto-anime .
 COPY backend/static ./static
 RUN { echo "version=${VERSION}"; echo "commit=${COMMIT}"; } > /app/meta.env
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
+    && chmod -R a+rX /app \
     && mkdir -p /data/downloads /data/qbittorrent
 ENV DOWNLOAD_MODE=builtin QBITTORRENT_DATA_DIR=/data/qbittorrent
 EXPOSE 8000

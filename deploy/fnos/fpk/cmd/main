@@ -1,0 +1,28 @@
+#!/bin/bash
+
+CONTAINER_NAME="${TRIM_APPNAME:-auto-anime}"
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+. "$script_dir/storage"
+
+case "$1" in
+start)
+    prepare_mounts && run_compose up -d --remove-orphans
+    exit $?
+    ;;
+stop)
+    # down 去除旧授权挂载；数据均在宿主机持久化目录。
+    run_compose down
+    exit $?
+    ;;
+status)
+    if docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2> /dev/null | grep -q '^true$'; then
+        exit 0
+    fi
+    exit 3
+    ;;
+*)
+    : "${TRIM_TEMP_LOGFILE:=/dev/null}"
+    echo "未知命令：$1" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+    ;;
+esac

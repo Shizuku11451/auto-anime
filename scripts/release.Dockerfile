@@ -7,11 +7,12 @@ RUN apk add --no-cache ca-certificates qbittorrent-nox tini
 WORKDIR /app
 COPY auto-anime-${VERSION#v}-linux-${TARGETARCH} /app/auto-anime
 COPY static /app/static
-RUN chmod +x /app/auto-anime \
+RUN chmod 755 /app/auto-anime \
+    && chmod -R a+rX /app \
     && { echo "version=${VERSION}"; echo "commit=${COMMIT}"; } > /app/meta.env \
     && mkdir -p /data/downloads /data/qbittorrent
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
 ENV DOWNLOAD_MODE=builtin QBITTORRENT_DATA_DIR=/data/qbittorrent
 EXPOSE 8000
 EXPOSE 6881/tcp 6881/udp

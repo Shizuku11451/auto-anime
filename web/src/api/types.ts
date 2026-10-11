@@ -1,5 +1,32 @@
 /* 与 Go 后端 JSON 输出一一对应的类型定义。字段名以服务端 json tag 为准。 */
 
+export interface SetupStatus {
+  required: boolean
+  download_mode: DownloadMode
+  /** 仅未初始化时返回，沿用部署配置中的路径。 */
+  library_dir?: string
+  download_dir?: string
+  poll_minutes?: number
+  proxy_enabled?: boolean
+  keep_source_files?: boolean
+}
+
+export interface SetupResult {
+  ok: boolean
+  library_warning?: string
+}
+
+export interface SetupStorageResult {
+  path: string
+  mount_status: 'mapped' | 'unmapped' | 'unknown' | 'not_required'
+  writable: boolean
+  message: string
+}
+
+export interface StorageCheckInput {
+  path: string
+}
+
 export interface Feed {
   target_title: string
   /* 订阅保存位置：番剧根目录，归档时在其下按番剧名建立文件夹；空表示默认位置。 */
@@ -213,6 +240,7 @@ export interface ItemBatchResult {
 export interface Settings {
   max_concurrent_downloads: number
   auto_cleanup_empty_anime: boolean
+  keep_source_files: boolean
   web_user: string
   web_password_set: boolean
   download_mode: string
@@ -242,6 +270,7 @@ export interface Settings {
 export interface SettingsInput {
   max_concurrent_downloads?: number
   auto_cleanup_empty_anime?: boolean
+  keep_source_files?: boolean
   web_user?: string
   web_password?: string
   download_mode?: string

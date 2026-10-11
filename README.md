@@ -30,15 +30,22 @@ Auto-Anime 把追番过程中重复的工作交给服务完成：从 RSS 或搜�
 
 ## Docker 部署
 
-需要 Docker 和 Docker Compose。默认数据目录为当前仓库下的 `docker-data/`，会持久化数据库、下载器状态、源文件和封面。
+**飞牛 fnOS 用户：**打开[飞牛图形界面安装指南](docs/FNOS.md)，把[飞牛 Compose 配置](deploy/fnos/docker-compose.yml)完整粘贴到「Docker → Compose → 创建项目」，即可安装；无需下载源码或自行安装 qBittorrent。默认配置把项目目录下的 `data` 与 `media` 映射为 `/data`、`/media`，不需要另外填写 NAS 路径。
+
+想自定义番剧目录时，把配置里 `./media:/media` 左侧改成已建好的 NAS 文件夹（如 `/vol1/1000/ani`）即可；也可以下载[离线安装配置页](deploy/fnos/install.html)用浏览器打开，填写实际路径后复制生成的完整 Compose，不联网也能用（GitHub 文件页选「下载原始文件」，直接查看源码不会运行页面）。容器启动后同一页面也可从局域网访问 `http://NAS地址:8000/install`，用于后续更换媒体目录或端口。首次向导默认沿用 `/media`，可检测部署目录的挂载与写入权限。
+
+也可以安装飞牛应用包：`auto-anime-<版本>-fnos.fpk` 提供安装向导与桌面图标，默认媒体库是共享目录 `auto-anime/media`（已只读授权给飞牛影视）。自定义目录时，在「应用设置 → 访问权限」授权具体文件夹，重启应用同步挂载，再在网页「设置 → 媒体库目录」填同一路径并检测。包只挂载授权媒体目录，容器内不能访问宿主应用包与配置。构建方法和验证边界见[飞牛应用包](docs/FNOS_APP.md)。
+
+其他 Docker 环境可使用仓库根目录的 Compose，默认直接拉取发布镜像。数据仍保存在 `docker-data/`，包含数据库、下载器状态、源文件和封面，已有部署无需改目录。
 
 ```bash
 git clone https://github.com/Shizuku11451/auto-anime.git
 cd auto-anime
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-打开 `http://NAS地址:8000`，按设置向导创建账户。Docker 模式默认使用内置 qBittorrent，不需要填写下载器地址或密码。
+打开 `http://NAS地址:8000`，按向导设置账户、下载方式、保存目录并确认。Docker 模式默认使用内置 qBittorrent，不需要填写下载器地址或密码。媒体库目录会沿用部署配置；首次安装可保留默认值，代理无需填写。
 
 部署到 NAS 时，把 `docker-compose.yml` 里的数据卷改成 NAS 上的持久化目录，例如：
 
@@ -54,7 +61,11 @@ volumes:
 | `8000/tcp` | Web 管理页面 |
 | `6881/tcp`、`6881/udp` | BT / DHT |
 
-> 使用发布镜像时，可执行 `docker compose pull && docker compose up -d`。本地构建和发布镜像的差异见[配置参考](docs/CONFIGURATION.md)。
+网页端口冲突时只改映射左侧，例如 `18000:8000`，随后访问 18000；BT 端口冲突时同时修改 TCP、UDP 映射两侧和 `QBITTORRENT_BT_PORT`。无需映射内置下载器的 8080 端口。
+
+发布镜像下载需要 NAS 能访问 GHCR；Git 克隆需要访问 GitHub。镜像无法拉取时先处理镜像获取问题，网页里的代理设置不能帮助 Docker 拉取镜像。应用启动后默认直连，管理页面不依赖境外 CDN；RSS 和元数据可用性取决于所选来源。
+
+源码构建请在完整仓库根目录执行 `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`。构建还需要下载基础镜像、Go 依赖与 Alpine 软件包；自改前端须先在 `web/` 执行 `npm ci` 和 `npm run build`。发布镜像与本地构建的更新差异见[配置参考](docs/CONFIGURATION.md)。
 
 ## 三步开始追番
 
@@ -91,7 +102,7 @@ volumes:
 
 不带序号的季标记（`进击的巨人 最终季`、`… 完`）没法确定季号，会保留在番剧名里。标题解析出的季在识别资源时写进条目，**升级前已收录的条目没有这份信息**，归档时按番剧设置或第 1 季处理。
 
-BT 下载器会保留源文件用于做种，再复制一份到媒体库，请预留足够空间。媒体服务器扫描媒体库根目录即可读取本地 NFO 和封面。
+默认 BT 下载器会保留源文件用于做种，再复制一份到媒体库，请预留足够空间。首次向导或设置页可关闭「保留下载器原文件做种」；关闭后只在归档成功后删除本次源文件，不会批量删除已有条目源文件。媒体服务器扫描媒体库根目录即可读取本地 NFO 和封面。
 
 ### 归档目录必须映射进容器
 
@@ -113,13 +124,13 @@ Docker 默认使用 `builtin`，适合直接开箱使用。也可以在设置页
 
 | 模式 | 适用情况 |
 | --- | --- |
-| `builtin` | 使用镜像内置 qBittorrent，支持磁力和种子 |
+| `builtin` | 使用容器或 Windows 桌面包内置 qBittorrent，支持磁力和种子 |
 | `direct` | 只由 Auto-Anime 下载 HTTP(S) 文件 |
 | `qbittorrent` | 连接外部 qBittorrent |
 | `aria2` | 连接外部 Aria2 |
 | `transmission` | 连接外部 Transmission |
 
-Windows Release 不包含 qBittorrent；Windows 上请选择 `direct` 或外部下载器。若配置里仍是 `builtin` 且没有 `QBITTORRENT_PATH`，Windows 版会**告警并临时降级成 `direct`**（不再启动即退出），可在设置页改成 `direct` 或外部下载器。Windows 直接运行 Release `.exe` 时默认数据目录是程序同级的 `data\`。完整环境变量、外部下载目录映射、代理、备份和更新源说明见[配置参考](docs/CONFIGURATION.md)。
+Windows 用户可下载 Release 中的 `-windows-amd64-desktop.zip`，完整解压后双击 `Auto-Anime.exe`：独立桌面窗口沿用现有界面，随包 qBittorrent 默认处理磁力和种子，关闭窗口后在系统托盘继续运行，右键托盘可退出并停止下载器。需要 Windows 10/11 x64 和 Microsoft Edge WebView2 Runtime。默认数据位于程序同级 `data\`，支持盘符路径和 UNC 网络共享；详细步骤、构建及兼容性见 [Windows 使用说明](docs/WINDOWS.md)。单独 `.exe` 不含下载器，缺少随包文件及 `QBITTORRENT_PATH` 时仍告警并临时降级为 `direct`。完整环境变量、外部下载目录映射、代理、备份和更新源说明见[配置参考](docs/CONFIGURATION.md)。
 
 内置 qBittorrent 运行中意外退出时，主服务保持运行，并自动退避重启下载器，重试间隔从 2 秒逐步增加到最多 60 秒。恢复沿用原配置和任务；WebUI 就绪后的前 90 秒内，暂未出现的旧任务不会立即判定失败，暂停状态与进度保留。该等待期结束后仍不存在的任务会按原规则报错，不自动重新提交。需要持久化整个 `QBITTORRENT_DATA_DIR` 才能保留会话和源文件。
 

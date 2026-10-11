@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -63,10 +64,13 @@ func TestLibraryDirSetting(t *testing.T) {
 	setupDone = true
 	old := libraryDir
 	t.Cleanup(func() { setupDone = false; webHash = ""; libraryDir = old })
-	if rec := settingsPUT(t, `{"library_dir":"/vol1/1000/番剧"}`); rec.Code != 200 {
+	useMountInfo(t, "")
+	dir := filepath.ToSlash(t.TempDir())
+	body, _ := json.Marshal(map[string]string{"library_dir": dir})
+	if rec := settingsPUT(t, string(body)); rec.Code != 200 {
 		t.Fatalf("put library dir: %d %s", rec.Code, rec.Body.String())
 	}
-	if libraryDir != "/vol1/1000/番剧" {
+	if libraryDir != dir {
 		t.Fatalf("library dir not applied: %q", libraryDir)
 	}
 	// 非法值整体拒绝，不改变原值。
@@ -75,7 +79,7 @@ func TestLibraryDirSetting(t *testing.T) {
 			t.Fatalf("invalid library dir accepted: %d %s", rec.Code, body)
 		}
 	}
-	if libraryDir != "/vol1/1000/番剧" {
+	if libraryDir != dir {
 		t.Fatalf("failed save changed library dir: %q", libraryDir)
 	}
 	// 清空即回退下载目录，重新保存后重启（loadSettings）仍恢复。
@@ -85,17 +89,17 @@ func TestLibraryDirSetting(t *testing.T) {
 	if libraryDir != "" {
 		t.Fatalf("library dir not cleared: %q", libraryDir)
 	}
-	if rec := settingsPUT(t, `{"library_dir":"/vol1/1000/番剧"}`); rec.Code != 200 {
+	if rec := settingsPUT(t, string(body)); rec.Code != 200 {
 		t.Fatalf("re-put library dir: %d", rec.Code)
 	}
 	libraryDir = ""
 	loadSettings()
-	if libraryDir != "/vol1/1000/番剧" {
+	if libraryDir != dir {
 		t.Fatalf("library dir lost after reload: %q", libraryDir)
 	}
 	rec := httptest.NewRecorder()
 	settingsHandler(rec, httptest.NewRequest("GET", "/api/settings", nil))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"library_dir":"/vol1/1000/番剧"`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"library_dir":"`+dir+`"`) {
 		t.Fatalf("get settings: %d %s", rec.Code, rec.Body.String())
 	}
 }

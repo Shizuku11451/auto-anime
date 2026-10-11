@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Auto-Anime · 飞牛安装配置</title>
+  <style>/* DESIGN_TOKENS */
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; line-height: 1.7; }
+    main { max-width: 820px; padding: 24px 18px 40px; margin: auto; }
+    header { display: flex; align-items: center; gap: 16px; justify-content: space-between; }
+    h1 { font-size: 24px; } h2 { font-size: 18px; margin: 0 0 12px; }
+    p { color: var(--text-2); margin: 8px 0; } strong { color: var(--text); overflow-wrap: anywhere; }
+    section { padding: 20px; margin: 18px 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+    label { display: block; margin-bottom: 10px; }
+    input, textarea, button { font: inherit; color: var(--text); }
+    input[type=text], input[type=number], textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); padding: 10px; }
+    textarea { font-family: ui-monospace, monospace; line-height: 1.5; min-height: 330px; resize: vertical; }
+    button { cursor: pointer; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); padding: 9px 16px; }
+    header button { flex: none; white-space: nowrap; }
+    button.primary { background: var(--accent); color: var(--accent-contrast); }
+    button:disabled { cursor: default; opacity: .5; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; } .row label { flex: 1 1 180px; }
+    #message { color: var(--amber); overflow-wrap: anywhere; min-height: 1.7em; }
+    summary { cursor: pointer; margin: 16px 0; }
+    [hidden] { display: none !important; }
+    @media(max-width: 480px) { section { padding: 15px; } h1 { font-size: 20px; } header { align-items: flex-start; } button { padding: 8px 12px; } }
+  </style>
+</head>
+<body><main>
+  <header><h1>Auto-Anime 飞牛安装配置</h1><button id="theme" type="button">切换主题</button></header>
+  <p>选择番剧保存位置，复制配置到飞牛「Docker → Compose → 创建项目」。本页离线可用，填写内容不会上传。</p>
+  <section><h2>1. 番剧保存在哪里</h2>
+    <form>
+      <label><input type="radio" name="storage" checked> 默认：保存在项目目录下的 media 文件夹</label>
+      <label><input id="custom" type="radio" name="storage"> 自定义：使用已有的 NAS 番剧文件夹</label>
+      <div id="path-field" hidden>
+        <label for="path">NAS 番剧目录</label>
+        <input id="path" name="path" type="text" placeholder="例如 /vol1/1000/ani" spellcheck="false">
+        <p>先在飞牛创建此文件夹，并复制它的实际绝对路径。请按自己的存储空间填写，不要照搬示例用户编号。</p>
+      </div>
+      <label><input name="keepSource" type="checkbox" checked> 保留下载器原文件做种</label>
+      <p>默认保留原文件与整理后的番剧两份。关闭后，归档成功才停止任务并清理源文件；也可在安装后的设置页修改。</p>
+      <details><summary>端口设置（冲突时修改）</summary><div class="row">
+        <label>网页端口<input name="port" type="number" value="8000" min="1" max="65535"></label>
+        <label>BT 端口<input name="bt" type="number" value="6881" min="1" max="65535"></label>
+      </div></details>
+    </form>
+  </section>
+  <section><h2>2. 复制到飞牛</h2>
+    <p>项目路径用于存放配置和下载器数据。整理好的番剧保存到：<strong id="destination"></strong>。</p>
+    <label for="output">完整 Compose 配置</label><textarea id="output" readonly spellcheck="false"></textarea>
+    <p id="message" role="status" aria-live="polite"></p>
+    <div class="row"><button id="copy" class="primary" type="button">复制完整配置</button><button id="download" type="button">下载配置文件</button></div>
+  </section>
+  <section><h2>3. 启动后打开网页</h2>
+    <p>访问 http://NAS局域网IP:网页端口，创建账户，保留内置 qBittorrent。媒体目录自动使用 /media，点击「检测保存目录」确认挂载和写权限。</p>
+    <p>归档时仍需同时容纳源文件与整理后的番剧，请预留空间。此配置用于新安装；已有安装请保留原数据映射，改目录不会搬迁旧视频。</p>
+    <p>镜像拉取需要 NAS 能访问 GHCR；本页不会部署容器，也不会修改 NAS 文件。</p>
+  </section>
+</main><script>/* INSTALL_SCRIPT */</script></body></html>
