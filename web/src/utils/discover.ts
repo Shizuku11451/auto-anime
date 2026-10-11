@@ -16,7 +16,12 @@ export function subscriptionWords(item: DiscoverItem, keyword: string): string {
   // 保留原始括号，避免「字幕组」误匹配「另一字幕组」。
   const group = item.title.match(/^\s*([\[【（(][^\]】）)]+[\]】）)])/)?.[1] || item.fansub_group
   const name = subscriptionTitle(item)
-  return [...new Set([keyword, item.title.includes(name) ? name : '', group, item.quality, releaseLanguage(item)]
+  const title = item.title.toLowerCase()
+  // 剥离季标记后番名可能不连续；拆成全部必需的片段，不删除搜索或版本条件。
+  // 简繁等价比较由后端统一完成，前端保留用户看到的原始文字。
+  const names = title.includes(name.toLowerCase()) ? [name] : name.split(/\s+/)
+  return [...new Set([keyword, ...names, group, item.quality, releaseLanguage(item)]
+    .flatMap((s) => s.split(','))
     .map((s) => s.trim()).filter(Boolean))].join(',')
 }
 

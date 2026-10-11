@@ -704,10 +704,11 @@ func animeApplyRules(w http.ResponseWriter, id int64) {
 		return
 	}
 	var candidates []int64
+	filter := newKeywordFilter(a.IncludeRules, a.ExcludeRules)
 	for rows.Next() {
 		var itemID int64
 		var title string
-		if rows.Scan(&itemID, &title) == nil && allowed(title, a.IncludeRules, a.ExcludeRules) {
+		if rows.Scan(&itemID, &title) == nil && filter.allows(title) {
 			candidates = append(candidates, itemID)
 		}
 	}

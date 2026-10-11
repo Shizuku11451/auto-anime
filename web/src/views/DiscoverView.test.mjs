@@ -41,4 +41,16 @@ test('输入框和来源修改后，订阅仍对应展示结果；新结果到�
   state.result = { keyword: '新搜索', feed_url: 'https://example.test/new-feed', items: [item] }
   await vue.nextTick()
   assert.equal(context.exports.filtered.value.length, 1)
+  const traditional = { ...item,
+    title: '[綠茶字幕組] 無職轉生 第三季 ～到了異世界就拿出真本事～ / Mushoku Tensei S3 [14][WebRip][1080p][繁日內嵌]',
+    anime_title: '無職轉生 ～到了異世界就拿出真本事～', fansub_group: '綠茶字幕組', quality: '1080P',
+  }
+  state.result = { keyword: '无职转生', feed_url: 'https://example.test/traditional-feed', items: [traditional] }
+  context.exports.subscribe(traditional)
+  assert.equal(opened.url, state.result.feed_url)
+  assert.equal(opened.id, undefined)
+  assert.equal(opened.target_title, traditional.anime_title)
+  assert.ok(opened.include_words.split(',').every(word => word === '无职转生' || traditional.title.toLowerCase().includes(word.toLowerCase())))
+  assert.ok(opened.include_words.includes('無職轉生'))
+  assert.equal(opened.include_words.includes('无职转生'), true)
 })

@@ -5,9 +5,76 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestTraditionalReleasePreviewAndSyncAtReadLimit(t *testing.T) {
+	testDatabase(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("term") != "无职转生" {
+			t.Errorf("search term changed: %s", r.URL.RawQuery)
+		}
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		page = max(1, page)
+		fmt.Fprint(w, `<rss><channel>`)
+		for i := 0; i < 30; i++ {
+			if page == 1 && i < 16 {
+				fmt.Fprintf(w, `<item><title>[綠茶字幕組] 無職轉生 第三季 ～到了異世界就拿出真本事～ / Mushoku Tensei S3 [%02d][WebRip][1080p][繁日內嵌]</title><link>/selected/%d</link></item>`, i%14+1, i)
+			} else {
+				fmt.Fprintf(w, `<item><title>[其他组] 无职转生 [01][720p][简中]</title><link>/other/%d/%d</link></item>`, page, i)
+			}
+		}
+		fmt.Fprint(w, `</channel></rss>`)
+	}))
+	defer server.Close()
+	pagedTestSource(t, server.URL+"/search.xml?term={keyword}", 30)
+	feedURL := discoverSearchURL(discoverBuiltinSources[0].Template, "无职转生")
+	// The generated rule keeps the simplified search term and traditional name.
+	words := "无职转生,無職轉生,～到了異世界就拿出真本事～,[綠茶字幕組],1080P,繁日"
+	for _, tc := range []struct {
+		words string
+		count int
+	}{
+		{"无职转生,綠茶字幕組,1080P,繁日", 16},
+		{words, 16},
+		{words + ",不存在的关键词", 0},
+	} {
+		body, _ := json.Marshal(PreviewInput{URL: feedURL, Include: tc.words})
+		rec := httptest.NewRecorder()
+		preview(rec, httptest.NewRequest("POST", "/api/preview", strings.NewReader(string(body))))
+		var result struct {
+			Count, Total, Pages int
+			Limited             bool
+			Warning             string
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || rec.Code != 200 || result.Count != tc.count || result.Pages != 20 || result.Total != 600 || !result.Limited || !strings.Contains(result.Warning, "读取上限") {
+			t.Fatalf("preview at ceiling: %d %s err=%v", rec.Code, rec.Body.String(), err)
+		}
+	}
+	// Existing subscriptions also benefit without rewriting their saved rules.
+	storedWords := "无职转生,綠茶字幕組,1080P,繁日"
+	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,include_words,target_title) VALUES(1,'繁体版本',?,?,'無職轉生')`, feedURL, storedWords); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []int{16, 0} {
+		if added, err := syncFeed(1); added != want || err == nil || !strings.Contains(err.Error(), "读取上限") {
+			t.Fatalf("sync must retain matching items and report incomplete history: added=%d want=%d err=%v", added, want, err)
+		}
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM items WHERE anime_title='無職轉生'`).Scan(&count); err != nil || count != 16 {
+		t.Fatalf("stored selected releases=%d err=%v", count, err)
+	}
+	var gotWords, rawTitle string
+	if err := db.QueryRow(`SELECT include_words FROM feeds WHERE id=1`).Scan(&gotWords); err != nil || gotWords != storedWords {
+		t.Fatalf("saved rules changed: %q err=%v", gotWords, err)
+	}
+	if err := db.QueryRow(`SELECT title FROM items WHERE link=?`, server.URL+"/selected/0").Scan(&rawTitle); err != nil || !strings.Contains(rawTitle, "無職轉生") || !strings.Contains(rawTitle, "繁日內嵌") {
+		t.Fatalf("raw title changed: %q err=%v", rawTitle, err)
+	}
+}
 
 func TestSubscriptionPreviewAppliesFiltersBeforeLimit(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

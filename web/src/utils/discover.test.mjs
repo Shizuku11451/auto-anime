@@ -25,6 +25,40 @@ test('所选版本过滤后包含后续集数，拒绝其他版本和字幕组�
   assert.equal(allowed(item('08', '目标组', '1080P', '繁中')), false)
 })
 
+test('简体搜索命中繁体标题时保留搜索词和全部版本条件，简繁比较交给后端', () => {
+  const selected = {
+    ...item('14'),
+    title: '[綠茶字幕組] 無職轉生 第三季 ～到了異世界就拿出真本事～ / Mushoku Tensei S3 [14][WebRip][1080p][繁日內嵌]',
+    anime_title: '無職轉生 ～到了異世界就拿出真本事～',
+    fansub_group: '綠茶字幕組', quality: '1080P',
+  }
+  const words = subscriptionWords(selected, '无职转生').split(',')
+  assert.equal(words.includes('无职转生'), true)
+  assert.ok(words.includes('無職轉生'))
+  assert.ok(words.includes('～到了異世界就拿出真本事～'))
+  assert.ok(words.includes('[綠茶字幕組]'))
+  assert.ok(words.includes('1080P'))
+  assert.ok(words.includes('繁日'))
+  assert.equal(words.includes('第三季'), false)
+  assert.equal(words.includes('14'), false)
+  assert.ok(words.every((word) => word === '无职转生' || selected.title.toLowerCase().includes(word.toLowerCase())))
+})
+
+test('不静默删除标题中不存在的别名、多词或逗号搜索条件', () => {
+  for (const keyword of ['Summer Anime', '夏日 目标组', '不存在,夏日', 'SUMMER']) {
+    const selected = item('07')
+    const words = subscriptionWords(selected, keyword).split(',')
+    assert.ok(keyword.split(',').every((word) => words.includes(word)), keyword)
+    assert.ok(words.includes('夏日动画'))
+    assert.ok(words.includes('[目标组]'))
+  }
+})
+
+test('清晰度或识别名与标题不一致也不静默丢弃过滤条件', () => {
+  const words = subscriptionWords({ ...item('07'), anime_title: '官方 别名', quality: '2160P' }, '搜索词').split(',')
+  for (const expected of ['搜索词', '官方', '别名', '2160P', '[目标组]', '简中']) assert.ok(words.includes(expected))
+})
+
 test('番名中的斜线与季标记保留', () => {
   assert.equal(subscriptionTitle({ ...item('07'), anime_title: 'Fate/stay night [1080P]' }), 'Fate/stay night')
   assert.equal(subscriptionTitle({ ...item('07'), anime_title: '夏日动画 [S02] [1080P]' }), '夏日动画 [S02]')

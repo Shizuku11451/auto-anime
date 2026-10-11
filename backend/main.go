@@ -335,22 +335,6 @@ func initDB() {
 		}
 	}
 }
-func allowed(t, in, ex string) bool {
-	low := strings.ToLower(t)
-	for _, x := range strings.Split(in, ",") {
-		x = strings.TrimSpace(strings.ToLower(x))
-		if x != "" && !strings.Contains(low, x) {
-			return false
-		}
-	}
-	for _, x := range strings.Split(ex, ",") {
-		x = strings.TrimSpace(strings.ToLower(x))
-		if x != "" && strings.Contains(low, x) {
-			return false
-		}
-	}
-	return true
-}
 
 type feedItem struct{ Title, Link, Pub, Description, PageURL string }
 
@@ -380,11 +364,12 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 	}
 	n := 0
 	var writeErr error
+	filter := newKeywordFilter(f.Include, f.Exclude)
 	for _, it := range feedItemsFromEntries(fetched.Entries) {
 		if err := ctx.Err(); err != nil {
 			return n, err
 		}
-		if it.Title == "" || it.Link == "" || !allowed(it.Title, f.Include, f.Exclude) {
+		if it.Title == "" || it.Link == "" || !filter.allows(it.Title) {
 			continue
 		}
 		// Older rows kept only the download URL. Fill the original page on the
@@ -811,8 +796,9 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	items := feedItemsFromEntries(fetched.Entries)
 	total := len(items)
 	filtered := make([]feedItem, 0, len(items))
+	filter := newKeywordFilter(in.Include, in.Exclude)
 	for _, item := range items {
-		if item.Title != "" && item.Link != "" && allowed(item.Title, in.Include, in.Exclude) {
+		if item.Title != "" && item.Link != "" && filter.allows(item.Title) {
 			filtered = append(filtered, item)
 		}
 	}
