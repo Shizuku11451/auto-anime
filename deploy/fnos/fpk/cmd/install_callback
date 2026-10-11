@@ -1,4 +1,8 @@
 #!/bin/bash
 
 # 应用中心不再管理 docker-project，由宿主生命周期脚本启动。
-"$(dirname "$0")/main" start
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+. "$script_dir/storage"
+# 安装会把数据目录属主重置为 run-as 指定的用户，先改回应用用户再启动容器。
+ensure_data_owner
+"$script_dir/main" start

@@ -19,6 +19,16 @@ json_path() {
     printf '"%s"' "$value"
 }
 
+# 飞牛按 config/privilege 的 run-as 重置数据目录属主（run-as=root 时整个目录会被改回 root），
+# 而容器以非 root 应用用户运行，属主不对就无法写数据库和运行目录。安装、升级与授权变更后
+# 统一改回应用用户；这三个回调都不是高频路径，整目录递归一次可以接受。
+ensure_data_owner() {
+    local uid="${TRIM_UID:-}" gid="${TRIM_GID:-}" var="${TRIM_PKGVAR:-}"
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ ]] || return 0
+    [ -n "$var" ] && [ -d "$var" ] || return 0
+    chown -R "$uid:$gid" "$var" 2>/dev/null || true
+}
+
 prepare_mounts() {
     local uid="${TRIM_UID:-}" gid="${TRIM_GID:-}" path resolved tmp prefix
     [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ ]] || { mount_error '缺少有效的非 root 应用用户'; return 1; }

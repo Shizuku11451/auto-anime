@@ -1,4 +1,8 @@
 #!/bin/bash
 
 # 更新后重新读取系统提供的授权列表，移除旧版整卷挂载。
-"$(dirname "$0")/main" start
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+. "$script_dir/storage"
+# 升级同样会重置数据目录属主，改回应用用户后再启动容器。
+ensure_data_owner
+"$script_dir/main" start
