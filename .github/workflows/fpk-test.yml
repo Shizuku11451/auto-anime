@@ -1,0 +1,34 @@
+name: FPK test build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fpk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test package
+        run: |
+          export IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          bash deploy/fnos/build-fpk.sh "0.0.0-ci.${GITHUB_RUN_NUMBER}" latest
+      - name: Write checksums and build notes
+        working-directory: dist/fnos
+        run: |
+          sha256sum *.fpk > checksums.txt
+          printf '%s\n' \
+            'FPK 打包测试产物，不是正式发布版本。' \
+            "源码提交：${GITHUB_SHA}" \
+            "配套镜像：ghcr.io/${GITHUB_REPOSITORY,,}:latest" \
+            '本次没有构建或发布镜像；latest 不代表本次提交。' \
+            '未验证 NAS 安装、升级或下载归档，不建议覆盖现有应用。' > BUILD_INFO.txt
+      - name: Upload test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: fnos-fpk-test-${{ github.run_number }}
+          path: dist/fnos/
+          if-no-files-found: error
+          retention-days: 14
