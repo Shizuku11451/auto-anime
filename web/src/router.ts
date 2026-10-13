@@ -20,7 +20,8 @@ export const router = createRouter({
   scrollBehavior: () => ({ top: 0 }),
 })
 
-router.afterEach((to) => {
+router.afterEach((to, _from, failure) => {
+  if (failure) return
   const title = to.meta.title as string | undefined
   document.title = title ? `${title} · Auto-Anime` : 'Auto-Anime'
 })

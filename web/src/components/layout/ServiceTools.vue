@@ -14,7 +14,7 @@ const open = ref(false)
     <BaseDialog :open="open" title="服务与备份" size="sm" @close="open = false">
       <div class="tools-body">
         <RuntimeCard />
-        <p class="field-hint">备份包含订阅配置，不包含历史条目、下载任务或媒体文件。</p>
+        <p class="field-hint">JSON 备份包含订阅、番剧配置及历史条目摘要（含文件路径），不包含下载器任务、账户凭据或媒体文件。恢复仅导入订阅与番剧配置，不恢复历史条目。</p>
         <SideActions layout="list" @done="open = false" />
       </div>
     </BaseDialog>

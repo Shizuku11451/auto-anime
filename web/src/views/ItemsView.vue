@@ -186,17 +186,17 @@ function play(item: Item) {
   const toEntry = (x: Item): PlayerEntry => ({
     id: x.id,
     title: series,
-    season: x.season > 0 ? x.season : 1,
+    season: x.season > 0 ? x.season : (store.animes.value.find(a => a.id === x.anime_id)?.season || x.season_auto || 1),
     episode: x.episode,
     fansub_group: x.fansub_group,
     quality: x.quality,
   })
-  saved.sort((a, b) => (a.season - b.season) || (epNo(a) - epNo(b)))
   const entries = saved.map(toEntry)
+  entries.sort((a, b) => (a.season - b.season) || (epNo(a) - epNo(b)))
   dialogs.openPlayer(entries.length ? entries : [toEntry(item)], item.id)
 }
 
-function epNo(x: Item): number {
+function epNo(x: { episode: string }): number {
   const n = Number.parseFloat(x.episode)
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
 }

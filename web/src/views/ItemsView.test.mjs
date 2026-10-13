@@ -10,18 +10,19 @@ const compile = source => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const source = parse(readFileSync(new URL('./ItemsView.vue', import.meta.url), 'utf8')).descriptor.scriptSetup.content
-const compiled = compile(source + '\nexport { selected, selecting, batch, batchRunning, batchFailures, downloadable, pausable, resumable, control, search, applySearch, clearFilters, changePage, selectVisible, toggle, queryPending, refreshItems, refreshing, refreshMessage };')
+const compiled = compile(source + '\nexport { selected, selecting, batch, batchRunning, batchFailures, downloadable, pausable, resumable, control, search, applySearch, clearFilters, changePage, selectVisible, toggle, queryPending, refreshItems, refreshing, refreshMessage, play };')
 const status = { exports: {} }
 runInNewContext(compile(readFileSync(new URL('../utils/status.ts', import.meta.url), 'utf8')), status)
 
 function itemsView(t) {
-  const calls = [], messages = [], queries = []
+  const calls = [], messages = [], queries = [], playback = []
   let refreshed = 0
   let confirmation = async () => true
   let debouncedSearch
   let response = async () => ({ ok: true, count: 1, skipped: 0, failed: [] })
   const store = {
     items: vue.ref(['待下载', '下载中', '已暂停', '已保存', '下载失败'].map((status, i) => ({ id: i + 1, status, title: `条目 ${i + 1}` }))),
+    animes: vue.ref([]),
     itemFilter: vue.ref('全部'),
     pageNumber: vue.ref(1), nextBefore: vue.ref(10), loaded: vue.ref(true), loadError: vue.ref(''),
     resetItemPage() { this.pageNumber.value = 1 },
@@ -36,7 +37,7 @@ function itemsView(t) {
     vue,
     '@vueuse/core': { watchDebounced(_source, callback) { debouncedSearch = callback } },
     '@/stores/app': { useAppStore: () => store },
-    '@/stores/dialogs': { useDialogs: () => ({}) },
+    '@/stores/dialogs': { useDialogs: () => ({ openPlayer: (...args) => playback.push(args) }) },
     '@/composables/useBusy': { useBusySet: () => ({
       is: id => busy.value.has(id),
       run: async (id, fn) => { if (busy.value.has(id)) return; busy.value.add(id); try { return await fn() } finally { busy.value.delete(id) } },
@@ -53,8 +54,22 @@ function itemsView(t) {
   const scope = vue.effectScope()
   scope.run(() => runInNewContext(compiled, context))
   t.after(() => scope.stop())
-  return { component: context.exports, store, calls, messages, queries, refreshed: () => refreshed, respond: fn => { response = fn }, confirm: fn => { confirmation = fn }, debounce: () => debouncedSearch() }
+  return { component: context.exports, store, calls, messages, queries, playback, refreshed: () => refreshed, respond: fn => { response = fn }, confirm: fn => { confirmation = fn }, debounce: () => debouncedSearch() }
 }
+
+test('最近条目播放按条目指定、番剧设置、标题解析、第一季的优先级展示和排序', (t) => {
+  const h = itemsView(t)
+  h.store.animes.value = [{ id: 10, season: 3 }, { id: 11, season: 0 }]
+  const item = (id, anime_id, season, season_auto, episode = '01') => ({
+    id, anime_id, season, season_auto, episode, anime_title: '验收动画', title: '原始标题',
+    status: '已保存', file_path: `/${id}.mp4`, fansub_group: 'QA', quality: '1080P',
+  })
+  h.store.items.value = [item(1, 10, 4, 2), item(2, 10, 0, 2), item(3, 11, 0, 2, '02'), item(4, 11, 0, 0), item(5, 11, 0, 2)]
+  h.component.play(h.store.items.value[2])
+  const [entries, startId] = h.playback[0]
+  assert.deepEqual(Array.from(entries, x => [x.id, x.season]), [[4, 1], [5, 2], [3, 2], [2, 3], [1, 4]])
+  assert.equal(startId, 3)
+})
 
 test('批量控制仅提交符合操作状态的选中任务，并保留失败条目供重试', async (t) => {
   const h = itemsView(t)

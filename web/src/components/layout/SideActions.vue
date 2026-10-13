@@ -30,7 +30,7 @@ async function onRestore(e: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  const ok = await confirmDialog('恢复订阅', '只导入订阅配置并按 RSS 地址去重，不会导入历史条目或下载文件。', {
+  const ok = await confirmDialog('恢复订阅', '导入订阅与番剧配置，订阅按 RSS 地址去重；不会导入备份中的历史条目、下载器任务或媒体文件。', {
     okText: '开始恢复',
   })
   if (!ok) return
