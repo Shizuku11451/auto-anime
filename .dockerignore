@@ -1,16 +1,12 @@
-.git/
-.gitignore
-data/
-docker-data/
-backend/data/
-__pycache__/
-*.test
-*.exe
-*.log
-docs/
-# 发布流程依赖的容器入口脚本要进构建上下文，其余本地脚本排除
-scripts/*
+# 仅发送根 Dockerfile 实际使用的源码、依赖清单、前端产物与入口脚本。
+# 发布镜像使用 image-context/ 内独立生成的上下文，不使用此文件。
+**
+!Dockerfile
+!backend/
+!backend/*.go
+!backend/go.mod
+!backend/go.sum
+!backend/static/
+!backend/static/**
+!scripts/
 !scripts/docker-entrypoint.sh
-web/
-.github/
-.gocache/

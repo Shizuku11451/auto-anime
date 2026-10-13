@@ -20,16 +20,23 @@ __pycache__/
 
 # 本地环境与凭据
 .env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
 
 # 本地协作说明（不入库）
 AGENTS.md
 /docs/AGENTS_HISTORY.md
+/docs/PROJECT_ASSESSMENT_*.md
+/docs/PREPUBLIC_ACCEPTANCE_*.md
 
-# 启动脚本（发布流程依赖的两个脚本随源码入库，其余本地脚本不入库）
-scripts/*
-!scripts/docker-entrypoint.sh
-!scripts/release.Dockerfile
-start-dev.bat
+# 本地宣传工程（独立依赖与输出，不属于应用或发布输入）
+/promo/
+
+# scripts/ 内的开发与发布脚本随源码入库；本地临时脚本放在此目录
+/local/
 
 # Go 构建缓存（本机沙箱内构建时使用）
 .gocache/
