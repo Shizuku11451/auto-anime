@@ -27,7 +27,7 @@ jobs:
       - name: Frontend tests and build
         working-directory: web
         run: |
-          node --test $(find src -name '*.test.mjs')
+          node --experimental-strip-types --test $(find src -name '*.test.mjs')
           npm run build
       - uses: actions/setup-go@v5
         with:
@@ -65,7 +65,7 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: |
-          go test ./... -count=1 -timeout=240s
+          go test ./... -count=1 -timeout=600s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

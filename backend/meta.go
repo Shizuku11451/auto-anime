@@ -289,14 +289,15 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source, matchK
 type metaLookupState struct {
 	ID, BangumiID         int64
 	SearchName, UpdatedAt string
+	UpdateWeekday         int
 }
 
 func readMetaLookupState(q interface {
 	QueryRow(string, ...any) *sql.Row
 }, animeTitle string) (metaLookupState, error) {
 	var state metaLookupState
-	err := q.QueryRow(`SELECT id,COALESCE(search_name,''),COALESCE(bangumi_id,0),COALESCE(updated_at,'') FROM animes WHERE title=?`, animeTitle).
-		Scan(&state.ID, &state.SearchName, &state.BangumiID, &state.UpdatedAt)
+	err := q.QueryRow(`SELECT id,COALESCE(search_name,''),COALESCE(bangumi_id,0),COALESCE(updated_at,''),COALESCE(update_weekday,0) FROM animes WHERE title=?`, animeTitle).
+		Scan(&state.ID, &state.SearchName, &state.BangumiID, &state.UpdatedAt, &state.UpdateWeekday)
 	if err == sql.ErrNoRows {
 		err = nil
 	}

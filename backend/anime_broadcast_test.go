@@ -133,7 +133,17 @@ func TestBroadcastFailuresAndLateResponses(t *testing.T) {
 				case "changed-binding":
 					db.Exec(`UPDATE anime_meta SET subject_id=456`)
 				case "manual-edit":
+					var updatedAt string
+					if err := db.QueryRow("SELECT updated_at FROM animes WHERE id=?", id).Scan(&updatedAt); err != nil {
+						t.Error(err)
+						return
+					}
 					putAnime(t, id, `{"update_weekday":4}`)
+					// Force equal timestamps to cover edits within one clock tick.
+					if _, err := db.Exec("UPDATE animes SET updated_at=? WHERE id=?", updatedAt, id); err != nil {
+						t.Error(err)
+						return
+					}
 				case "wrong-id":
 					fmt.Fprint(w, `{"id":456,"infobox":[{"key":"放送星期","value":"周日"}]}`)
 					return
