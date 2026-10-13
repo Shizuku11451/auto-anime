@@ -39,6 +39,8 @@ git push origin v1.2.0
 
 ## 制品
 
+推送到 `main` 后，`.github/workflows/fpk-test.yml` 自动构建 FPK 打包测试版，也可在 Actions 的 `FPK test build` 中手动运行。产物以 `fnos-fpk-test-<运行编号>` 保存 14 天，包含 FPK、SHA-256 和构建说明；不创建 Release、不构建或推送镜像。测试包版本为 `0.0.0-ci.<运行编号>`，引用现有 `latest` 镜像，因此不代表该提交的程序已部署，不能替代正式发布或 NAS 安装验收，不建议覆盖现有应用。
+
 | 文件 / 镜像 | 内容 |
 | --- | --- |
 | `auto-anime-<版本>-linux-amd64` / `-linux-arm64` | 带嵌入前端的程序，不含独立下载器 |
