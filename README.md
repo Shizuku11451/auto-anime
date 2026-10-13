@@ -6,15 +6,27 @@
 
 Auto-Anime 将 RSS 资源交给下载器，跟踪下载进度，完成后整理到媒体库，并提供中文管理页面。后端使用 Go，前端资源随程序提供；Docker 默认内置 qBittorrent，Windows 提供独立桌面打包方式。
 
-> 本文描述当前工作区实现，不保证远端 Release 已包含这些功能。安装前请检查对应版本的发布说明和附件。正式发布制品、不同 NAS 的权限与存储兼容性需要分别验收。
+> 本文描述当前工作区实现，不保证远端 Release 已包含这些功能。安装前请检查对应版本的发布说明和附件。正式发布制品及目标平台的权限与存储兼容性需要分别验收。
+
+## 平台适配范围
+
+当前适配目标为 **飞牛 fnOS、Linux 和 Windows**，以飞牛 NAS 的安装与长期运行体验为主要维护重点。
+
+| 平台 | 定位与交付方式 | 验收边界 |
+| --- | --- | --- |
+| 飞牛 fnOS | 主适配平台，优先 `.fpk` 应用包，Compose 为备用方式 | 已有 x86-64 实机测试；正式包的无缓存安装、升级与下载归档仍须按版本验收 |
+| Linux | 服务端适配，提供 amd64 / arm64 Docker 镜像与独立程序 | 有构建与发布配置；独立程序不含下载器，ARM64 构建或模拟启动不等于实机验收 |
+| Windows 10/11 x64 | 次要适配平台，提供桌面便携 ZIP，保留基础回归与打包检查 | 需要 WebView2 Runtime；完整桌面包包含下载器，实际发布与安装以对应版本为准 |
+
+其他 NAS 品牌、macOS 及其他架构暂不作为专门适配或实机兼容性承诺。电脑、手机浏览器访问已部署服务属于网页使用场景，不提供 Android / iOS 原生应用。
 
 ## 选择安装方式
 
 | 环境 | 入口 | 默认数据与媒体位置 |
 | --- | --- | --- |
-| 通用 Docker / NAS | [Docker 快速安装](#docker-快速安装) | `./docker-data` → `/data`；媒体在 `/data/downloads` |
-| 飞牛 fnOS Compose | [飞牛安装指南](docs/FNOS.md) | 项目下 `data` → `/data`，`media` → `/media` |
 | 飞牛实验性应用包 | [FPK 安装说明](docs/FNOS_APP.md) | 应用数据目录与共享媒体目录；需要同版本公开镜像 |
+| 飞牛 fnOS Compose | [飞牛安装指南](docs/FNOS.md) | 项目下 `data` → `/data`，`media` → `/media` |
+| Linux Docker | [Docker 快速安装](#docker-快速安装) | `./docker-data` → `/data`；媒体在 `/data/downloads` |
 | Windows 10/11 x64 | [Windows 桌面版](docs/WINDOWS.md) | 完整解压目录下的 `data`，需要 WebView2 Runtime |
 | 源码开发 | [贡献指南](CONTRIBUTING.md) | 显式配置独立开发数据目录 |
 

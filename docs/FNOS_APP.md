@@ -2,6 +2,8 @@
 
 [返回 README](../README.md) · [飞牛 Compose 安装](FNOS.md) · [完整配置参考](CONFIGURATION.md)
 
+飞牛 fnOS 是主适配平台，FPK 是优先交付方式，Compose 为备用部署方式。当前实机测试范围为 x86-64 飞牛；其他架构须单独验收，不因 Linux ARM64 制品存在而默认视为已适配。
+
 应用包采用飞牛官方[应用开放平台](https://developer.fnnas.com/)格式，提供安装向导、桌面入口与启停控制。尚未上架应用中心；正式发布后从 GitHub Release 获取 `.fpk` 并手动安装，无需编译源码或 SSH 预先构建镜像。安装前检查对应 Release 是否确实包含 FPK 和公开镜像；工作流设计或本地测试包不代表已经发布。
 
 前提：飞牛 Docker 已安装并启动、网页及 BT 端口可用、存储空间可写，NAS 能访问 GHCR。FPK 不含容器镜像，不支持仅靠这个文件离线安装。正式镜像必须公开：仓库公开不代表 GHCR 包公开。
