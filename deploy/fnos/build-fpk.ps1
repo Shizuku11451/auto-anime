@@ -13,8 +13,10 @@
 param(
     [string] $Version = '0.0.0',
     [string] $ImageTag = '',
+    [string] $ImageRepository = 'ghcr.io/shizuku11451/auto-anime',
     [string] $OutDir = '',
     [string] $Fnpack = '',
+    [string] $Python = 'python',
     [switch] $KeepStaging
 )
 
@@ -22,12 +24,16 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if ($Version -notmatch '^[0-9][A-Za-z0-9.+-]*$') { throw '版本号格式无效' }
 $packageDir = Join-Path $PSScriptRoot 'fpk'
 if (-not (Test-Path -LiteralPath $packageDir)) { throw "找不到应用包目录：$packageDir" }
 
 if ([string]::IsNullOrWhiteSpace($ImageTag)) {
     $ImageTag = if ($Version -eq '0.0.0') { 'latest' } else { $Version }
 }
+if ($ImageTag -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') { throw '镜像标签格式无效' }
+if ($ImageRepository -cnotmatch '^ghcr\.io/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$') { throw '镜像仓库须为全小写的 ghcr.io/所有者/仓库名' }
+if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) { throw '打包需要 Python 3，用于校验并保留 Linux 脚本执行权限。' }
 if ([string]::IsNullOrWhiteSpace($OutDir)) { $OutDir = Join-Path $repoRoot 'dist\fnos' }
 
 # 官方只发布了 windows-amd64 与 linux-amd64 两个 fnpack，版本与校验和需和 build-fpk.sh 保持一致。
@@ -58,11 +64,12 @@ Copy-Item -LiteralPath $packageDir -Destination $staging -Recurse -Force
 
 # 生命周期脚本要在飞牛的 Linux 环境里执行，统一成 LF；顺带去掉 BOM。
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
 $textFiles = Get-ChildItem -LiteralPath $staging -Recurse -File | Where-Object {
     $_.FullName -match '[\\/](cmd|wizard)[\\/]' -or $_.Name -eq 'manifest' -or $_.Name -eq 'docker-compose.yaml' -or $_.Name -eq 'config' -or $_.Name -eq 'resource' -or $_.Name -eq 'privilege'
 }
 foreach ($file in $textFiles) {
-    $text = [System.IO.File]::ReadAllText($file.FullName) -replace "`r`n", "`n"
+    $text = [System.IO.File]::ReadAllText($file.FullName, $strictUtf8) -replace "`r`n", "`n"
     [System.IO.File]::WriteAllText($file.FullName, $text, $utf8NoBom)
 }
 
@@ -73,7 +80,7 @@ $manifest = [regex]::Replace($manifest, '(?m)^version\s*=.*$', "version         
 
 $composePath = Join-Path $staging 'app\docker\docker-compose.yaml'
 $compose = [System.IO.File]::ReadAllText($composePath)
-$compose = [regex]::Replace($compose, 'image:\s*ghcr\.io/shizuku11451/auto-anime:\S+', "image: ghcr.io/shizuku11451/auto-anime:$ImageTag")
+$compose = [regex]::Replace($compose, 'image:\s*ghcr\.io/shizuku11451/auto-anime:\S+', "image: ${ImageRepository}:$ImageTag")
 [System.IO.File]::WriteAllText($composePath, $compose, $utf8NoBom)
 
 Push-Location $staging
@@ -90,7 +97,8 @@ if (-not (Test-Path -LiteralPath $fpk)) { throw '没有生成 auto-anime.fpk' }
 
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $target = Join-Path $OutDir "auto-anime-$Version-fnos.fpk"
-Copy-Item -LiteralPath $fpk -Destination $target -Force
+& $Python (Join-Path $repoRoot 'tools\normalize_fpk.py') $fpk $target
+if ($LASTEXITCODE -ne 0) { throw '应用包权限与校验检查失败，未交付安装包。' }
 
 if (-not $KeepStaging) {
     $resolvedStaging = [System.IO.Path]::GetFullPath($stagingParent)
@@ -101,5 +109,6 @@ if (-not $KeepStaging) {
 
 Write-Host ''
 Write-Host "已生成：$target"
-Write-Host "版本：$Version    镜像：ghcr.io/shizuku11451/auto-anime:$ImageTag"
+Write-Host "版本：$Version    镜像：${ImageRepository}:$ImageTag"
 Write-Host '安装：飞牛应用中心 → 手动安装，选择上面的 .fpk，或执行 appcenter-cli install-fpk <文件>'
+Write-Host '此操作只打包，不发布镜像；正式分发前必须确认配套镜像可匿名拉取。'

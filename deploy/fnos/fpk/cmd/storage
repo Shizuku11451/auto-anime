@@ -71,11 +71,39 @@ prepare_mounts() {
 }
 
 run_compose() {
-    local base="${TRIM_APPDEST:?}/docker/docker-compose.yaml"
-    local mounts="${TRIM_PKGETC:?}/authorized-mounts.json"
+    local base="${TRIM_APPDEST:-}/docker/docker-compose.yaml"
+    local mounts="${TRIM_PKGETC:-}/authorized-mounts.json"
+    local output status reason
+    command -v docker >/dev/null 2>&1 || { mount_error '找不到 Docker，请先安装并启动飞牛 Docker 应用。'; return 1; }
+    [ -n "${TRIM_APPDEST:-}" ] && [ -f "$base" ] || { mount_error '应用容器配置缺失，请重新下载对应版本的正式安装包。'; return 1; }
+    output="$(mktemp)" || { mount_error '无法创建启动日志，请检查临时目录权限与剩余空间。'; return 1; }
+    # 保留完整 Docker 输出供应用日志排查，安装弹窗只写分类提示，避免泄露配置。
     if [ -f "$mounts" ]; then
-        docker compose --project-name "${TRIM_APPNAME:-auto-anime}" -f "$base" -f "$mounts" "$@"
+        docker compose --project-name "${TRIM_APPNAME:-auto-anime}" -f "$base" -f "$mounts" "$@" >"$output" 2>&1
     else
-        docker compose --project-name "${TRIM_APPNAME:-auto-anime}" -f "$base" "$@"
+        docker compose --project-name "${TRIM_APPNAME:-auto-anime}" -f "$base" "$@" >"$output" 2>&1
     fi
+    status=$?
+    cat "$output"
+    if [ "$status" -ne 0 ]; then
+        reason='Docker 操作失败，请查看应用日志。'
+        if grep -Eqi 'unauthorized|denied:|authentication required|forbidden' "$output"; then
+            reason='镜像访问被拒绝。正式镜像必须允许匿名拉取；请确认下载的是官方正式包，或联系维护者检查镜像公开权限。'
+        elif grep -Eqi 'no such image|manifest unknown|manifest.*not found|not found.*manifest|no matching manifest' "$output"; then
+            reason='对应版本或架构的镜像不存在。请重新下载已正式发布的配套安装包；本地测试包必须先准备指定镜像。'
+        elif grep -Eqi 'port is already allocated|address already in use|failed to bind host port|bind.*port.*failed' "$output"; then
+            reason='网页或 BT 端口已被占用。请停止冲突服务，或在安装向导选择其他 BT 端口。'
+        elif grep -Eqi 'no space left|read-only file system|permission denied|mount.*(not exist|not found)|invalid mount' "$output"; then
+            reason='存储空间、目录权限或挂载异常。请检查剩余空间、应用数据目录和授权目录。'
+        elif grep -Eqi 'unhealthy|did not become healthy|health.*timeout|timeout.*health|container.*exited' "$output"; then
+            reason='容器未能在 120 秒内健康启动。请查看应用及容器日志；不要删除原数据目录。'
+        elif grep -Eqi 'timeout|timed out|TLS|x509|no such host|connection refused|network is unreachable|connection reset|unexpected EOF' "$output"; then
+            reason='镜像仓库网络连接失败。请检查 NAS 的 DNS、网络与 Docker 镜像获取配置；网页代理设置不能帮助 Docker 拉取镜像。'
+        elif grep -Eqi 'cannot connect.*docker|docker daemon.*not running' "$output"; then
+            reason='Docker 服务不可用，请先启动飞牛 Docker 应用。'
+        fi
+        mount_error "$reason 日志位置：/var/log/apps/${TRIM_APPNAME:-auto-anime}.log（退出码 $status）。"
+    fi
+    rm -f -- "$output"
+    return "$status"
 }

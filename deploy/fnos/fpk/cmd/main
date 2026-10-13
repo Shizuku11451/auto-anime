@@ -6,7 +6,7 @@ script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 
 case "$1" in
 start)
-    prepare_mounts && run_compose up -d --remove-orphans
+    prepare_mounts && run_compose up -d --remove-orphans --wait --wait-timeout 120
     exit $?
     ;;
 stop)

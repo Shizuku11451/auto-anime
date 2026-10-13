@@ -3,7 +3,7 @@
 # 构建飞牛 fnOS 应用包（.fpk）。
 #
 # 用法：deploy/fnos/build-fpk.sh [版本号] [镜像标签]
-# 环境变量：OUT_DIR 指定输出目录；FNPACK 指定已有的 fnpack 可执行文件；KEEP_STAGING=1 保留临时目录。
+# 环境变量：IMAGE_REPOSITORY 指定 GHCR 仓库；OUT_DIR 指定输出目录；FNPACK 指定已有的 fnpack；KEEP_STAGING=1 保留临时目录。
 # 产物默认写到 dist/fnos/。
 set -euo pipefail
 
@@ -12,10 +12,15 @@ repo_root="$(cd "$script_dir/../.." && pwd)"
 package_dir="$script_dir/fpk"
 
 version="${1:-0.0.0}"
+[[ "$version" =~ ^[0-9][A-Za-z0-9.+-]*$ ]] || { echo '版本号格式无效' >&2; exit 1; }
 image_tag="${2:-}"
 if [ -z "$image_tag" ]; then
   if [ "$version" = "0.0.0" ]; then image_tag="latest"; else image_tag="$version"; fi
 fi
+[[ "$image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo '镜像标签格式无效' >&2; exit 1; }
+image_repository="${IMAGE_REPOSITORY:-ghcr.io/shizuku11451/auto-anime}"
+[[ "$image_repository" =~ ^ghcr\.io/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$ ]] || { echo '镜像仓库须为全小写的 ghcr.io/所有者/仓库名' >&2; exit 1; }
+command -v python3 >/dev/null || { echo '打包需要 Python 3，用于校验并保留 Linux 脚本执行权限。' >&2; exit 1; }
 out_dir="${OUT_DIR:-$repo_root/dist/fnos}"
 
 # 官方只发布了 windows-amd64 与 linux-amd64 两个 fnpack，版本与校验和需和 build-fpk.ps1 保持一致。
@@ -68,7 +73,8 @@ while IFS= read -r -d '' file; do
 done < <(find "$staging" -type f \( -path "$staging/cmd/*" -o -path "$staging/wizard/*" -o -name manifest -o -name docker-compose.yaml -o -name config -o -name resource -o -name privilege \) -print0)
 
 sed -i "s|^version\s*=.*$|version               = $version|" "$staging/manifest"
-sed -i "s|image:\s*ghcr\.io/shizuku11451/auto-anime:[^[:space:]]*|image: ghcr.io/shizuku11451/auto-anime:$image_tag|" "$staging/app/docker/docker-compose.yaml"
+sed -i "s|image:\s*ghcr\.io/shizuku11451/auto-anime:[^[:space:]]*|image: $image_repository:$image_tag|" "$staging/app/docker/docker-compose.yaml"
+chmod 755 "$staging"/cmd/*
 
 (cd "$staging" && "$fnpack" build)
 
@@ -79,9 +85,10 @@ fi
 
 mkdir -p "$out_dir"
 target="$out_dir/auto-anime-$version-fnos.fpk"
-cp "$staging/auto-anime.fpk" "$target"
+python3 "$repo_root/tools/normalize_fpk.py" "$staging/auto-anime.fpk" "$target"
 
 echo
 echo "已生成：$target"
-echo "版本：$version    镜像：ghcr.io/shizuku11451/auto-anime:$image_tag"
+echo "版本：$version    镜像：$image_repository:$image_tag"
 echo "安装：飞牛应用中心 → 手动安装，选择上面的 .fpk，或执行 appcenter-cli install-fpk <文件>"
+echo '此操作只打包，不发布镜像；正式分发前必须确认配套镜像可匿名拉取。'

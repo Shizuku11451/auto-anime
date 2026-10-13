@@ -27,6 +27,8 @@ if TRIM_UID=0 prepare_mounts; then echo '接受了 root UID' >&2; exit 1; fi
 
 # 模拟属主修改与 Docker，失败回调不得启动容器，也不修改真实文件属主。
 export TRIM_PKGVAR="$tmp" TRIM_APPDEST="$tmp" TRIM_TEMP_LOGFILE="$tmp/error.log"
+mkdir -p "$tmp/docker"
+cp "$root/deploy/fnos/fpk/app/docker/docker-compose.yaml" "$tmp/docker/docker-compose.yaml"
 export TEST_CHOWN_RESULT=0
 chown() {
   printf 'chown\n' >> "$TRIM_PKGETC/calls"
@@ -36,7 +38,12 @@ chown() {
 docker() {
   case "$1" in
     inspect) printf 'true\n' ;;
-    compose) printf 'compose\n' >> "$TRIM_PKGETC/calls" ;;
+    compose)
+      printf 'compose\n' >> "$TRIM_PKGETC/calls"
+      printf '%s\n' "$*" >> "$TRIM_PKGETC/compose-args"
+      if [ "${TEST_DOCKER_RESULT:-0}" != 0 ]; then printf '%s\n' "${TEST_DOCKER_ERROR:-mock Docker failure}" >&2; fi
+      return "${TEST_DOCKER_RESULT:-0}"
+      ;;
     *) return 1 ;;
   esac
 }
@@ -59,7 +66,33 @@ for callback in install_callback upgrade_callback config_callback; do
   grep -q 'mock read-only filesystem' "$TRIM_TEMP_LOGFILE"
   if grep -q '^compose$' "$tmp/calls"; then echo "$callback 失败后仍启动容器" >&2; exit 1; fi
   : > "$tmp/calls"
+  : > "$tmp/compose-args"
   bash "$root/deploy/fnos/fpk/cmd/$callback"
   [ "$(cat "$tmp/calls")" = $'chown\ncompose' ] || { echo "$callback 未先修复属主再启动" >&2; exit 1; }
+  grep -q -- '--wait --wait-timeout 120' "$tmp/compose-args" || { echo "$callback 未等待健康启动" >&2; exit 1; }
 done
+grep -q -- '--wait --wait-timeout 120' "$tmp/compose-args"
+grep -q 'pull_policy: missing' "$tmp/docker/docker-compose.yaml"
+
+# Docker 失败须保留退出码、写入安装提示，且不能把输出中的凭据带入弹窗。
+export TEST_DOCKER_RESULT=17
+for case in 'No such image|镜像不存在' 'manifest unknown|镜像不存在' 'unauthorized|镜像访问被拒绝' 'TLS handshake timeout|网络连接失败' 'port is already allocated|端口已被占用' 'no space left on device|存储空间' 'container is unhealthy|健康启动' 'Cannot connect to the Docker daemon|Docker 服务不可用' 'mock failure secret-token|Docker 操作失败'; do
+  export TEST_DOCKER_ERROR="${case%%|*}"
+  expected="${case#*|}"
+  : > "$TRIM_TEMP_LOGFILE"
+  status=0
+  bash "$root/deploy/fnos/fpk/cmd/main" start || status=$?
+  [ "$status" = 17 ] || { echo 'Docker 失败退出码被吞掉' >&2; exit 1; }
+  grep -q "$expected" "$TRIM_TEMP_LOGFILE"
+  grep -q '退出码 17' "$TRIM_TEMP_LOGFILE"
+  if grep -q 'secret-token' "$TRIM_TEMP_LOGFILE"; then echo '安装提示包含原始 Docker 输出' >&2; exit 1; fi
+done
+for callback in install_callback upgrade_callback config_callback; do
+  export TEST_DOCKER_ERROR='manifest unknown'
+  status=0
+  bash "$root/deploy/fnos/fpk/cmd/$callback" || status=$?
+  [ "$status" = 17 ] || { echo "$callback 未报告启动失败" >&2; exit 1; }
+  grep -q '镜像不存在' "$TRIM_TEMP_LOGFILE"
+done
+unset TEST_DOCKER_RESULT TEST_DOCKER_ERROR
 echo '飞牛包脚本检查通过'

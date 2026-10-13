@@ -1,7 +1,7 @@
 name: release
 
 # 打 tag（例如 v1.2.0）即触发：交叉编译三个平台的可执行文件、生成校验文件、
-# 创建 GitHub Release，并构建推送到 ghcr.io 的镜像（镜像内含源码前端的 static/）。
+# 先验证公开镜像可拉取和启动，再公开包含 FPK 的 GitHub Release。
 on:
   push:
     tags:
@@ -107,6 +107,7 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
       - name: Build fnOS app package
         run: |
+          export IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
           # build-fpk.sh 会下载官方 fnpack 并校验 SHA-256，再把版本号写进 manifest 与镜像标签
           chmod +x deploy/fnos/build-fpk.sh
           deploy/fnos/build-fpk.sh "${{ steps.meta.outputs.version }}"
@@ -118,7 +119,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [binaries, fpk]
+    needs: [binaries, fpk, image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,7 +176,7 @@ jobs:
           || gh release upload "$TAG" dist/* --clobber
 
   image:
-    needs: release
+    needs: [binaries, fpk]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -220,7 +221,7 @@ jobs:
           set -e
           rm -rf image-context
           mkdir -p image-context/static
-          # 镜像使用的可执行文件来自本次 Release，前端产物随源码提供
+          # 镜像使用本次已检查的构建附件，不依赖尚未公开的 Release。
           cp dist/auto-anime-${{ steps.meta.outputs.version }}-linux-amd64 image-context/
           cp dist/auto-anime-${{ steps.meta.outputs.version }}-linux-arm64 image-context/
           # static/ 内含 assets/ 子目录，必须递归复制
@@ -245,7 +246,7 @@ jobs:
               --build-arg VERSION="$RELEASE_TAG" \
               --build-arg COMMIT="$COMMIT" \
               --tag "$IMAGE:$VERSION" \
-              --tag "$IMAGE:latest" image-context; then
+              image-context; then
               docker buildx imagetools inspect "$IMAGE:$VERSION" || exit $?
               exit 0
             else
@@ -258,3 +259,10 @@ jobs:
             fi
           done
           exit "$status"
+      - name: Verify anonymous pull and isolated startup on both architectures
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: bash scripts/verify-public-image.sh "$IMAGE:$VERSION" "$VERSION"
+      - name: Promote verified image to latest
+        run: docker buildx imagetools create --tag '${{ steps.meta.outputs.image }}:latest' '${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}'

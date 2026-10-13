@@ -34,7 +34,10 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: backend/go.sum
       - name: fnOS package scripts
-        run: bash deploy/fnos/test-fpk.sh
+        run: |
+          bash deploy/fnos/test-fpk.sh
+          bash deploy/fnos/test-public-image.sh
+          python3 -m unittest discover -s tools -p 'test_*.py'
       - name: Backend tests and vet
         working-directory: backend
         env:
