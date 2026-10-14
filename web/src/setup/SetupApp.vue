@@ -7,6 +7,7 @@ import ConfirmHost from '@/components/ui/ConfirmHost.vue'
 import { confirmDialog } from '@/stores/confirm'
 import { MODE_LABEL } from '@/api/types'
 import type { SetupResult, SetupStatus, SetupStorageResult } from '@/api/types'
+import { isWindows } from '@/utils/platform'
 
 const STEPS = [
   { key: 'account', title: '管理员账户', icon: UserRound, hint: '建议创建账户，保护订阅与下载管理；这是 Auto-Anime 的账户，与 NAS 账户无关。' },
@@ -15,6 +16,18 @@ const STEPS = [
   { key: 'network', title: '确认并开始', icon: Globe, hint: '已沿用部署配置；未配置时默认直连、每 30 分钟同步。确认后即可开始添加订阅。' },
 ] as const
 
+/* 运行平台来自 /api/setup/status：Windows 桌面版没有 Docker 卷映射，文案不同。 */
+const platformOS = ref('')
+const isWindowsOS = computed(() => isWindows(platformOS.value))
+/* 下载方式步骤的说明按平台切换；其余步骤的静态说明直接沿用。 */
+const currentHint = computed(() => {
+  if (current.value.key === 'download') {
+    return isWindowsOS.value
+      ? '桌面版使用随包 qBittorrent，也可连接已有下载器或选择本地直链。'
+      : 'Docker 默认使用内置 qBittorrent，也可连接已有下载器或选择本地直链。'
+  }
+  return current.value.hint
+})
 const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 
 const step = ref(0)
@@ -101,6 +114,7 @@ async function loadStatus() {
     form.poll_minutes = s.poll_minutes ?? 30
     deploymentProxyEnabled.value = s.proxy_enabled ?? false
     form.keep_source_files = s.keep_source_files !== false
+    platformOS.value = s.os || ''
     statusLoaded.value = true
   } catch {
     if (version === statusVersion) statusError.value = '无法读取安装配置，请检查服务是否已启动，然后重试。'
@@ -160,7 +174,9 @@ function validateDownloader(): string {
     const url = new URL(address.trim())
     if (url.protocol === 'http:' || url.protocol === 'https:') return ''
   } catch { /* 显示统一的连接地址提示 */ }
-  return '请填写下载器的 HTTP 或 HTTPS 地址；另一个容器的地址请使用 NAS 局域网 IP 或服务名。'
+  return isWindowsOS.value
+    ? '请填写下载器的 HTTP 或 HTTPS 地址；下载器在其他设备时请使用其 IP 或主机名。'
+    : '请填写下载器的 HTTP 或 HTTPS 地址；另一个容器的地址请使用 NAS 局域网 IP 或服务名。'
 }
 
 function go(delta: 1 | -1) {
@@ -294,8 +310,8 @@ function enterPanel() {
       <p v-if="loginFailed">自动登录未成功，请使用刚设置的账户登录，无需重新安装。</p>
       <template v-else>
         <p v-if="libraryWarning" class="storage-warning" role="alert">{{ libraryWarning }}</p>
-        <p v-if="libraryWarning">请在设置页确认媒体库目录。容器内目录需要映射到 NAS 文件夹，再开始下载。</p>
-        <p v-else>下一步在「找番」搜索番名，预览资源并添加订阅。使用媒体服务器时，扫描 Compose 中映射的 NAS 媒体文件夹。</p>
+        <p v-if="libraryWarning">请在设置页确认媒体库目录。{{ isWindowsOS ? '目录要存在且当前用户可以写入，再开始下载。' : '容器内目录需要映射到 NAS 文件夹，再开始下载。' }}</p>
+        <p v-else>下一步在「找番」搜索番名，预览资源并添加订阅。使用媒体服务器时，扫描{{ isWindowsOS ? '上面显示的媒体库目录' : 'Compose 中映射的 NAS 媒体文件夹' }}。</p>
       </template>
       <BaseButton variant="primary" :icon="ArrowRight" :disabled="busy" @click="enterPanel">{{ loginFailed ? '前往登录' : libraryWarning ? '检查媒体库目录' : '开始添加订阅' }}</BaseButton>
     </section>
@@ -331,7 +347,7 @@ function enterPanel() {
             <span class="panel-ico"><component :is="current.icon" aria-hidden="true" /></span>
             <div>
               <h2>{{ current.title }}</h2>
-              <p>{{ current.hint }}</p>
+              <p>{{ currentHint }}</p>
             </div>
           </header>
 
@@ -371,7 +387,7 @@ function enterPanel() {
                     <input id="su-aria2-token" v-model="form.aria2_token" type="password" autocomplete="off" />
                   </div>
                   <div class="field">
-                    <label for="su-aria2-dir">Aria2 下载目录（Aria2 容器内路径）</label>
+                    <label for="su-aria2-dir">Aria2 下载目录（{{ isWindowsOS ? 'Aria2 侧路径' : 'Aria2 容器内路径' }}）</label>
                     <input id="su-aria2-dir" v-model="form.aria2_dir" type="text" placeholder="/downloads" spellcheck="false" />
                   </div>
                 </div>
@@ -433,7 +449,7 @@ function enterPanel() {
                 </div>
               </div>
               <p v-else-if="form.mode === 'builtin'" key="builtin" class="field-hint direct-hint">
-                镜像已包含 qBittorrent，由程序自动启动和连接，无需填写地址或密码。任务与续传数据保存在数据目录，重启后继续下载。
+                {{ isWindowsOS ? '程序带 qBittorrent，自动启动和连接，无需填写地址或密码。' : '镜像已包含 qBittorrent，由程序自动启动和连接，无需填写地址或密码。' }}任务与续传数据保存在数据目录，重启后继续下载。
               </p>
               <p v-else key="direct" class="field-hint direct-hint">
                 本地直链会直接下载 HTTP/HTTPS 资源；磁力链接与种子在没有下载器时会停在「等待下载器」，之后可在设置页补充。
@@ -444,14 +460,17 @@ function enterPanel() {
           <template v-else-if="current.key === 'storage'">
             <div class="storage-note">
               <p>整理好的番剧将保存到安装时配置的媒体文件夹，当前目录为 <strong class="storage-path">{{ archiveRoot }}</strong>。</p>
-              <p>使用飞牛模板时，无需重复填写 NAS 路径。飞牛影视选择 Compose 中映射的 NAS 文件夹。</p>
-              <p>想换到其他 NAS 文件夹或端口，打开<a href="/install" target="_blank" rel="noopener noreferrer">部署配置页</a>生成新的 Compose，再在飞牛重建项目；重建时保留原来的 data 映射。</p>
+              <p v-if="isWindowsOS">媒体库目录可以是盘符路径（如 D:\番剧）或 UNC 共享（如 \\NAS\共享\番剧），归档按番剧文件夹与 Season 目录存放。</p>
+              <template v-else>
+                <p>使用飞牛模板时，无需重复填写 NAS 路径。飞牛影视选择 Compose 中映射的 NAS 文件夹。</p>
+                <p>想换到其他 NAS 文件夹或端口，打开<a href="/install" target="_blank" rel="noopener noreferrer">部署配置页</a>生成新的 Compose，再在飞牛重建项目；重建时保留原来的 data 映射。</p>
+              </template>
               <p>订阅的「保存位置」留空时沿用这里。BT 原文件保留供做种，整理后的番剧另存一份。</p>
             </div>
             <div class="storage-check">
               <BaseButton :icon="FolderOpen" :loading="storageLoading" :disabled="!canCheckStorage || locked" @click="checkStorage">检测保存目录</BaseButton>
               <p class="field-hint">仅检测部署时配置的目录，创建、写入并删除一个临时文件。</p>
-              <p v-if="!canCheckStorage" class="field-hint">当前选择已不同于部署目录。请先核对 Docker 映射；此安装检测仅适用于部署目录。</p>
+              <p v-if="!canCheckStorage" class="field-hint">{{ isWindowsOS ? '当前选择已不同于部署目录。修改后请确认新目录存在且可写；这里的安装检测只针对部署目录。' : '当前选择已不同于部署目录。请先核对 Docker 映射；此安装检测仅适用于部署目录。' }}</p>
               <p v-if="storageError" class="storage-warning" role="alert">{{ storageError }}</p>
               <p v-if="storageResult" :class="{ 'storage-warning': !storageResult.writable || storageResult.mount_status === 'unknown' }" role="status">{{ storageResult.message }}</p>
             </div>
@@ -463,14 +482,15 @@ function enterPanel() {
               <p class="field-hint">默认开启。关闭后，归档成功并写入数据库才停止对应任务、清理源文件；失败保留原文件。归档时仍需预留两份文件空间。外部下载器须配置明确的目录映射。</p>
             </div>
             <details>
-              <summary>高级：修改容器内媒体目录</summary>
+              <summary>{{ isWindowsOS ? '高级：修改媒体库目录' : '高级：修改容器内媒体目录' }}</summary>
             <div class="field">
               <label for="su-library">媒体库目录（整理好的番剧）</label>
               <input id="su-library" v-model="form.library_dir" type="text" :placeholder="`留空使用 ${defaultDownloadDir}`" spellcheck="false" />
               <p class="field-hint">已按部署配置填写；留空沿用下载目录。修改这里不会搬迁已有文件。</p>
             </div>
               <p>预计保存到：<strong class="storage-path">{{ archiveRoot }}/番剧名/Season XX/</strong></p>
-              <p>Docker 中填写容器内路径。例如 Compose 将 NAS 文件夹映射为 <code>/media</code>，这里就填 <code>/media</code>，飞牛影视扫描对应的 NAS 文件夹。</p>
+              <p v-if="isWindowsOS">填写盘符路径或 UNC 共享即可，例如 <code>D:\番剧</code>；留空沿用下载目录。</p>
+              <p v-else>Docker 中填写容器内路径。例如 Compose 将 NAS 文件夹映射为 <code>/media</code>，这里就填 <code>/media</code>，飞牛影视扫描对应的 NAS 文件夹。</p>
             </details>
           </template>
 

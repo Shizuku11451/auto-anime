@@ -26,7 +26,9 @@ func cleanupConnection(downloader string) string {
 	var fields []string
 	switch downloader {
 	case "builtin":
-		fields = []string{downloadDir, env("QBITTORRENT_DATA_DIR", "")}
+		// 内置下载器把源文件写在私有根目录的 downloads\ 下，不跟随 DOWNLOAD_DIR；
+		// 这里记录实际位置，映射变化时让待清理任务保留源文件。
+		fields = []string{embeddedQbitDownloadDir()}
 	case "qbittorrent":
 		fields = []string{cfg.qbitURL, cfg.qbitUser, cfg.qbitPassword, cfg.qbitSavePath, cfg.qbitLocalDir}
 	case "aria2":
@@ -42,7 +44,7 @@ func sourceRootFor(downloader string) string {
 	cfg := runtimeConfig()
 	switch downloader {
 	case "builtin":
-		return downloadDir
+		return embeddedQbitDownloadDir()
 	case "qbittorrent":
 		if cfg.qbitLocalDir != "" {
 			return cfg.qbitLocalDir

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,12 @@ func TestSetupStorageProbeCleansTemporaryFile(t *testing.T) {
 	useMountInfo(t, "")
 	dir := t.TempDir()
 	out := probeSetupStorage(dir)
-	if !out.Writable || out.MountStatus != "unknown" || !strings.Contains(out.Message, "无法确认挂载") {
+	if runtime.GOOS == "windows" {
+		// Windows 本机没有容器卷映射：探测只验证目录存在与可写。
+		if !out.Writable || out.MountStatus != "not_required" || !strings.Contains(out.Message, "无需容器映射") {
+			t.Fatalf("unexpected result: %+v", out)
+		}
+	} else if !out.Writable || out.MountStatus != "unknown" || !strings.Contains(out.Message, "无法确认挂载") {
 		t.Fatalf("unexpected result: %+v", out)
 	}
 	entries, err := os.ReadDir(dir)
@@ -73,6 +79,9 @@ func TestSetupStorageUsesOnlyDeploymentRootAndClosesAfterSetup(t *testing.T) {
 }
 
 func TestSetupStorageMountChecksBeforeWriting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("容器挂载检测仅适用于容器/Linux 环境")
+	}
 	dir := t.TempDir()
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {

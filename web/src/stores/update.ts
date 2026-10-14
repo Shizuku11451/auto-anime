@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { http, errorMessage } from '@/api/client'
 import type { UpdateInfo } from '@/api/types'
+import { isWindowsPlatform } from '@/utils/platform'
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000
 const POLL_INTERVAL_MS = 800
@@ -117,7 +118,9 @@ async function onTick() {
   // 请求持续失败说明服务正在重启，继续等待
   if (!latest) restarting.value = true
   if (Date.now() > restartDeadline) {
-    checkError.value = '更新超时：请刷新页面确认版本，或查看容器日志'
+    checkError.value = isWindowsPlatform(info.value?.platform)
+      ? '更新超时：请刷新页面确认版本，或查看程序日志'
+      : '更新超时：请刷新页面确认版本，或查看容器日志'
     stopPolling()
   }
 }

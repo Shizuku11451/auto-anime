@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -258,19 +259,66 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 	db.Exec("UPDATE items SET status='下载中',task_error='',progress=? WHERE id=? AND status IN ("+activeTaskStatusSQL+")", s.Progress, t.ID)
 }
 
-// mapRemotePath translates a downloader-container path into a path visible to
-// this container. Empty localBase means both sides share the same path.
+// ---- downloader path mapping ----
+//
+// Downloaders report paths in their own platform style: Aria2, qBittorrent and
+// Transmission on Windows answer with backslashes (C:\Downloads\anime), while
+// containers answer with slashes. The user-configured base path may use either
+// style. Comparisons therefore normalize separators first and ignore case only
+// on Windows, where the filesystem does as well.
+
+// normalizeRemotePath makes downloader-reported paths comparable. Trailing
+// separators are trimmed except for roots ("C:/", "//server/share" keeps its
+// form without the trailing slash).
+func normalizeRemotePath(value string) string {
+	value = filepath.ToSlash(strings.TrimSpace(value))
+	for len(value) > 1 && strings.HasSuffix(value, "/") {
+		if len(value) == 3 && value[1] == ':' {
+			break // Keep the drive root readable as "C:/".
+		}
+		value = strings.TrimSuffix(value, "/")
+	}
+	return value
+}
+
+// remotePathEqual compares two normalized remote paths the way the target
+// filesystem would.
+func remotePathEqual(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// remoteRelative returns the part of path below base, when path is base or
+// lives under it.
+func remoteRelative(path, base string) (string, bool) {
+	if remotePathEqual(path, base) {
+		return "", true
+	}
+	prefix := base
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	if len(path) > len(prefix) && remotePathEqual(path[:len(prefix)], prefix) {
+		return path[len(prefix):], true
+	}
+	return "", false
+}
+
+// mapRemotePath translates a downloader path into a path visible to this
+// machine. Empty localBase means both sides share the same path.
 func mapRemotePath(remotePath, remoteBase, localBase string) string {
-	remoteBase = strings.TrimSuffix(remoteBase, "/")
-	remotePath = strings.TrimSuffix(remotePath, "/")
-	if localBase == "" || localBase == remoteBase || remoteBase == "" {
+	remoteBase = normalizeRemotePath(remoteBase)
+	remotePath = normalizeRemotePath(remotePath)
+	if localBase == "" || remoteBase == "" || remotePathEqual(normalizeRemotePath(localBase), remoteBase) {
 		return remotePath
 	}
-	if remotePath == remoteBase {
-		return localBase
-	}
-	if strings.HasPrefix(remotePath, remoteBase+"/") {
-		return filepath.Join(localBase, filepath.FromSlash(strings.TrimPrefix(remotePath, remoteBase+"/")))
+	if rel, ok := remoteRelative(remotePath, remoteBase); ok {
+		if rel == "" {
+			return localBase
+		}
+		return filepath.Join(localBase, filepath.FromSlash(rel))
 	}
 	// Unmappable path: returned unchanged so the archive step reports the
 	// concrete missing file instead of silently archiving the wrong one.
@@ -733,9 +781,10 @@ func aria2CompletedFiles(st *aria2Status) ([]archiveFile, error) {
 	if localBase == "" {
 		localBase = remoteBase
 	}
+	torrentDir := normalizeRemotePath(st.Dir)
 	root := ""
 	if st.BitTorrent != nil && st.BitTorrent.Info.Name != "" && len(st.Files) > 1 {
-		root = strings.TrimRight(st.Dir, "/") + "/" + st.BitTorrent.Info.Name
+		root = torrentDir + "/" + st.BitTorrent.Info.Name
 	}
 	files := make([]archiveFile, 0, len(st.Files))
 	for _, f := range st.Files {
@@ -745,16 +794,18 @@ func aria2CompletedFiles(st *aria2Status) ([]archiveFile, error) {
 		if length, _ := strconv.ParseInt(f.Length, 10, 64); length == 0 {
 			continue
 		}
+		filePath := normalizeRemotePath(f.Path)
 		rel := ""
 		if root != "" {
-			if !strings.HasPrefix(f.Path, root+"/") {
+			sub, ok := remoteRelative(filePath, root)
+			if !ok || sub == "" {
 				return nil, fmt.Errorf("无法确定文件相对路径：%s", f.Path)
 			}
-			rel = strings.TrimPrefix(f.Path, root+"/")
+			rel = sub
 		} else {
-			rel = path.Base(f.Path)
+			rel = path.Base(filePath)
 		}
-		files = append(files, archiveFile{Rel: rel, Src: mapRemotePath(f.Path, remoteBase, localBase)})
+		files = append(files, archiveFile{Rel: rel, Src: mapRemotePath(filePath, remoteBase, localBase)})
 	}
 	if len(files) == 0 {
 		return nil, fmt.Errorf("Aria2 未返回可用文件")
@@ -1042,7 +1093,7 @@ func qbitFinishedState(state string) bool {
 }
 
 func qbitCompletedFiles(torrent *qbitTorrent, names []string, config qbitConnection) ([]archiveFile, error) {
-	savePath := strings.TrimRight(torrent.SavePath, "/")
+	savePath := normalizeRemotePath(torrent.SavePath)
 	remoteBase := config.SavePath
 	if remoteBase == "" {
 		remoteBase = savePath
@@ -1213,7 +1264,7 @@ func transmissionCompletedFiles(torrent *transmissionTorrent) ([]archiveFile, er
 	if len(torrent.Files) == 0 {
 		return nil, fmt.Errorf("Transmission 未返回文件列表")
 	}
-	dir := strings.TrimRight(torrent.DownloadDir, "/")
+	dir := normalizeRemotePath(torrent.DownloadDir)
 	remoteBase := cfg.transmissionDownloadDir
 	if remoteBase == "" {
 		remoteBase = dir

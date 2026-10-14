@@ -27,7 +27,7 @@ Auto-Anime 将 RSS 资源交给下载器，跟踪下载进度，完成后整理�
 | 飞牛应用包 | [FPK 安装说明](docs/FNOS_APP.md) | 应用数据目录与共享媒体目录；v0.0.2 起自带 x86-64 镜像，仍需 Docker |
 | 飞牛 fnOS Compose | [飞牛安装指南](docs/FNOS.md) | 项目下 `data` → `/data`，`media` → `/media` |
 | Linux Docker | [Docker 快速安装](#docker-快速安装) | `./docker-data` → `/data`；媒体在 `/data/downloads` |
-| Windows 10/11 x64 | [Windows 桌面版](docs/WINDOWS.md) | 完整解压目录下的 `data`，需要 WebView2 Runtime |
+| Windows 10/11 x64 | [Windows 桌面版](docs/WINDOWS.md) | 完整解压目录下的 `data`（数据库与下载器源文件）和 `media`（归档媒体库），需要 WebView2 Runtime |
 | 源码开发 | [贡献指南](CONTRIBUTING.md) | 显式配置独立开发数据目录 |
 
 完整导航见[文档索引](docs/README.md)。

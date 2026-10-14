@@ -236,7 +236,8 @@ func TestSeriesPosterMirrorsCover(t *testing.T) {
 
 func TestBackupCarriesSeriesLibrary(t *testing.T) {
 	testDatabase(t)
-	if rec := putSeriesStorage(t, "夏日动画", "/volume1/anime/夏日", 3); rec.Code != 200 {
+	seriesDir := filepath.ToSlash(t.TempDir())
+	if rec := putSeriesStorage(t, "夏日动画", seriesDir, 3); rec.Code != 200 {
 		t.Fatalf("put storage: %d %s", rec.Code, rec.Body.String())
 	}
 	if _, err := db.Exec("UPDATE animes SET include_rules='夏日',bangumi_id=4242 WHERE title='夏日动画'"); err != nil {
@@ -261,14 +262,15 @@ func TestBackupCarriesSeriesLibrary(t *testing.T) {
 	if err := db.QueryRow(`SELECT COALESCE(storage_dir,''),COALESCE(season,0),COALESCE(include_rules,''),COALESCE(bangumi_id,0) FROM animes WHERE title='夏日动画'`).Scan(&dir, &season, &rules, &bangumiID); err != nil {
 		t.Fatal(err)
 	}
-	if dir != "/volume1/anime/夏日" || season != 3 || rules == "" || bangumiID != 4242 {
+	if dir != seriesDir || season != 3 || rules == "" || bangumiID != 4242 {
 		t.Fatalf("restored series: %q season=%d rules=%q bangumi=%d", dir, season, rules, bangumiID)
 	}
 }
 
 func TestRestoreAcceptsLegacyV2StorageBackup(t *testing.T) {
 	testDatabase(t)
-	body := `{"version":2,"feeds":[],"anime_storages":[{"anime_title":"旧番剧","storage_dir":"/volume1/anime/old","season":2}]}`
+	legacyDir := filepath.ToSlash(t.TempDir())
+	body := `{"version":2,"feeds":[],"anime_storages":[{"anime_title":"旧番剧","storage_dir":"` + legacyDir + `","season":2}]}`
 	rec := httptest.NewRecorder()
 	restore(rec, httptest.NewRequest("POST", "/api/restore", strings.NewReader(body)))
 	if rec.Code != 200 {
@@ -276,7 +278,7 @@ func TestRestoreAcceptsLegacyV2StorageBackup(t *testing.T) {
 	}
 	var dir string
 	var season int
-	if err := db.QueryRow(`SELECT COALESCE(storage_dir,''),COALESCE(season,0) FROM animes WHERE title='旧番剧'`).Scan(&dir, &season); err != nil || dir != "/volume1/anime/old" || season != 2 {
+	if err := db.QueryRow(`SELECT COALESCE(storage_dir,''),COALESCE(season,0) FROM animes WHERE title='旧番剧'`).Scan(&dir, &season); err != nil || dir != legacyDir || season != 2 {
 		t.Fatalf("v2 storage restore: %q %d %v", dir, season, err)
 	}
 }

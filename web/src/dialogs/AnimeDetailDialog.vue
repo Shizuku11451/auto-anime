@@ -17,7 +17,11 @@ import { confirmDialog } from '@/stores/confirm'
 import { seasonLabel } from '@/utils/format'
 import type { MetaRematchResult, ResourceItem } from '@/api/types'
 import type { PlayerEntry } from '@/stores/dialogs'
-
+import { isWindows } from '@/utils/platform'
+/* Windows 本机没有 NAS 概念，删除记录只影响数据库记录。 */
+const mediaKeptHint = computed(() =>
+  isWindows(store.platformOS.value) ? '只删除这条资源记录，不会删除已保存的媒体文件。' : '只删除这条资源记录，不会删除 NAS 上已保存的文件。',
+)
 const dialogs = useDialogs()
 const store = useAppStore()
 const s = dialogs.state.animeDetail
@@ -82,7 +86,7 @@ async function download(item: ResourceItem) {
 }
 
 async function remove(item: ResourceItem) {
-  const ok = await confirmDialog('移除记录', '只删除这条资源记录，不会删除 NAS 上已保存的文件。', {
+  const ok = await confirmDialog('移除记录', mediaKeptHint.value, {
     danger: true,
     okText: '移除',
   })

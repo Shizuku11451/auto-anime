@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -47,8 +48,27 @@ func TestSetupStatusPathsOnlyBeforeInitialization(t *testing.T) {
 	}
 }
 
+// Windows 上 "/media"、"/unmapped/media" 这类没有盘符的路径会按当前盘解析，必须按
+// 绝对路径校验拒绝，而不是像容器那样当作 /media 挂载点。
+func TestWindowsRejectsContainerStyleLibrary(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("仅 Windows 校验无盘符路径")
+	}
+	settingsFixture(t)
+	setWebAuth(t, "", "")
+	setupDone = false
+	rec := httptest.NewRecorder()
+	setupHandler(rec, httptest.NewRequest("POST", "/api/setup", strings.NewReader(`{"library_dir":"/unmapped/media","download_mode":"direct"}`)))
+	if rec.Code != 400 || setupDone {
+		t.Fatalf("container path accepted: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestSetupReportsUnmappedArchiveRootAndPreservesSettings(t *testing.T) {
 	for _, library := range []string{"/unmapped/media", ""} {
+		if runtime.GOOS == "windows" && library != "" {
+			continue // 容器未映射提示只适用于容器/Linux，Windows 由上一个用例验证拒绝。
+		}
 		t.Run(library, func(t *testing.T) {
 			settingsFixture(t)
 			setWebAuth(t, "", "")

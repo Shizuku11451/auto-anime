@@ -45,6 +45,37 @@ func TestDefaultDataDirFollowsPlatform(t *testing.T) {
 	}
 }
 
+// 媒体库默认值按平台取值：容器/Linux 留空（归档落下载目录，模板显式给 /media）；
+// Windows 用程序同级的 media\，与下载器源文件所在的 data\ 分开，媒体服务器可直接扫描。
+func TestDefaultLibraryDirFollowsPlatform(t *testing.T) {
+	dir := defaultLibraryDir()
+	if runtime.GOOS != "windows" {
+		if dir != "" {
+			t.Fatalf("defaultLibraryDir = %q, want empty", dir)
+		}
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Dir(dir)
+	if filepath.Base(dir) != "media" || (!samePath(parent, filepath.Dir(exe)) && !samePath(parent, cwd)) {
+		t.Fatalf("defaultLibraryDir = %q, want media\\ under %q or %q", dir, filepath.Dir(exe), cwd)
+	}
+	// 归档目录不能和下载目录是同一个：否则源文件、暂存与已归档媒体混在一起。
+	if samePath(dir, downloadDir) {
+		t.Fatalf("媒体库默认值不应等于下载目录 %q", downloadDir)
+	}
+	if !samePath(filepath.Dir(dir), filepath.Dir(defaultDataDir())) {
+		t.Fatalf("媒体库 %q 与数据目录 %q 应为同级", dir, defaultDataDir())
+	}
+}
+
 // 当前模式不是 builtin、但库里有旧的内置条目时，Windows 上只告警，不改写当前模式。
 func TestEmbeddedQBittorrentKeepsModeWithBuiltinItems(t *testing.T) {
 	if runtime.GOOS != "windows" {

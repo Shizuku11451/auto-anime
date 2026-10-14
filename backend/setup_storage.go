@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -68,26 +69,39 @@ func probeSetupStorage(dir string) setupStorageResult {
 	out := setupStorageResult{Path: dir, MountStatus: "unknown"}
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		out.Message = "媒体目录不存在或无法访问。请在 NAS 创建文件夹，检查目录映射与权限后重新部署。"
+		if runtime.GOOS == "windows" {
+			out.Message = "媒体目录不存在或无法访问。请先创建文件夹，并确认当前用户可以写入。"
+		} else {
+			out.Message = "媒体目录不存在或无法访问。请在 NAS 创建文件夹，检查目录映射与权限后重新部署。"
+		}
 		return out
 	}
-	mounts := readMountPoints()
-	root, hasRoot := longestMount("/", mounts)
-	if hasRoot && !containerRootFS(root.fsType) {
+	if runtime.GOOS == "windows" {
+		// Windows 本机是盘符/UNC 路径，归档直接落在真实文件系统上，没有容器卷映射的概念。
 		out.MountStatus = "not_required"
-	} else if hasRoot {
-		target, found := longestMount(filepath.ToSlash(resolved), mounts)
-		if found && target.path != "/" && !containerRootFS(target.fsType) && (target.fsType == "ext4" || target.fsType == "btrfs" || target.fsType == "xfs" || target.fsType == "zfs" || target.fsType == "nfs" || target.fsType == "nfs4" || target.fsType == "cifs" || target.fsType == "fuseblk" || target.fsType == "exfat" || target.fsType == "fuse.mergerfs") {
-			out.MountStatus = "mapped"
-		} else if !found || target.path == "/" || containerRootFS(target.fsType) || target.fsType == "tmpfs" {
-			out.MountStatus = "unmapped"
-			out.Message = "媒体目录未映射到持久化存储。请修改 Compose 的 volumes，将 NAS 番剧目录映射到 /media，再重新部署。"
-			return out
+	} else {
+		mounts := readMountPoints()
+		root, hasRoot := longestMount("/", mounts)
+		if hasRoot && !containerRootFS(root.fsType) {
+			out.MountStatus = "not_required"
+		} else if hasRoot {
+			target, found := longestMount(filepath.ToSlash(resolved), mounts)
+			if found && target.path != "/" && !containerRootFS(target.fsType) && (target.fsType == "ext4" || target.fsType == "btrfs" || target.fsType == "xfs" || target.fsType == "zfs" || target.fsType == "nfs" || target.fsType == "nfs4" || target.fsType == "cifs" || target.fsType == "fuseblk" || target.fsType == "exfat" || target.fsType == "fuse.mergerfs") {
+				out.MountStatus = "mapped"
+			} else if !found || target.path == "/" || containerRootFS(target.fsType) || target.fsType == "tmpfs" {
+				out.MountStatus = "unmapped"
+				out.Message = "媒体目录未映射到持久化存储。请修改 Compose 的 volumes，将 NAS 番剧目录映射到 /media，再重新部署。"
+				return out
+			}
 		}
 	}
 	f, err := os.CreateTemp(resolved, ".auto-anime-check-*")
 	if err != nil {
-		out.Message = "媒体目录无法写入，请检查 NAS 文件夹权限、只读挂载与剩余空间。"
+		if runtime.GOOS == "windows" {
+			out.Message = "媒体目录无法写入，请检查目录权限与磁盘剩余空间。"
+		} else {
+			out.Message = "媒体目录无法写入，请检查 NAS 文件夹权限、只读挂载与剩余空间。"
+		}
 		return out
 	}
 	name := f.Name()
@@ -110,7 +124,11 @@ func probeSetupStorage(dir string) setupStorageResult {
 	case "mapped":
 		out.Message = "媒体目录已映射，可以写入。"
 	case "not_required":
-		out.Message = "媒体目录可以写入；当前环境无需 Docker 挂载检查。"
+		if runtime.GOOS == "windows" {
+			out.Message = "媒体目录可以写入。程序直接使用该目录，无需容器映射。"
+		} else {
+			out.Message = "媒体目录可以写入；当前环境无需 Docker 挂载检查。"
+		}
 	default:
 		out.Message = "媒体目录可以写入，但无法确认挂载。Docker 用户仍需核对 Compose 的 volumes，确保文件保存在 NAS 上。"
 	}

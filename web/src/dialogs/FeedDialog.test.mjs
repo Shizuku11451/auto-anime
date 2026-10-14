@@ -17,7 +17,16 @@ const flush = () => new Promise((resolve) => setImmediate(resolve))
 const item = (link, title = link) => ({ title, link, published: '', description: '' })
 const result = (url, seeds = 3) => ({ url, verdict: 'available', seeds })
 
-function dialog(t, initiallyOpen = true, status = null, saveResponse = null) {
+function dialog(t, initiallyOpen = true, status = null, saveResponse = null, platformOS = '') {
+  const BS = String.fromCharCode(92)
+  const platform = {
+    isWindows: os => os === 'windows',
+    storageDirExample: os => (os === 'windows' ? `D:${BS}番剧` : '/vol1/1000/番剧'),
+    isAbsoluteStoragePath: (value, os) => (os === 'windows'
+      ? /^[a-zA-Z]:/.test(value) || value.startsWith(BS + BS) || value.startsWith('//')
+      : value.startsWith('/') || value.startsWith(BS) || /^[a-zA-Z]:/.test(value)),
+    isWindowsPlatform: value => !!value && value.split('/')[0] === 'windows',
+  }
   const state = vue.reactive({ feed: { open: initiallyOpen, feed: {
     from_discover: true, name: '测试版本', url: 'https://feed.example/rss', include_words: '',
   } } })
@@ -49,9 +58,10 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null) {
     },
   }
   const modules = {
+    '@/utils/platform': platform,
     vue,
     '@/stores/dialogs': { useDialogs: () => ({ state }) },
-    '@/stores/app': { useAppStore: () => ({ status: statusRef, refresh: async () => {} }) },
+    '@/stores/app': { useAppStore: () => ({ status: statusRef, platformOS: vue.ref(platformOS), refresh: async () => {} }) },
     '@/api/client': { api, http, errorMessage: (e) => e.message },
     '@/stores/toast': { toast: { error: (message) => errors.push(message), info: () => {}, success: () => {} } },
   }
@@ -262,4 +272,21 @@ test('后端报告保存位置未映射时，订阅仍保存并提示确认', as
 
   assert.deepEqual(h.saved.map((request) => request.url), ['/api/feeds', '/api/sync/9'])
   assert.match(h.errors.join('\n'), /保存位置需要确认.*没有映射进容器/s)
+})
+
+test('Windows 上只接受盘符或 UNC 保存位置，容器路径不能提交', async (t) => {
+  const BS = String.fromCharCode(92)
+  const unc = BS + BS + 'NAS' + BS + '共享' + BS + '番剧'
+  const h = dialog(t, true, { library_dir: 'D:/番剧', download_dir: 'D:/data/downloads' }, null, 'windows')
+  h.state.feed.feed = { name: '夏日动画', url: 'https://feed.example/rss', target_title: '夏日动画' }
+  h.state.feed.open = true
+  await flush()
+  h.component.form.name = '夏日动画'
+  h.component.form.url = 'https://feed.example/rss'
+  h.component.form.storage = '/vol1/1000/番剧'
+  await h.component.save()
+  assert.equal(h.saved.length, 0, '无盘符路径不应提交')
+  h.component.form.storage = unc
+  await h.component.save()
+  assert.equal(h.saved[0].body.storage_dir, unc)
 })

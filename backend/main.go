@@ -27,7 +27,7 @@ import (
 var db *sql.DB
 var downloadDir = env("DOWNLOAD_DIR", filepath.Join(defaultDataDir(), "downloads"))
 var dbFile = defaultDBPath()
-var libraryDir = env("LIBRARY_DIR", "")
+var libraryDir = env("LIBRARY_DIR", defaultLibraryDir())
 var pollMinutes = 30
 var downloadMode = env("DOWNLOAD_MODE", "direct")
 var aria2URL = env("ARIA2_URL", "")
@@ -176,10 +176,10 @@ func defaultDataDir() string {
 	return "/data"
 }
 
-// windowsDataDir 给出 Windows 本机的默认数据目录：程序同级的 data\。
-// `go run`/`go test` 的程序在临时构建目录里（退出即清理），此时退回当前目录，
-// 否则开发时的订阅与条目会跟着临时目录一起消失。
-func windowsDataDir() string {
+// windowsProgramDir 给出 Windows 本机的程序目录：exe 所在目录；`go run`/`go test`
+// 的程序在临时构建目录里（退出即清理），此时退回当前目录，否则开发时的数据会跟着
+// 临时目录一起消失。
+func windowsProgramDir() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
@@ -192,10 +192,31 @@ func windowsDataDir() string {
 		}
 		dir = cwd
 	}
+	return dir
+}
+
+// windowsDataDir 给出 Windows 本机的默认数据目录：程序同级的 data\。
+func windowsDataDir() string {
+	dir := windowsProgramDir()
 	if dir == "" {
 		return ""
 	}
 	return filepath.Join(dir, "data")
+}
+
+// defaultLibraryDir 是未配置 LIBRARY_DIR 时媒体库根目录的默认值。容器与 Linux 服务
+// 端沿用空值（归档落下载目录，部署模板显式设置 /media）；Windows 桌面版结构与容器
+// 不同——没有部署时的卷映射，因此给归档一个程序同级的 media\，与下载器源文件所在
+// 的 data\ 分开，媒体服务器可以直接扫描。
+func defaultLibraryDir() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	dir := windowsProgramDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "media")
 }
 
 // isTemporaryBuildDir 判断目录是不是 go 工具的临时构建目录。
@@ -630,10 +651,16 @@ func sanitizeStorageDir(raw string) (string, error) {
 	if d == "" {
 		return "", nil
 	}
-	// "/volume1/..." is absolute inside the Linux container even though
-	// Windows builds report it as relative.
-	if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, "\\") {
-		return "", fmt.Errorf("存储位置必须是绝对路径，例如 /volume1/anime/番剧名")
+	if runtime.GOOS == "windows" {
+		// Windows 本机没有容器：只有盘符路径或 UNC 共享是完整绝对路径。"/番剧"、
+		// "\\番剧" 会按当前盘解析，可能让文件落在用户没预期的位置，直接拒绝并给出示例。
+		if !windowsAbsolutePath(d) {
+			return "", fmt.Errorf("存储位置必须是绝对路径，例如 %s", storageExampleDir())
+		}
+	} else if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, "\\") {
+		// "/volume1/..." is absolute inside the Linux container even though
+		// Windows builds report it as relative.
+		return "", fmt.Errorf("存储位置必须是绝对路径，例如 %s", storageExampleDir())
 	}
 	for _, part := range strings.Split(filepath.ToSlash(d), "/") {
 		if part == ".." {
@@ -643,6 +670,43 @@ func sanitizeStorageDir(raw string) (string, error) {
 	// Persist forward slashes while retaining the host filesystem's volume
 	// semantics, including Windows UNC shares.
 	return cleanStoragePath(d), nil
+}
+
+// warnStoredPathsForPlatform 在启动时提示与当前平台不匹配的历史保存位置：从 Linux/
+// 容器数据库搬到 Windows 后，"/vol1/1000/番剧" 这类路径会按当前盘解析，归档写到用户
+// 没预期的位置。这里只提示如何处理，不直接改写数据库（用户可能仍要参考原值）。
+func warnStoredPathsForPlatform() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	var items []string
+	collect := func(kind, name, dir string) {
+		if _, err := sanitizeStorageDir(dir); err != nil {
+			items = append(items, fmt.Sprintf("%s「%s」：%s", kind, name, strings.TrimSpace(dir)))
+		}
+	}
+	if rows, err := db.Query("SELECT COALESCE(name,''),COALESCE(storage_dir,'') FROM feeds WHERE COALESCE(storage_dir,'')<>'' ORDER BY id"); err == nil {
+		for rows.Next() {
+			var name, dir string
+			if rows.Scan(&name, &dir) == nil {
+				collect("订阅", name, dir)
+			}
+		}
+		rows.Close()
+	}
+	if rows, err := db.Query("SELECT title,COALESCE(storage_dir,'') FROM animes WHERE COALESCE(storage_dir,'')<>'' ORDER BY id"); err == nil {
+		for rows.Next() {
+			var title, dir string
+			if rows.Scan(&title, &dir) == nil {
+				collect("番剧", title, dir)
+			}
+		}
+		rows.Close()
+	}
+	if len(items) == 0 {
+		return
+	}
+	log.Printf("以下保存位置不适用于 Windows（缺少盘符或 UNC 共享），归档会写到当前盘根：%s；请改为 %s 形式", strings.Join(items, "；"), storageExampleDir())
 }
 
 // animeStorageAPI keeps the legacy /api/anime/{title}/storage endpoint working
@@ -769,7 +833,7 @@ func feedStorageDir(field *string) (string, error) {
 		if strings.Contains(err.Error(), "..") {
 			return "", fmt.Errorf("保存位置不能包含 ..")
 		}
-		return "", fmt.Errorf("保存位置必须是绝对路径，例如 /vol1/1000/番剧")
+		return "", fmt.Errorf("保存位置必须是绝对路径，例如 %s", storageExampleDir())
 	}
 	return clean, nil
 }
@@ -1294,6 +1358,9 @@ func items(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, out)
 }
 func main() {
+	// 发布包是 GUI 子系统：从终端查询版本或运行服务时附着父控制台，让输出可见；
+	// 没有父控制台（双击桌面版）时什么也不做，不会新开窗口。
+	attachParentConsole()
 	// -version：供容器启动脚本与脚本化部署查询版本，不触碰数据库。
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -1356,6 +1423,7 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	} else {
 		log.Printf("媒体库目录：%s", libraryDir)
 	}
+	warnStoredPathsForPlatform()
 	if err := startEmbeddedQBittorrent(); err != nil {
 		return err
 	}

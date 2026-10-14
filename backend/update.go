@@ -321,7 +321,19 @@ func applyPendingState(check *versionCheck, stagedOnStart bool) string {
 }
 
 func pendingUpdateHint() string {
+	if runtime.GOOS == "windows" {
+		return "已下载的新版本会在下次启动时生效：退出程序后重新打开即可运行新版本。"
+	}
 	return "已下载的新版本需要重启后生效：重启服务（容器）即可运行新版本。"
+}
+
+// restartFailureHint 说明替换程序后自动重启失败时用户该做什么；容器与 Windows
+// 桌面版的重启方式不同。
+func restartFailureHint() string {
+	if runtime.GOOS == "windows" {
+		return "新版本已就绪，但自动重启失败，请手动退出并重新打开程序："
+	}
+	return "新版本已就绪，但自动重启失败，请手动重启容器："
 }
 
 // imageVersionDrift reports that the running binary is not the one the image
@@ -345,6 +357,10 @@ func imageVersionDrift() bool {
 // start (for example the executable lives in a read-only image layer).
 func reportPendingUpdate() {
 	if !installReady() {
+		return
+	}
+	if runtime.GOOS == "windows" {
+		logUpdate("检测到待生效的更新包；若本次启动未能替换程序文件，请检查 %s 是否可写，程序文件被占用时会在下次启动重试", executableDisplay())
 		return
 	}
 	logUpdate("检测到待生效的更新包；若本次启动未能替换程序文件，请检查 %s 是否可写或重建容器", executableDisplay())
@@ -1503,7 +1519,7 @@ func startUpdate() {
 		time.Sleep(1200 * time.Millisecond)
 		setUpdateProgress("restarting", "正在重启服务", false)
 		if err := reExecAfterUpdate(); err != nil {
-			setUpdateProgress("failed", "新版本已就绪，但自动重启失败，请手动重启容器："+err.Error(), false)
+			setUpdateProgress("failed", restartFailureHint()+err.Error(), false)
 			logUpdate("自动重启失败：%v", err)
 			return
 		}

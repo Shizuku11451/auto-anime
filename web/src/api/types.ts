@@ -9,6 +9,8 @@ export interface SetupStatus {
   poll_minutes?: number
   proxy_enabled?: boolean
   keep_source_files?: boolean
+  /** 运行平台（windows/linux/darwin…）：前端按平台切换 Windows 与容器文案。 */
+  os?: string
 }
 
 export interface SetupResult {
@@ -190,6 +192,8 @@ export interface RuntimeStatus {
   version_label: string
   /* 已有更新包写好、等待下次启动生效 */
   install_ready: boolean
+  /* 运行平台（windows/linux），用于按平台切换文案。 */
+  os?: string
 }
 
 /* 一键更新的实时进度：idle | downloading | installing | restarting | failed */
@@ -256,6 +260,8 @@ export interface Settings {
   library_dir: string
   download_dir: string
   setup_done: boolean
+  /* 运行平台（windows/linux），用于按平台切换文案。 */
+  os?: string
 }
 
 export interface SettingsInput {

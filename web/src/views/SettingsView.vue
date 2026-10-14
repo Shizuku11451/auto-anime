@@ -12,11 +12,15 @@ import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { useUpdateStore } from '@/stores/update'
 import { MODE_LABEL, type Settings, type SettingsInput, type SetupStorageResult, type StorageCheckInput } from '@/api/types'
+import { isWindows, storageDirExample } from '@/utils/platform'
 
 const store = useAppStore()
 const update = useUpdateStore()
 const { openUpdate } = useDialogs()
 const narrow = useMediaQuery('(max-width: 1000px)')
+/* 运行平台（/api/settings）：Windows 桌面版没有 Docker 卷映射，文案与路径示例不同。 */
+const isWindowsOS = computed(() => isWindows(info.value?.os))
+const pathExample = computed(() => storageDirExample(info.value?.os))
 
 const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const MODE_DESC: Record<string, string> = {
@@ -277,7 +281,8 @@ async function save() {
 
         <Transition name="fade" mode="out-in">
           <div v-if="form.download_mode === 'builtin'" key="builtin" class="mode-panel direct-note">
-            <p class="field-hint">Docker 镜像已包含 qBittorrent，无需填写地址或密码。下载任务和续传数据会随数据目录保存，重启后继续下载。</p>
+            <p v-if="isWindowsOS" class="field-hint">程序自带 qBittorrent，无需填写地址或密码。下载任务和续传数据会随数据目录保存，重启后继续下载。</p>
+            <p v-else class="field-hint">Docker 镜像已包含 qBittorrent，无需填写地址或密码。下载任务和续传数据会随数据目录保存，重启后继续下载。</p>
           </div>
           <div v-else-if="form.download_mode === 'aria2'" key="aria2" class="mode-panel">
             <div class="field-row">
@@ -373,14 +378,20 @@ async function save() {
         </header>
         <div class="field">
           <label for="st-library">媒体库目录（番剧文件夹的根目录；留空使用下载目录）</label>
-          <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" placeholder="例如 /vol1/1000/番剧" />
+          <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" :placeholder="`例如 ${pathExample}`" />
           <BaseButton :icon="FolderTree" :loading="storageLoading" :disabled="loading || saving || !!loadErr" @click="checkStorage">检测保存目录</BaseButton>
           <p v-if="storageResult" class="field-hint" role="status">{{ storageResult.message }}</p>
           <p v-if="storageError" class="form-msg" role="alert">{{ storageError }}</p>
-          <p class="field-hint">
+          <p v-if="isWindowsOS" class="field-hint">
+            媒体服务器扫描该目录即可；网络共享请确认当前用户可以写入。当前下载目录：<code>{{ info?.download_dir || '未知' }}</code>
+          </p>
+          <p v-else class="field-hint">
             媒体服务器扫描该目录即可。目录需已映射进容器（docker-compose.yml 的 volumes），否则文件写进容器内部、NAS 上看不到。当前下载目录：<code>{{ info?.download_dir || '未知' }}</code>
           </p>
-          <p class="field-hint">
+          <p v-if="isWindowsOS" class="field-hint">
+            可填盘符路径（如 D:\番剧）或 UNC 共享（如 \\NAS\共享\番剧）；留空时归档到下载目录，不会自动搬迁已有文件。
+          </p>
+          <p v-else class="field-hint">
             飞牛应用包用户：先在「应用设置 → 访问权限」授权目录，再重启应用同步挂载，最后填写同一个路径。使用 Docker Compose 安装时，可用<a href="/install" target="_blank" rel="noopener noreferrer">部署配置页</a>修改映射，并保留原来的 data 目录。
           </p>
         </div>
@@ -430,7 +441,7 @@ async function save() {
           发现新版本 {{ update.info.value?.latest }}，可在弹窗中查看更新内容并一键更新。
         </p>
         <p v-else-if="update.pending.value" class="field-hint hot">
-          已下载的新版本正在等待生效：重启容器后即为新版本。
+          已下载的新版本正在等待生效：{{ isWindowsOS ? '退出并重新打开程序后即为新版本。' : '重启容器后即为新版本。' }}
         </p>
         <p v-if="update.installHint.value" class="field-hint">{{ update.installHint.value }}</p>
         <p v-if="update.checkError.value" class="form-msg" role="alert">{{ update.checkError.value }}</p>

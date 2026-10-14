@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useDialogs } from '@/stores/dialogs'
@@ -7,10 +7,13 @@ import { useAppStore } from '@/stores/app'
 import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import type { StorageInfo } from '@/api/types'
+import { storageDirExample } from '@/utils/platform'
 
 const { state, reloadAnimeDetail } = useDialogs()
 const store = useAppStore()
 const s = state.storage
+/* Windows 与容器/Linux 的绝对路径示例不同（盘符/UNC vs NAS 挂载）。 */
+const pathExample = computed(() => storageDirExample(store.platformOS.value))
 
 const form = reactive({ dir: '', season: 1 })
 const defaultPath = ref('')
@@ -71,7 +74,7 @@ async function save() {
     <form :class="{ loading }" @submit.prevent="save">
       <div class="field">
         <label for="s-dir">自定义目录（留空使用默认位置）</label>
-        <input id="s-dir" v-model="form.dir" type="text" placeholder="例如 /volume1/anime/番剧名" spellcheck="false" autofocus />
+        <input id="s-dir" v-model="form.dir" type="text" :placeholder="`例如 ${pathExample}`" spellcheck="false" autofocus />
       </div>
       <div class="field">
         <label for="s-season">季号（用于 Season XX 目录和 SXXEYY 文件名）</label>

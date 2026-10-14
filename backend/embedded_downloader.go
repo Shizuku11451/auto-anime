@@ -43,6 +43,22 @@ func embeddedQbitRoot() (string, error) {
 	return filepath.Abs(root)
 }
 
+// embeddedQbitDownloadDir 是内置下载器写源文件的目录：私有根下的 downloads\。
+// 它与 DOWNLOAD_DIR（直链下载、归档回退位置）不是同一个目录，源文件清理必须按
+// 实际位置校验边界。
+func embeddedQbitDownloadDir() string {
+	root, err := embeddedQbitRoot()
+	if err != nil || root == "" {
+		return ""
+	}
+	return qbitDownloadDir(root)
+}
+
+// qbitDownloadDir 是内置下载器源文件位置的单一定义：私有根下的 downloads\。
+func qbitDownloadDir(root string) string {
+	return filepath.Join(root, "downloads")
+}
+
 func embeddedQbitPort(key string, fallback int) (int, error) {
 	n, err := strconv.Atoi(env(key, strconv.Itoa(fallback)))
 	if err != nil || n < 1 || n > 65535 {
@@ -86,7 +102,7 @@ func bundledQbitExecutable(dir string) string {
 // The private profile and credentials are independent of external downloaders.
 // They never enter settings/status APIs or the public backup format.
 func prepareEmbeddedQbit(root string, port, btPort int) (qbitConnection, error) {
-	config := qbitConnection{URL: fmt.Sprintf("http://127.0.0.1:%d", port), SavePath: filepath.Join(root, "downloads")}
+	config := qbitConnection{URL: fmt.Sprintf("http://127.0.0.1:%d", port), SavePath: qbitDownloadDir(root)}
 	config.LocalDir = config.SavePath
 	if err := os.MkdirAll(config.SavePath, 0700); err != nil {
 		return config, err

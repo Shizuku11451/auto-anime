@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | `DB_PATH` | Linux `/data/auto-anime.db`；Windows 程序同级 `data/auto-anime.db` | SQLite 路径，一个数据库只运行一个实例 |
 | `DOWNLOAD_DIR` | 默认数据目录下 `downloads` | 默认下载/归档目录，媒体库留空时使用 |
-| `LIBRARY_DIR` | 空 | 默认媒体根目录；飞牛模板显式设为 `/media` |
+| `LIBRARY_DIR` | Windows 程序同级 `media\`；其它平台空 | 媒体根目录（番剧文件夹的父目录）；飞牛模板显式设为 `/media`，Windows 清空界面设置时回退下载目录 |
 | `COVERS_DIR` | 数据库同级 `covers` | 本地封面缓存 |
 | `PORT` | `8000` | HTTP 监听端口；桌面模式仅回环，服务模式不限定回环 |
 | `DOWNLOAD_MODE` | 源码 `direct`；Docker 显式 `builtin` | Windows 桌面入口发现随包下载器时选择 `builtin`，数据库值优先 |
@@ -33,7 +33,9 @@
 | `GITHUB_TOKEN` | 空 | 可选 GitHub API 令牌，提高额度或读取私有仓库 |
 | `UPDATE_PROXY` | 空 | 更新流量专用代理，留空沿用 `PROXY_URL` |
 
-Linux 源码运行同样默认 `/data`，不是 `backend/data`；普通用户开发应显式设置独立目录。Windows 可执行文件默认程序同级 `data`，`go run` / `go test` 退回当前工作目录。程序打印实际数据库、下载与封面路径。早期盘根数据不自动迁移，继续使用需显式配置旧路径。
+Linux 源码运行同样默认 `/data`，不是 `backend/data`；普通用户开发应显式设置独立目录。Windows 可执行文件默认程序同级 `data`（媒体库默认同级的 `media`），`go run` / `go test` 退回当前工作目录。程序打印实际数据库、下载、封面与媒体库路径。早期盘根数据不自动迁移，继续使用需显式配置旧路径。Windows 上的存储位置只接受盘符路径或 UNC 共享，`/vol1/...` 这类容器路径会被拒绝，已在数据库里的旧值会在启动日志提示。
+
+Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；Windows 上返回 404，设置页不显示入口。
 
 ## 下载模式
 

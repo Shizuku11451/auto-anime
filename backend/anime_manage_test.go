@@ -44,12 +44,13 @@ func TestAnimeManagementCreate(t *testing.T) {
 		}
 	}
 	managementCount(t, "SELECT COUNT(*) FROM animes", 0)
-	w := managementRequest("POST", "/api/animes", `{"title":" 星海物语 ","search_name":"星海","season":2,"storage_dir":"/library","include_rules":"星海","exclude_rules":"预告"}`)
+	storageDir := filepath.ToSlash(t.TempDir())
+	w := managementRequest("POST", "/api/animes", `{"title":" 星海物语 ","search_name":"星海","season":2,"storage_dir":"`+storageDir+`","include_rules":"星海","exclude_rules":"预告"}`)
 	if w.Code != 201 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	var a animeRow
-	if err := json.Unmarshal(w.Body.Bytes(), &a); err != nil || a.Title != "星海物语" || a.Season != 2 || a.StorageDir != "/library" {
+	if err := json.Unmarshal(w.Body.Bytes(), &a); err != nil || a.Title != "星海物语" || a.Season != 2 || a.StorageDir != storageDir {
 		t.Fatal(a, err)
 	}
 	if w = managementRequest("POST", "/api/animes", `{"title":"星海物语","season":3}`); w.Code != 409 {

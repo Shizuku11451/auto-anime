@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -115,6 +116,13 @@ func TestLibraryDirRejectsWhenUnmapped(t *testing.T) {
 	t.Cleanup(func() { setupDone = false; webHash = ""; libraryDir = old })
 	base := filepath.ToSlash(t.TempDir())
 	rec := settingsPUT(t, `{"library_dir":"`+base+`"}`)
+	if runtime.GOOS == "windows" {
+		// Windows 本机没有容器卷映射，目录可写即可用。
+		if rec.Code != 200 || libraryDir == old {
+			t.Fatalf("windows local directory rejected: %d %s", rec.Code, rec.Body.String())
+		}
+		return
+	}
 	if rec.Code != 400 || libraryDir != old || !strings.Contains(rec.Body.String(), "未映射") {
 		t.Fatalf("unmapped directory accepted: %d %s", rec.Code, rec.Body.String())
 	}

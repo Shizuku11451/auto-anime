@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -128,6 +129,10 @@ func applyStoredSettings(stored map[string]string) {
 	if v, ok := stored["library_dir"]; ok {
 		if clean, err := sanitizeStorageDir(v); err == nil {
 			libraryDir = clean
+		} else {
+			// 例如从 Linux/容器数据库搬到 Windows 的 "/media"：不静默套用，也不覆盖
+			// 启动默认值，明确提示用户改成本机路径。
+			log.Printf("忽略数据库中不适用于当前系统的媒体库目录 %q：%v", v, err)
 		}
 	}
 	if v := stored["web_user"]; v != "" {
@@ -474,6 +479,8 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		w.Header().Set("Cache-Control", "no-store")
 		jsonOut(w, map[string]any{
+			// 运行平台供前端切换 Windows/Docker 文案（不是敏感信息）。
+			"os":       runtime.GOOS,
 			"web_user": cfg.webUser, "web_password_set": cfg.webHash != "" || cfg.webPassword != "",
 			"download_mode":            cfg.downloadMode,
 			"max_concurrent_downloads": downloadLimit(),
@@ -545,7 +552,7 @@ func setupStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	response := map[string]any{"required": setupRequired(), "download_mode": cfg.downloadMode}
+	response := map[string]any{"required": setupRequired(), "download_mode": cfg.downloadMode, "os": runtime.GOOS}
 	// Only the uninitialized wizard needs paths. This endpoint is public.
 	if response["required"] == true {
 		response["library_dir"] = cfg.libraryDir
@@ -605,8 +612,14 @@ func setupPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // installPage 提供与离线安装配置页相同的 Compose 生成器。容器启动后可在局域网任意设备
-// 访问 /install，用于更换 NAS 媒体目录或端口时重新生成配置，无需联网下载文件。
+// 访问 /install，用于更换 NAS 媒体目录或端口时重新生成配置，无需联网下载文件；
+// Windows 本机没有这套部署结构，访问时返回 404。
 func installPage(w http.ResponseWriter, r *http.Request) {
+	// Windows 本机没有容器和卷映射，Compose 生成器不适用，直接 404。
+	if runtime.GOOS == "windows" {
+		http.NotFound(w, r)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "方法不支持", http.StatusMethodNotAllowed)
 		return

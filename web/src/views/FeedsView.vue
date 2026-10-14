@@ -15,6 +15,7 @@ import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
 import type { Feed } from '@/api/types'
+import { isWindows } from '@/utils/platform'
 
 const store = useAppStore()
 const dialogs = useDialogs()
@@ -60,7 +61,7 @@ async function toggle(feed: Feed) {
 async function remove(feed: Feed) {
   const ok = await confirmDialog(
     '删除订阅',
-    `删除订阅“${feed.name}”及其全部条目记录？NAS 上已保存的文件不会被删除。`,
+    `删除订阅“${feed.name}”及其全部条目记录？${isWindows(store.platformOS.value) ? '已保存的媒体文件不会被删除。' : 'NAS 上已保存的文件不会被删除。'}`,
     { danger: true, okText: '删除' },
   )
   if (!ok) return

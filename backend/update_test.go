@@ -796,8 +796,13 @@ func TestRunUpdateCheckReportsPendingUpdate(t *testing.T) {
 	if !check.Pending {
 		t.Fatalf("存在暂存更新包时应标记 pending：%+v", check)
 	}
-	if !strings.Contains(check.InstallHint, "重启") {
-		t.Fatalf("pending 提示未给出重启说明：%q", check.InstallHint)
+	// Windows 不能替换运行中的 exe：提示下次启动生效；容器/Linux 提示重启服务。
+	wantHint := "重启"
+	if runtime.GOOS == "windows" {
+		wantHint = "下次启动"
+	}
+	if !strings.Contains(check.InstallHint, wantHint) {
+		t.Fatalf("pending 提示未给出 %s 说明：%q", wantHint, check.InstallHint)
 	}
 }
 

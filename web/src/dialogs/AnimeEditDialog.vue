@@ -8,11 +8,14 @@ import { useAppStore } from '@/stores/app'
 import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import type { AnimeSummary, AnimeUpdateInput } from '@/api/types'
+import { storageDirExample } from '@/utils/platform'
 
 const { state, reloadAnimeDetail } = useDialogs()
 const store = useAppStore()
 const s = state.animeEdit
 const a = computed(() => s.anime)
+/* Windows 与容器/Linux 的绝对路径示例不同（盘符/UNC vs NAS 挂载）。 */
+const pathExample = computed(() => storageDirExample(store.platformOS.value))
 
 const weekdays = ['自动获取（Bangumi）', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const form = reactive({ title: '', search_name: '', season: 1, update_weekday: 0, storage_dir: '', include_rules: '', exclude_rules: '' })
@@ -142,7 +145,7 @@ async function apply() {
       </div>
       <div class="field">
         <label for="ae-dir">存储位置（留空使用默认位置）</label>
-        <input id="ae-dir" v-model="form.storage_dir" type="text" placeholder="例如 /volume1/anime/番剧名" spellcheck="false" />
+        <input id="ae-dir" v-model="form.storage_dir" type="text" :placeholder="`例如 ${pathExample}`" spellcheck="false" />
       </div>
       <div class="field-row">
         <div class="field">

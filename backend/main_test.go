@@ -85,6 +85,10 @@ func testDatabase(t *testing.T) {
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "state.db"))
 	initDB()
 	oldDir, oldMode, oldURL, oldToken := downloadDir, downloadMode, aria2URL, aria2Token
+	// 媒体库默认值跟随平台（Windows 目录与下载目录分开）；测试统一回退到「未设置」，
+	// 需要媒体库的用例自行设置 libraryDir。
+	oldLibrary := libraryDir
+	libraryDir = ""
 	// 挂载检测读取运行环境的 /proc；测试固定用不存在的挂载表，
 	// 需要验证提示的测试自行调用 useMountInfo 替换。
 	oldMountInfo := mountInfoPath
@@ -93,6 +97,7 @@ func testDatabase(t *testing.T) {
 	t.Cleanup(func() {
 		db.Close()
 		downloadDir, downloadMode, aria2URL, aria2Token = oldDir, oldMode, oldURL, oldToken
+		libraryDir = oldLibrary
 		mountInfoPath = oldMountInfo
 	})
 }

@@ -8,9 +8,14 @@ import { useAppStore } from '@/stores/app'
 import { api, http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import type { AvailabilityItem, AvailabilityVerdict, Feed, PreviewResult } from '@/api/types'
+import { isAbsoluteStoragePath, isWindows, storageDirExample } from '@/utils/platform'
 
 const { state } = useDialogs()
 const store = useAppStore()
+/* 当前运行平台（/api/status）：Windows 与容器/Linux 的路径示例、映射说明不同。 */
+const platformOS = computed(() => store.platformOS.value)
+const pathExample = computed(() => storageDirExample(platformOS.value))
+const isWindowsOS = computed(() => isWindows(platformOS.value))
 const s = state.feed
 
 const editing = computed(() => !!(s.feed && s.feed.id))
@@ -201,9 +206,9 @@ async function runAvailability() {
 
 type FeedSaveResult = { storage_path?: string; storage_warning?: string }
 
-// 与后端一致的绝对路径判断：容器内是 /...，Windows 本机可能是盘符。
+// 与后端一致的绝对路径判断：容器内是 /...，Windows 本机要求盘符或 UNC 共享。
 function isAbsolutePath(value: string) {
-  return /^([/\\]|[a-zA-Z]:[\\/])/.test(value)
+  return isAbsoluteStoragePath(value, platformOS.value)
 }
 
 async function save() {
@@ -223,7 +228,7 @@ async function save() {
   }
   const storage = form.storage.trim()
   if (storage && !isAbsolutePath(storage)) {
-    msg.value = '保存位置必须是绝对路径，例如 /vol1/1000/番剧'
+    msg.value = `保存位置必须是绝对路径，例如 ${pathExample.value}`
     return
   }
   if (storage.split(/[\\/]+/).includes('..')) {
@@ -330,9 +335,11 @@ async function save() {
       </div>
       <div class="field">
         <label for="f-storage">保存位置（番剧根目录）</label>
-        <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" placeholder="留空使用默认位置，例如 /vol1/1000/番剧" />
+        <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" :placeholder="`留空使用默认位置，例如 ${pathExample}`" />
         <p class="field-hint">
-          归档时在此目录下按番剧名建立文件夹，文件按 <code>番剧名/Season 01/番剧名 - S01E01.mkv</code> 存放，不会把集数直接堆在根目录。该目录需已映射进容器，否则文件写进容器内部、NAS 上看不到。
+          归档时在此目录下按番剧名建立文件夹，文件按 <code>番剧名/Season 01/番剧名 - S01E01.mkv</code> 存放，不会把集数直接堆在根目录。
+          <template v-if="isWindowsOS">网络共享请确认当前用户可以写入，程序会直接使用该目录。</template>
+          <template v-else>该目录需已映射进容器，否则文件写进容器内部、NAS 上看不到。</template>
         </p>
         <p v-if="storagePreview" class="field-hint">
           实际保存到：<code>{{ storagePreview }}/</code>

@@ -21,6 +21,15 @@ function setup() {
   const data = { download_mode: 'direct', poll_minutes: 30, library_dir: '/temporary/library' }
   const location = { href: '' }
   const stub = { render: () => null }
+  const BS = String.fromCharCode(92)
+  const platform = {
+    isWindows: os => os === 'windows',
+    storageDirExample: os => (os === 'windows' ? `D:${BS}番剧` : '/vol1/1000/番剧'),
+    isAbsoluteStoragePath: (value, os) => (os === 'windows'
+      ? /^[a-zA-Z]:/.test(value) || value.startsWith(BS + BS) || value.startsWith('//')
+      : value.startsWith('/') || value.startsWith(BS) || /^[a-zA-Z]:/.test(value)),
+    isWindowsPlatform: value => !!value && value.split('/')[0] === 'windows',
+  }
   const modules = {
     vue: { ...vue, onMounted: () => {}, onBeforeUnmount: () => {} },
     'vue-router': { onBeforeRouteLeave: fn => { leave = fn } },
@@ -29,6 +38,7 @@ function setup() {
     '@/components/ui/PageHeader.vue': stub,
     '@/components/ui/BaseButton.vue': stub,
     '@/api/types': { MODE_LABEL: {} },
+    '@/utils/platform': platform,
     '@/api/client': { api: (...args) => probe(...args), http: {
       get: async () => { if (fail) throw new Error('模拟读取失败'); return data },
       put: async (_url, body) => { writes.push(body); Object.assign(data, body); return { ok: true, reauth_required: !!body.web_password } },
