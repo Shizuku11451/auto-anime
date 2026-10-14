@@ -65,7 +65,8 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: |
-          go test ./... -count=1 -timeout=600s
+          # Windows 运行器的 fsync 明显慢于本机：套件本机 ~90s，CI 300s 起，超时留足余量。
+          go test ./... -count=1 -timeout=1800s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
