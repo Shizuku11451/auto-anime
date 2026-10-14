@@ -171,4 +171,4 @@ Webhook 事件为 `new_item`、`download_submitted`、`download_saved`、`downlo
 
 ## 维护者发布流程
 
-见[维护者发布说明](RELEASING.md)，包含版本标签、匿名镜像验证与 FPK 分发条件。
+见[维护者发布说明](RELEASING.md)，包含版本标签、匿名镜像验证与 FPK 分发条件。自 v0.0.2 起正式 FPK 自带同版本 x86-64 镜像，安装无需访问 GHCR，仍需预装飞牛 Docker；Compose 和手工在线包仍需拉取镜像。

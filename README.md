@@ -24,7 +24,7 @@ Auto-Anime 将 RSS 资源交给下载器，跟踪下载进度，完成后整理�
 
 | 环境 | 入口 | 默认数据与媒体位置 |
 | --- | --- | --- |
-| 飞牛实验性应用包 | [FPK 安装说明](docs/FNOS_APP.md) | 应用数据目录与共享媒体目录；需要同版本公开镜像 |
+| 飞牛应用包 | [FPK 安装说明](docs/FNOS_APP.md) | 应用数据目录与共享媒体目录；v0.0.2 起自带 x86-64 镜像，仍需 Docker |
 | 飞牛 fnOS Compose | [飞牛安装指南](docs/FNOS.md) | 项目下 `data` → `/data`，`media` → `/media` |
 | Linux Docker | [Docker 快速安装](#docker-快速安装) | `./docker-data` → `/data`；媒体在 `/data/downloads` |
 | Windows 10/11 x64 | [Windows 桌面版](docs/WINDOWS.md) | 完整解压目录下的 `data`，需要 WebView2 Runtime |
@@ -68,7 +68,7 @@ volumes:
 
 随后将媒体库目录设为 `/media`。飞牛模板已单独映射媒体目录，见[平台指南](docs/FNOS.md)。不要改变旧部署的 `/data` 来源，否则会表现为全新安装。
 
-镜像获取依赖 GHCR，源码克隆依赖 GitHub；网页代理不能帮助 Docker 拉取镜像。管理页面不使用运行时公共 CDN，RSS、元数据和版本检查仍取决于相应服务的可达性。
+Compose 镜像获取依赖 GHCR，源码克隆与正式 FPK 下载依赖 GitHub；v0.0.2 起 FPK 自带 x86-64 镜像，安装阶段无需访问 GHCR。网页代理不能帮助 Docker 拉取镜像。管理页面不使用运行时公共 CDN，RSS、元数据和版本检查仍取决于相应服务的可达性。
 
 ## 开始追番
 

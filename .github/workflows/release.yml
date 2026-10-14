@@ -92,7 +92,7 @@ jobs:
           if-no-files-found: error
 
   fpk:
-    needs: checks
+    needs: image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,9 +105,18 @@ jobs:
           [[ "$TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]] || { echo "版本标签无效"; exit 1; }
           test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-      - name: Build fnOS app package
+      - name: Save verified x86-64 image for offline installation
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${{ steps.meta.outputs.version }}"
+          docker pull --platform linux/amd64 "$IMAGE"
+          test "$(docker image inspect "$IMAGE" --format '{{.Architecture}}')" = amd64
+          test "$(docker image inspect "$IMAGE" --format '{{.Os}}')" = linux
+          docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/image.tar.gz"
+      - name: Build bundled fnOS app package
         run: |
           export IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          export IMAGE_ARCHIVE="$RUNNER_TEMP/image.tar.gz"
           # build-fpk.sh 会下载官方 fnpack 并校验 SHA-256，再把版本号写进 manifest 与镜像标签
           chmod +x deploy/fnos/build-fpk.sh
           deploy/fnos/build-fpk.sh "${{ steps.meta.outputs.version }}"
@@ -176,7 +185,7 @@ jobs:
           || gh release upload "$TAG" dist/* --clobber
 
   image:
-    needs: [binaries, fpk]
+    needs: binaries
     runs-on: ubuntu-latest
     permissions:
       contents: read

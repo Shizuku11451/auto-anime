@@ -11,10 +11,27 @@ class ReleaseTests(unittest.TestCase):
         release = source.split('\n  release:\n', 1)[1].split('\n  image:\n', 1)[0]
         image = source.split('\n  image:\n', 1)[1]
         self.assertIn('needs: [binaries, fpk, image]', release)
-        self.assertIn('needs: [binaries, fpk]', image)
+        self.assertIn('needs: binaries', image)
+        self.assertNotIn('needs: [binaries, fpk]', image)
         self.assertNotIn('needs: release', image)
         self.assertLess(image.index('verify-public-image.sh'), image.index('Promote verified image to latest'))
         self.assertNotIn('--tag "$IMAGE:latest"', image)
+
+    def test_official_fpk_bundles_verified_amd64_image(self):
+        source = (ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8')
+        fpk = source.split('\n  fpk:\n', 1)[1].split('\n  release:\n', 1)[0]
+        self.assertIn('needs: image', fpk)
+        self.assertIn('docker pull --platform linux/amd64 "$IMAGE"', fpk)
+        self.assertIn("--format '{{.Architecture}}')\" = amd64", fpk)
+        self.assertIn("--format '{{.Os}}')\" = linux", fpk)
+        self.assertIn('set -euo pipefail', fpk)
+        self.assertIn('docker save "$IMAGE" | gzip -1', fpk)
+        self.assertIn('export IMAGE_ARCHIVE="$RUNNER_TEMP/image.tar.gz"', fpk)
+        self.assertLess(fpk.index('docker save'), fpk.index('deploy/fnos/build-fpk.sh'))
+        build = (ROOT / 'deploy/fnos/build-fpk.sh').read_text(encoding='utf-8')
+        self.assertIn('pull_policy: never', build)
+        self.assertIn('platform              = x86', build)
+        self.assertIn('image.sha256', build)
 
     def test_official_package_uses_version_image_and_normalization(self):
         compose = (ROOT / 'deploy/fnos/fpk/app/docker/docker-compose.yaml').read_text(encoding='utf-8')

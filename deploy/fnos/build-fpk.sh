@@ -3,7 +3,7 @@
 # 构建飞牛 fnOS 应用包（.fpk）。
 #
 # 用法：deploy/fnos/build-fpk.sh [版本号] [镜像标签]
-# 环境变量：IMAGE_REPOSITORY 指定 GHCR 仓库；OUT_DIR 指定输出目录；FNPACK 指定已有的 fnpack；KEEP_STAGING=1 保留临时目录。
+# 环境变量：IMAGE_ARCHIVE 指定 linux/amd64 的 docker save gzip 镜像；IMAGE_REPOSITORY 指定 GHCR 仓库；OUT_DIR 指定输出目录；FNPACK 指定已有的 fnpack；KEEP_STAGING=1 保留临时目录。
 # 产物默认写到 dist/fnos/。
 set -euo pipefail
 
@@ -84,6 +84,8 @@ if [ -n "${IMAGE_ARCHIVE:-}" ]; then
   sha256sum "$staging/app/image/image.tar.gz" | awk '{print $1}' > "$staging/app/image/image.sha256"
   printf '%s\n' "$image_repository:$image_tag" > "$staging/app/image/reference"
   sed -i 's/pull_policy: missing/pull_policy: never/' "$staging/app/docker/docker-compose.yaml"
+  # Bundled release images target x86-64 fnOS, not every Linux architecture.
+  sed -i 's|^platform[[:space:]]*=.*$|platform              = x86|' "$staging/manifest"
 fi
 
 (cd "$staging" && "$fnpack" build)
@@ -102,4 +104,8 @@ echo
 echo "已生成：$target"
 echo "版本：$version    镜像：$image_repository:$image_tag"
 echo "安装：飞牛应用中心 → 手动安装，选择上面的 .fpk，或执行 appcenter-cli install-fpk <文件>"
-echo '此操作只打包，不发布镜像；正式分发前必须确认配套镜像可匿名拉取。'
+if [ -n "${IMAGE_ARCHIVE:-}" ]; then
+  echo '自带 x86-64 镜像，安装时无需访问 GHCR；仍需飞牛 Docker。'
+else
+  echo '此操作只打包，不发布镜像；在线包正式分发前必须确认配套镜像可匿名拉取。'
+fi

@@ -30,10 +30,11 @@ git push origin v1.2.0
 以上版本只是示例。充分长的标签注释用于 Release 说明，否则从提交历史生成；当前脚本以注释长度至少 40 字符为判断条件。
 
 1. 调用 checks：前端测试/构建、Go 测试/vet/build、Windows 检查、工具和 FPK 脚本测试，以及指定配置并发测试的 race 检测。并非全量 race 或 NAS 验收。
-2. 构建 Linux amd64、Linux arm64、Windows amd64 程序，注入版本、提交、时间与实际发布仓库。Windows 额外打包 qBittorrent 桌面 ZIP；同时生成同版本 FPK。
+2. 构建 Linux amd64、Linux arm64、Windows amd64 程序，注入版本、提交、时间与实际发布仓库。Windows 额外打包 qBittorrent 桌面 ZIP。
 3. 在独立 `image-context/` 中使用本次构建程序、静态资源和发布 Dockerfile 构建双架构镜像，先推版本标签。
 4. 使用全新无登录凭据的 Docker 配置验证匿名拉取、双架构程序版本、隔离非 root 启动、向导内置模式和 qBittorrent 进程。通过后更新 `latest`。
-5. 生成 `checksums.txt`，创建或上传 Release 附件。若 Release 已存在，当前流程上传覆盖附件，不自动重写原有正文。
+5. 在构建机拉取已验证的同版本 Linux amd64 镜像，检查架构并导出 gzip 镜像归档，生成 x86-64 自带镜像 FPK（正式应用标识 `auto-anime`，`pull_policy: never`）。
+6. 生成 `checksums.txt`，创建或上传 Release 附件。若 Release 已存在，当前流程上传覆盖附件，不自动重写原有正文。
 
 镜像门槛失败不会执行后续 Release 发布，但已推送的版本镜像可能仍存在。修正公开权限或网络问题后重跑原标签；重试不是撤销已发生的推送。
 
@@ -46,7 +47,7 @@ git push origin v1.2.0
 | `auto-anime-<版本>-linux-amd64` / `-linux-arm64` | 带嵌入前端的程序，不含独立下载器 |
 | `auto-anime-<版本>-windows-amd64.exe` | Windows 主程序，不包含随包 qBittorrent |
 | `auto-anime-<版本>-windows-amd64-desktop.zip` | 桌面程序、下载器与第三方许可资料 |
-| `auto-anime-<版本>-fnos.fpk` | 飞牛模板、向导及生命周期脚本，不含镜像 |
+| `auto-anime-<版本>-fnos.fpk` | 飞牛模板、向导、生命周期脚本及同版本 amd64 镜像（自 v0.0.2 起）；仍需预装 Docker |
 | `checksums.txt` | Release 附件 SHA-256 |
 | `ghcr.io/<owner>/<repo>:<版本>` / `:latest` | Linux amd64/arm64 Docker 镜像，内置 qBittorrent |
 
