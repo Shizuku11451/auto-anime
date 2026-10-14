@@ -1302,14 +1302,18 @@ func adoptStagedUpdate(staged, expected string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// Keep the verified data-directory copy for container rebuilds, but do
+	// not replace or restart a process already running the same binary.
+	if current, err := hashFile(exe); err == nil && strings.EqualFold(current, sum) {
+		return false, nil
+	}
 	if err := replaceExecutable(exe, staged); err != nil {
 		return false, err
 	}
-	// 只清理确实被采用的那份暂存文件。
-	if filepath.Dir(staged) != filepath.Dir(exe) {
-		os.Remove(staged)
+	// 同目录更新会移动暂存文件；独立数据目录的副本与校验记录需要保留。
+	if filepath.Dir(staged) == filepath.Dir(exe) {
+		os.Remove(staged + ".sha256")
 	}
-	os.Remove(staged + ".sha256")
 	return true, nil
 }
 

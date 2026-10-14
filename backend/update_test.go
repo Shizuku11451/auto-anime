@@ -533,6 +533,43 @@ func TestAdoptStagedUpdateSwapsExecutable(t *testing.T) {
 	}
 }
 
+func TestAdoptStagedUpdateRetainsDataCopy(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "auto-anime")
+	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(dir, "data")
+	if err := os.Mkdir(data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(data, updateStageFileName)
+	payload := make([]byte, 2<<20)
+	sum := sha256.Sum256(payload)
+	expected := hex.EncodeToString(sum[:])
+	if err := os.WriteFile(staged, payload, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged+".sha256", []byte(expected), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := executablePath
+	executablePath = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { executablePath = oldPath })
+	for attempt := 0; attempt < 2; attempt++ {
+		swapped, err := adoptStagedUpdate(staged, expected)
+		if err != nil || swapped != (attempt == 0) {
+			t.Fatalf("attempt %d: swapped=%v err=%v", attempt, swapped, err)
+		}
+		if got, err := hashFile(staged); err != nil || got != expected {
+			t.Fatalf("data copy lost: %s %v", got, err)
+		}
+		if got, err := os.ReadFile(staged + ".sha256"); err != nil || string(got) != expected {
+			t.Fatalf("checksum lost: %q %v", got, err)
+		}
+	}
+}
+
 func TestAdoptStagedUpdateIgnoresGarbage(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "auto-anime")
@@ -740,6 +777,10 @@ func TestImageVersionDrift(t *testing.T) {
 func TestRunUpdateCheckReportsPendingUpdate(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("DB_PATH", filepath.Join(dir, "auto-anime.db"))
+	// A rebuilt container runs the older image while retaining the update.
+	if err := os.WriteFile(filepath.Join(dir, "image-version"), []byte("version=0.9.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, updateStageFileName), []byte("staged"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -37,6 +37,8 @@ func TestRuntimeCountsIncludeAllRowsAndNullStatus(t *testing.T) {
 
 func TestRuntimeAuthenticationAndPublicHealth(t *testing.T) {
 	testDatabase(t)
+	resetEmbeddedQbitTest(t)
+	t.Cleanup(func() { resetEmbeddedQbitTest(t) })
 	oldUser, oldPassword := webUser, webPassword
 	webUser, webPassword = "tester", "test-secret"
 	defer func() { webUser, webPassword = oldUser, oldPassword }()
