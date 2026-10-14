@@ -9,6 +9,7 @@ ENV CGO_ENABLED=0
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/*.go .
+COPY backend/internal ./internal
 # web_embed.go uses //go:embed, so the generated frontend must be present at compile time.
 COPY backend/static ./static
 RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILD_TIME}" -o /auto-anime .

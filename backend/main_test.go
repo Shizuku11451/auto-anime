@@ -1,6 +1,7 @@
 package main
 
 import (
+	keywordfilter "auto-anime/internal/filter"
 	"bytes"
 	"context"
 	"fmt"
@@ -319,13 +320,13 @@ func TestSyncFeedRecordsWriteErrors(t *testing.T) {
 }
 
 func TestAllowedKeywords(t *testing.T) {
-	if !allowed("番剧 1080p 简中", "1080p,简中", "") {
+	if !keywordfilter.Allowed("番剧 1080p 简中", "1080p,简中", "") {
 		t.Fatal("expected item to pass")
 	}
-	if allowed("番剧 720p", "1080p", "") {
+	if keywordfilter.Allowed("番剧 720p", "1080p", "") {
 		t.Fatal("expected include filter to reject")
 	}
-	if allowed("番剧 1080p 广告", "1080p", "广告") {
+	if keywordfilter.Allowed("番剧 1080p 广告", "1080p", "广告") {
 		t.Fatal("expected exclude filter to reject")
 	}
 }

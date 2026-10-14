@@ -1,6 +1,7 @@
 package main
 
 import (
+	keywordfilter "auto-anime/internal/filter"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -108,7 +109,7 @@ func matchAnimeRule(rawTitle string) (int64, string) {
 		if rows.Scan(&id, &title, &include, &exclude) != nil {
 			continue
 		}
-		if allowed(rawTitle, include, exclude) {
+		if keywordfilter.Allowed(rawTitle, include, exclude) {
 			return id, title
 		}
 	}
@@ -704,11 +705,11 @@ func animeApplyRules(w http.ResponseWriter, id int64) {
 		return
 	}
 	var candidates []int64
-	filter := newKeywordFilter(a.IncludeRules, a.ExcludeRules)
+	filter := keywordfilter.New(a.IncludeRules, a.ExcludeRules)
 	for rows.Next() {
 		var itemID int64
 		var title string
-		if rows.Scan(&itemID, &title) == nil && filter.allows(title) {
+		if rows.Scan(&itemID, &title) == nil && filter.Allows(title) {
 			candidates = append(candidates, itemID)
 		}
 	}

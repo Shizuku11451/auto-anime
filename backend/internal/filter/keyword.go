@@ -1,4 +1,4 @@
-package main
+package filter
 
 import (
 	"strings"
@@ -28,7 +28,8 @@ func normalizeKeywordText(text string) string {
 	return converted
 }
 
-type keywordFilter struct {
+// Filter holds immutable include and exclude terms for repeated matching.
+type Filter struct {
 	include, exclude []keywordTerm
 }
 
@@ -36,7 +37,8 @@ type keywordTerm struct {
 	raw, normalized string
 }
 
-func newKeywordFilter(include, exclude string) keywordFilter {
+// New parses comma-separated rules without changing their original meaning.
+func New(include, exclude string) Filter {
 	words := func(raw string) []keywordTerm {
 		var result []keywordTerm
 		for _, word := range strings.Split(raw, ",") {
@@ -46,10 +48,11 @@ func newKeywordFilter(include, exclude string) keywordFilter {
 		}
 		return result
 	}
-	return keywordFilter{include: words(include), exclude: words(exclude)}
+	return Filter{include: words(include), exclude: words(exclude)}
 }
 
-func (filter keywordFilter) allows(title string) bool {
+// Allows requires every include term and rejects any matching exclude term.
+func (filter Filter) Allows(title string) bool {
 	if len(filter.include) == 0 && len(filter.exclude) == 0 {
 		return true
 	}
@@ -73,6 +76,7 @@ func (filter keywordFilter) allows(title string) bool {
 	return true
 }
 
-func allowed(title, include, exclude string) bool {
-	return newKeywordFilter(include, exclude).allows(title)
+// Allowed matches one title against comma-separated rules.
+func Allowed(title, include, exclude string) bool {
+	return New(include, exclude).Allows(title)
 }

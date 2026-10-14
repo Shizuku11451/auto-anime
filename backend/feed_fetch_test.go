@@ -1,6 +1,7 @@
 package main
 
 import (
+	keywordfilter "auto-anime/internal/filter"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -81,7 +82,7 @@ func TestSearchPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
 	}
 	matched := 0
 	for _, item := range found.Items {
-		if allowed(item.Title, words, "") {
+		if keywordfilter.Allowed(item.Title, words, "") {
 			matched++
 			if !strings.HasPrefix(item.Link, server.URL+"/topic/") || !strings.HasPrefix(item.Torrent, server.URL+"/dl/") {
 				t.Fatalf("page and resource URLs: %+v", item)

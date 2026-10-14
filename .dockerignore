@@ -6,6 +6,8 @@
 !backend/*.go
 !backend/go.mod
 !backend/go.sum
+!backend/internal/
+!backend/internal/**
 !backend/static/
 !backend/static/**
 !scripts/

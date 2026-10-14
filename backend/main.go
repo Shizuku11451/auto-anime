@@ -1,6 +1,7 @@
 package main
 
 import (
+	keywordfilter "auto-anime/internal/filter"
 	"bytes"
 	"context"
 	"database/sql"
@@ -372,12 +373,12 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 	}
 	n := 0
 	var writeErr error
-	filter := newKeywordFilter(f.Include, f.Exclude)
+	filter := keywordfilter.New(f.Include, f.Exclude)
 	for _, it := range feedItemsFromEntries(fetched.Entries) {
 		if err := ctx.Err(); err != nil {
 			return n, err
 		}
-		if it.Title == "" || it.Link == "" || !filter.allows(it.Title) || !allowsSeason(it.Title, f.SeasonFilter, f.AllowUnknownSeason) {
+		if it.Title == "" || it.Link == "" || !filter.Allows(it.Title) || !allowsSeason(it.Title, f.SeasonFilter, f.AllowUnknownSeason) {
 			continue
 		}
 		// Older rows kept only the download URL. Fill the original page on the
@@ -860,9 +861,9 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	items := feedItemsFromEntries(fetched.Entries)
 	total := len(items)
 	filtered := make([]feedItem, 0, len(items))
-	filter := newKeywordFilter(in.Include, in.Exclude)
+	filter := keywordfilter.New(in.Include, in.Exclude)
 	for _, item := range items {
-		if item.Title != "" && item.Link != "" && filter.allows(item.Title) && allowsSeason(item.Title, in.SeasonFilter, in.AllowUnknownSeason) {
+		if item.Title != "" && item.Link != "" && filter.Allows(item.Title) && allowsSeason(item.Title, in.SeasonFilter, in.AllowUnknownSeason) {
 			filtered = append(filtered, item)
 		}
 	}
