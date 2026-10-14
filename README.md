@@ -1,49 +1,62 @@
 <div align="center">
-  <img src="web/public/logo.svg" alt="Auto-Anime" width="360">
-  <p><strong>面向 NAS 的 RSS 自动追番与媒体库整理服务</strong></p>
-  <p>订阅 RSS · 自动下载 · 识别归档 · 浏览播放</p>
+  <br>
+  <img src="web/public/logo.svg" alt="Auto-Anime" width="420">
+  <br>
+  <br>
+  <p><strong>让追番自动发生，让媒体库井井有条。</strong></p>
+  <p>为 NAS 打造的 RSS 自动追番服务，使用 Go 与 Vue 构建。<br>
+    RSS 订阅 · 自动下载 · 季集归档 · 番剧资料 · 浏览器播放</p>
+  <br>
+  <p>
+    <a href="https://github.com/Shizuku11451/auto-anime/releases"><img src="https://img.shields.io/github/v/release/Shizuku11451/auto-anime?style=for-the-badge&label=Release&color=0284c7" alt="GitHub Release"></a>
+    <a href="#平台适配范围"><img src="https://img.shields.io/badge/Platform-fnOS%20%7C%20Linux%20%7C%20Windows-0284c7?style=for-the-badge" alt="平台：fnOS、Linux、Windows"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-65a30d?style=for-the-badge" alt="MIT License"></a>
+  </p>
+  <p>
+    <a href="https://github.com/Shizuku11451/auto-anime/releases/latest"><img src="https://img.shields.io/badge/Download-最新发布-65a30d?style=for-the-badge&logo=github&logoColor=white" alt="下载最新发布"></a>
+  </p>
+  <br>
+  <p>
+    <a href="#快速安装">快速安装</a> ·
+    <a href="docs/USAGE.md">使用指南</a> ·
+    <a href="docs/CONFIGURATION.md">配置参考</a> ·
+    <a href="docs/README.md">全部文档</a>
+  </p>
+  <br>
 </div>
 
-Auto-Anime 将 RSS 资源交给下载器，跟踪下载进度，完成后整理到媒体库，并提供中文管理页面。后端使用 Go，前端资源随程序提供；Docker 默认内置 qBittorrent，Windows 提供独立桌面打包方式。
+---
 
-> 本文描述当前工作区实现，不保证远端 Release 已包含这些功能。安装前请检查对应版本的发布说明和附件。正式发布制品及目标平台的权限与存储兼容性需要分别验收。
+## 能做什么
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><strong>找番，不必来回切换</strong><br><br>内置多个资源来源，支持 RSS 订阅、关键词过滤与 OPML 导入。</td>
+    <td width="50%" valign="top"><strong>下载，不必一直盯着</strong><br><br>Docker 内置 qBittorrent，支持外部下载器与直链；排队、进度、暂停与继续。</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><strong>归档，不必手动整理</strong><br><br>识别番名与季集，按季归档并生成 NFO 与封面，方便媒体服务扫描。</td>
+    <td width="50%" valign="top"><strong>追番，一个页面就够</strong><br><br>番剧资料、更新日与浏览器播放；中文界面，支持亮暗主题与手机布局。</td>
+  </tr>
+</table>
+
+应用页面资源随包提供，不依赖运行时公共 CDN；默认直连，元数据服务不可用不影响基础订阅与下载。
 
 ## 平台适配范围
 
-当前适配目标为 **飞牛 fnOS、Linux 和 Windows**，以飞牛 NAS 的安装与长期运行体验为主要维护重点。
+| 平台 | 安装方式 |
+| --- | --- |
+| **飞牛 fnOS** · 主要维护平台 | [FPK 应用包](docs/FNOS_APP.md) / [Docker Compose](docs/FNOS.md) |
+| **Linux** · amd64 / arm64 | Docker Compose / 独立服务端程序 |
+| **Windows 10/11** · x64 | [便携桌面 ZIP](docs/WINDOWS.md)，需要 WebView2 Runtime |
 
-| 平台 | 定位与交付方式 | 验收边界 |
-| --- | --- | --- |
-| 飞牛 fnOS | 主适配平台，优先 `.fpk` 应用包，Compose 为备用方式 | 已有 x86-64 实机测试；正式包的无缓存安装、升级与下载归档仍须按版本验收 |
-| Linux | 服务端适配，提供 amd64 / arm64 Docker 镜像与独立程序 | 有构建与发布配置；独立程序不含下载器，ARM64 构建或模拟启动不等于实机验收 |
-| Windows 10/11 x64 | 次要适配平台，提供桌面便携 ZIP，保留基础回归与打包检查 | 需要 WebView2 Runtime；完整桌面包包含下载器，实际发布与安装以对应版本为准 |
+其他 NAS 品牌与 macOS 暂不承诺专门适配。功能以所安装版本为准；构建通过不等于目标设备验收，安装前请查看[对应版本的发布说明与附件](https://github.com/Shizuku11451/auto-anime/releases)。
 
-其他 NAS 品牌、macOS 及其他架构暂不作为专门适配或实机兼容性承诺。电脑、手机浏览器访问已部署服务属于网页使用场景，不提供 Android / iOS 原生应用。
+## 快速安装
 
-## 选择安装方式
+飞牛 FPK 自 v0.0.2 起自带 x86-64 镜像，仍需 Docker，安装阶段无需访问 GHCR。Windows 桌面包在解压目录下使用 `data` 保存数据、`media` 保存归档媒体。
 
-| 环境 | 入口 | 默认数据与媒体位置 |
-| --- | --- | --- |
-| 飞牛应用包 | [FPK 安装说明](docs/FNOS_APP.md) | 应用数据目录与共享媒体目录；v0.0.2 起自带 x86-64 镜像，仍需 Docker |
-| 飞牛 fnOS Compose | [飞牛安装指南](docs/FNOS.md) | 项目下 `data` → `/data`，`media` → `/media` |
-| Linux Docker | [Docker 快速安装](#docker-快速安装) | `./docker-data` → `/data`；媒体在 `/data/downloads` |
-| Windows 10/11 x64 | [Windows 桌面版](docs/WINDOWS.md) | 完整解压目录下的 `data`（数据库与下载器源文件）和 `media`（归档媒体库），需要 WebView2 Runtime |
-| 源码开发 | [贡献指南](CONTRIBUTING.md) | 显式配置独立开发数据目录 |
-
-完整导航见[文档索引](docs/README.md)。
-
-## 当前功能
-
-- 订阅 RSS / RDF / Atom，关键词过滤、OPML 导入与定时同步；找番支持 ACG.RIP、蜜柑计划、动漫花园及自定义搜索模板。
-- Docker 内置 qBittorrent；支持 HTTP(S) 直链及外部 Aria2、qBittorrent、Transmission。
-- 下载排队、并发限制、进度展示、单条与批量暂停/继续，重启恢复原下载器任务身份。
-- 识别番名、季集和技术标签，按标准目录归档，生成本地 NFO 与封面；支持人工纠错及单条媒体迁移。
-- 番剧库、Bangumi 资料绑定与每周更新日、浏览器播放与断点续播、亮暗主题及手机布局。
-- 管理员登录、目录检测、配置备份、Webhook 和版本检查；符合条件的发布程序支持一键更新。
-
-## Docker 快速安装
-
-前提：Docker Compose 可用，NAS 能获取 GHCR 发布镜像，端口可用，数据目录持久化且可写。如果目标版本尚未发布，请使用[源码构建](CONTRIBUTING.md#源码镜像构建)，不要将本地构建成功理解为远端镜像可用。
+飞牛推荐先看 [FPK 安装说明](docs/FNOS_APP.md) 或 [Compose 图形安装指南](docs/FNOS.md)。已有 Docker Compose 的环境可直接运行：
 
 ```bash
 git clone https://github.com/Shizuku11451/auto-anime.git
@@ -52,58 +65,30 @@ docker compose pull
 docker compose up -d
 ```
 
-打开 `http://NAS地址:8000`，创建账户，确认下载方式与保存目录。默认直连、每 30 分钟同步、同时下载 2 个任务；Docker 保留内置 qBittorrent，无需填写连接密码。
+打开 `http://NAS地址:8000`，创建管理员账户并完成初始化。
 
-- 网页端口冲突：将 `8000:8000` 改为 `18000:8000`，访问新端口。
-- BT 端口冲突：同时改 TCP、UDP 映射两侧与 `QBITTORRENT_BT_PORT`。无需公开内置 WebUI 的 8080 端口。
-- 将媒体归档到其他 NAS 目录：先配置 volume，再在网页填写容器内路径。仅修改网页路径不会增加挂载。
+默认使用内置 qBittorrent，每 30 分钟同步、同时下载 2 个任务。数据保存在 `./docker-data`，容器内默认媒体目录为 `/data/downloads`。
 
-例如在原 `/data` 挂载之外增加：
-
-```yaml
-volumes:
-  - ./docker-data:/data
-  - /volume1/media/anime:/media
-```
-
-随后将媒体库目录设为 `/media`。飞牛模板已单独映射媒体目录，见[平台指南](docs/FNOS.md)。不要改变旧部署的 `/data` 来源，否则会表现为全新安装。
-
-Compose 镜像获取依赖 GHCR，源码克隆与正式 FPK 下载依赖 GitHub；v0.0.2 起 FPK 自带 x86-64 镜像，安装阶段无需访问 GHCR。网页代理不能帮助 Docker 拉取镜像。管理页面不使用运行时公共 CDN，RSS、元数据和版本检查仍取决于相应服务的可达性。
+> **安装前留意**：需要能访问 GitHub / GHCR，且数据目录可写、端口可用。使用其他媒体目录时，先添加 volume 挂载，再填写容器内路径；仅修改网页路径不会增加挂载。详见[配置参考](docs/CONFIGURATION.md)。目标版本没有发布镜像时，请使用[源码构建](CONTRIBUTING.md#源码镜像构建)。
 
 ## 开始追番
 
-1. 在「找番」选择来源并搜索，或在「订阅管理」直接添加 RSS。
-2. 预览资源，确认季数、关键词和保存位置，再开启自动下载。
-3. 在「最近条目」查看进度与错误；只有「已保存」表示已完成归档。
-4. 在「番剧库」管理资料、纠错或播放，也可让飞牛影视、Emby、Jellyfin 扫描媒体目录。
+1. **添加订阅** — 在「找番」搜索资源，或在「订阅管理」填写 RSS。
+2. **确认规则** — 预览资源，核对季数、关键词和保存位置，再开启自动下载。
+3. **查看进度** — 在「最近条目」查看任务；只有「已保存」表示归档完成。
+4. **浏览播放** — 在「番剧库」管理与播放，或用自己的媒体服务扫描归档目录。
 
-搜索来源返回的窗口不等于全集；未标明季数不自动视为第一季。详细操作见[使用指南](docs/USAGE.md)。
+请在可信局域网使用，不要直接暴露管理端口到公网。播放器不转码、不渲染外挂字幕；JSON 备份不包含历史任务或媒体。更多限制见[功能边界](docs/FEATURE_COMPARISON.md)。
 
-识别到单集编号时，典型目录为：
+## 更多文档
 
-```text
-<媒体根目录>/<番剧名>/
-├── tvshow.nfo
-├── poster.jpg
-└── Season 01/
-    ├── 番剧名 - S01E01.mp4
-    └── 番剧名 - S01E01.nfo
-```
+| 想了解 | 查看 |
+| --- | --- |
+| 找番、订阅、纠错与播放 | [使用指南](docs/USAGE.md) |
+| 保存目录、下载器与代理 | [配置参考](docs/CONFIGURATION.md) |
+| 更新、备份与故障处理 | [维护指南](docs/MAINTENANCE.md) |
+| 源码开发与参与贡献 | [贡献指南](CONTRIBUTING.md) |
 
-无法识别单集的资源不会被强行命名为某个剧集，可能保留原名或作为合集目录保存。更改番剧名或默认根目录不会自动搬动已有媒体。
+---
 
-## 使用边界
-
-- 应用层主要按资源 URL 去重，未实现统一的同季同集版本择优、自动洗版、缺集补全或媒体库扫描。
-- 暂停直链后继续从头下载，不承诺 HTTP Range 续传；播放器不转码、不渲染外挂字幕。
-- 每周更新日是安排，不证明某天实际到片、仍在连载或已收齐。
-- 删除记录默认保留媒体；网页 JSON 恢复不恢复历史任务或媒体。完整备份须包含数据库、下载器状态与媒体，见[维护指南](docs/MAINTENANCE.md)。
-- 一个数据库只运行一个实例。请在可信局域网使用，完成账户初始化；不要直接将管理端口暴露到公网。
-
-## 开发与贡献
-
-Go 模块在 `backend/`，Vue 源码在 `web/`。前端构建生成 `backend/static/` 与安装配置页，产物随源码交付并嵌入 Go 程序，不手工编辑。目录、启动、测试与构建命令见[贡献指南](CONTRIBUTING.md)，发布过程见[维护者发布说明](docs/RELEASING.md)。
-
-## 许可证
-
-项目使用 [MIT License](LICENSE)。打包的第三方软件保留各自许可，Windows 桌面包包含相应许可与源码获取说明。请仅订阅和下载有权访问、保存的内容。
+[MIT License](LICENSE) · 第三方软件保留各自许可 · 请仅下载有权访问与保存的内容。
