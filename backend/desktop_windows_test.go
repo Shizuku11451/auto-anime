@@ -106,3 +106,65 @@ func TestDesktopWindowSizeFitsWorkArea(t *testing.T) {
 		}
 	}
 }
+
+// 图标资源必须真的嵌进可执行文件：标题栏、任务栏与托盘都靠它，取不到就退回默认图标。
+func TestAppIconResourceLoaded(t *testing.T) {
+	if handle := moduleHandle(); handle == 0 {
+		t.Fatal("模块句柄不可用")
+	}
+	for _, size := range []int{16, 32} {
+		if loadAppIcon(size) == 0 {
+			t.Fatalf("%dx%d 图标加载失败（rsrc_windows_amd64.syso 是否随包提交？）", size, size)
+		}
+	}
+	if trayIcon() == 0 {
+		t.Fatal("托盘图标不可用")
+	}
+}
+
+// 没有桌面窗口（服务模式、测试进程）时标题栏主题同步必须安全返回 false。
+func TestDesktopThemeWithoutWindow(t *testing.T) {
+	if applyTitleBarTheme(0, true) {
+		t.Fatal("空窗口句柄不应报告成功")
+	}
+	if applyDesktopTheme("dark") || applyDesktopTheme("light") {
+		t.Fatal("没有桌面窗口时不应报告已应用")
+	}
+	// 读不到系统主题时按深色处理，不能 panic。
+	_ = systemPrefersDarkAppTheme()
+}
+
+// .ico 需要包含标题栏（16）、任务栏（32）等尺寸，否则 Windows 会缩放导致发虚。
+func TestIconAssetContainsRequiredSizes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("assets", "auto-anime.ico"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < 6 || data[0] != 0 || data[1] != 0 || data[2] != 1 || data[3] != 0 {
+		t.Fatal("不是有效的 ICO 文件头")
+	}
+	count := int(data[4]) | int(data[5])<<8
+	if count < 4 || len(data) < 6+16*count {
+		t.Fatalf("ICO 目录异常：count=%d len=%d", count, len(data))
+	}
+	sizes := map[int]bool{}
+	for i := 0; i < count; i++ {
+		entry := data[6+16*i:]
+		width, height := int(entry[0]), int(entry[1])
+		if width == 0 {
+			width = 256
+		}
+		if height == 0 {
+			height = 256
+		}
+		sizes[width] = sizes[width] && width == height || !sizes[width]
+		if width != height {
+			t.Fatalf("第 %d 个图标不是正方形：%dx%d", i, width, height)
+		}
+	}
+	for _, want := range []int{16, 32, 48, 256} {
+		if !sizes[want] {
+			t.Fatalf("缺少 %dx%d 图标：%v", want, want, sizes)
+		}
+	}
+}

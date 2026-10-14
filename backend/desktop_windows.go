@@ -17,6 +17,7 @@ import (
 	webview "github.com/jchv/go-webview2"
 	"github.com/jchv/go-webview2/webviewloader"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // Release sets this with -X; source runs retain their console/server behavior.
@@ -126,6 +127,13 @@ func dpiAwarenessLabel(level int) string {
 	return "unaware"
 }
 
+func themeLabel(dark bool) string {
+	if dark {
+		return "深色"
+	}
+	return "浅色"
+}
+
 // systemDpi 返回系统 DPI；取不到时按 96（100%）。
 func systemDpi() uintptr {
 	if dpi, found := callOptional(procGetDpiForSystem); found && dpi >= desktopDpiBaseline {
@@ -164,6 +172,132 @@ func desktopWindowSize() (width, height, dpi int) {
 		}
 	}
 	return width, height, dpi
+}
+
+// ---- 窗口图标与标题栏配色 ----
+//
+// 发布包通过 rsrc_windows_amd64.syso 内置图标资源（ID 1）与 Per-Monitor V2 清单：
+// 图标用于标题栏、任务栏与托盘；标题栏配色跟随应用主题（前端切换后调用
+// /api/desktop/theme），初始值取系统应用主题，避免先亮后暗的闪烁。
+//
+// 图标与清单由 go-winres 预生成并提交（Linux 交叉编译不需要额外工具）：
+//
+//go:generate go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/auto-anime.ico --manifest gui --product-name Auto-Anime --file-description "Auto-Anime 自动追番" --out rsrc
+
+const (
+	desktopIconID       = 1
+	dwmwaImmersiveDark  = 20 // DWMWA_USE_IMMERSIVE_DARK_MODE（Windows 10 20H1+）
+	dwmwaImmersiveDark2 = 19 // 更早的 1809/1903 使用的属性号
+	iconSmall           = 0
+	iconBig             = 1
+	wmSetIcon           = 0x0080
+	smCxIcon            = 11
+	smCxSmIcon          = 49
+	imageIcon           = 1
+	idiApplication      = 32512
+)
+
+var (
+	procSendMessageW     = desktopUser32.NewProc("SendMessageW")
+	procLoadImageW       = desktopUser32.NewProc("LoadImageW")
+	procLoadIconW        = desktopUser32.NewProc("LoadIconW")
+	procGetSystemMetrics = desktopUser32.NewProc("GetSystemMetrics")
+)
+
+// desktopWindowHandle 是当前桌面窗口（服务模式或非 Windows 为 0），供主题接口更新标题栏。
+var desktopWindowHandle windows.HWND
+
+// moduleHandle 返回当前可执行文件的模块句柄，用于按 ID 读取内置图标资源。
+func moduleHandle() windows.Handle {
+	var handle windows.Handle
+	if err := windows.GetModuleHandleEx(0, nil, &handle); err != nil {
+		return 0
+	}
+	return handle
+}
+
+// loadAppIcon 按目标尺寸加载内置应用图标；失败返回 0，调用方回退到系统默认图标。
+func loadAppIcon(size int) uintptr {
+	handle := moduleHandle()
+	if handle == 0 || size <= 0 {
+		return 0
+	}
+	icon, found := callOptional(procLoadImageW, uintptr(handle), desktopIconID, imageIcon, uintptr(size), uintptr(size), 0)
+	if !found || icon == 0 {
+		return 0
+	}
+	return icon
+}
+
+func systemIconSize(metric uintptr, fallback int) int {
+	if size, found := callOptional(procGetSystemMetrics, metric); found && size > 0 {
+		return int(size)
+	}
+	return fallback
+}
+
+// applyWindowIcon 给标题栏（小图标）和任务栏/Alt+Tab（大图标）分别设置合适尺寸的图标，
+// 避免 Windows 缩放图标导致发虚。
+func applyWindowIcon(hwnd windows.HWND) {
+	if hwnd == 0 {
+		return
+	}
+	if small := loadAppIcon(systemIconSize(smCxSmIcon, 16)); small != 0 {
+		procSendMessageW.Call(uintptr(hwnd), wmSetIcon, iconSmall, small)
+	}
+	if big := loadAppIcon(systemIconSize(smCxIcon, 32)); big != 0 {
+		procSendMessageW.Call(uintptr(hwnd), wmSetIcon, iconBig, big)
+	}
+}
+
+// trayIcon 返回托盘图标：优先内置应用图标，取不到时回退系统默认图标。
+func trayIcon() uintptr {
+	if icon := loadAppIcon(systemIconSize(smCxSmIcon, 16)); icon != 0 {
+		return icon
+	}
+	icon, _, _ := procLoadIconW.Call(0, idiApplication)
+	return icon
+}
+
+// systemPrefersDarkAppTheme 读取系统「应用模式」是否为深色；读不到时按深色处理，
+// 与前端 prefers-color-scheme 的默认值保持一致。
+func systemPrefersDarkAppTheme() bool {
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE)
+	if err != nil {
+		return true
+	}
+	defer key.Close()
+	value, _, err := key.GetIntegerValue("AppsUseLightTheme")
+	if err != nil {
+		return true
+	}
+	return value == 0
+}
+
+// applyTitleBarTheme 设置窗口标题栏亮暗（Windows 10 1809+；旧系统忽略失败）。
+func applyTitleBarTheme(hwnd windows.HWND, dark bool) bool {
+	if hwnd == 0 {
+		return false
+	}
+	value := int32(0)
+	if dark {
+		value = 1
+	}
+	size := uint32(unsafe.Sizeof(value))
+	if err := windows.DwmSetWindowAttribute(hwnd, dwmwaImmersiveDark, unsafe.Pointer(&value), size); err == nil {
+		return true
+	}
+	return windows.DwmSetWindowAttribute(hwnd, dwmwaImmersiveDark2, unsafe.Pointer(&value), size) == nil
+}
+
+// applyDesktopTheme 由 /api/desktop/theme 调用：把应用主题同步到原生标题栏。
+// 返回 false 表示当前没有桌面窗口（服务模式）或系统不支持。
+func applyDesktopTheme(theme string) bool {
+	dark := theme != "light"
+	if theme != "light" && theme != "dark" {
+		dark = systemPrefersDarkAppTheme()
+	}
+	return applyTitleBarTheme(desktopWindowHandle, dark)
 }
 
 func runDesktop() {
@@ -206,7 +340,8 @@ func runDesktop() {
 	log.SetOutput(logFile)
 	defer log.SetOutput(previousLog)
 	windowWidth, windowHeight, dpi := desktopWindowSize()
-	log.Printf("窗口 DPI 感知 %s，系统 DPI %d（%d%% 缩放），初始尺寸 %dx%d", dpiAwareness, dpi, dpi*100/desktopDpiBaseline, windowWidth, windowHeight)
+	darkTitleBar := systemPrefersDarkAppTheme()
+	log.Printf("窗口 DPI 感知 %s，系统 DPI %d（%d%% 缩放），初始尺寸 %dx%d，标题栏初始%s主题", dpiAwareness, dpi, dpi*100/desktopDpiBaseline, windowWidth, windowHeight, themeLabel(darkTitleBar))
 	if _, err := webviewloader.GetInstalledVersion(); err != nil {
 		desktopError("未检测到 Microsoft Edge WebView2 Runtime，请安装运行时后重试：" + err.Error())
 		return
@@ -230,7 +365,7 @@ func runDesktop() {
 	}
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		DataPath: filepath.Join(root, "webview2"), AutoFocus: true,
-		WindowOptions: webview.WindowOptions{Title: "Auto-Anime 自动追番", Width: uint(windowWidth), Height: uint(windowHeight), Center: true},
+		WindowOptions: webview.WindowOptions{Title: "Auto-Anime 自动追番", Width: uint(windowWidth), Height: uint(windowHeight), Center: true, IconId: desktopIconID},
 	})
 	if w == nil {
 		desktopError("无法创建桌面窗口，请安装 Microsoft Edge WebView2 Runtime 后重试。日志位于数据目录的 desktop.log。")
@@ -238,6 +373,12 @@ func runDesktop() {
 	}
 	defer w.Destroy()
 	w.SetSize(scaleForDpi(desktopWindowMinWidth, dpi), scaleForDpi(desktopWindowMinHeight, dpi), webview.HintMin)
+	// 记录窗口句柄供 /api/desktop/theme 更新标题栏；同时按尺寸设置标题栏与任务栏图标。
+	hwnd := windows.HWND(uintptr(w.Window()))
+	desktopWindowHandle = hwnd
+	defer func() { desktopWindowHandle = 0 }()
+	applyWindowIcon(hwnd)
+	applyTitleBarTheme(hwnd, darkTitleBar)
 	w.SetHtml(`<!doctype html><meta charset="utf-8"><style>body{font:18px system-ui;padding:48px;color:#333}@media(prefers-color-scheme:dark){body{background:#18181b;color:#eee}}</style><h1>Auto-Anime</h1><p>正在启动服务与下载器，请稍候…</p><p>关闭窗口后继续在系统托盘运行；右键托盘图标可退出。</p>`)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -1495,6 +1495,8 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	http.HandleFunc("/api/update", updateHandler)
 	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
+	// 桌面窗口的原生标题栏跟随应用主题（服务模式返回 applied=false）。
+	http.HandleFunc("/api/desktop/theme", desktopThemeHandler)
 	http.HandleFunc("/api/items/", itemsEntryAPI)
 	http.HandleFunc("/api/sync/", syncFeedHandler)
 	go func() {

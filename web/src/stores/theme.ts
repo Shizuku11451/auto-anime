@@ -1,11 +1,20 @@
 import { computed, ref } from 'vue'
-
+import { http } from '@/api/client'
 export type Theme = 'light' | 'dark'
 
 const THEME_KEY = 'theme'
 const META_COLOR: Record<Theme, string> = { light: '#f6f8f6', dark: '#111615' }
 
 const theme = ref<Theme>(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
+
+/* 桌面窗口的原生标题栏跟随应用主题；服务模式、非 Windows 或窗口尚未创建时后端返回
+   applied=false，前端忽略结果即可。 */
+function syncDesktopTheme(next: Theme) {
+  void http.post('/api/desktop/theme', { theme: next }).catch(() => {})
+}
+
+// 页面加载时先同步一次：存储的主题与系统主题不一致时标题栏也能匹配。
+syncDesktopTheme(theme.value)
 
 function storedTheme(): Theme | null {
   try {
@@ -21,6 +30,7 @@ function applyTheme(next: Theme) {
   document.documentElement.dataset.theme = next
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
   if (meta) meta.content = META_COLOR[next]
+  syncDesktopTheme(next)
 }
 
 /* 未手动选择过主题时跟随系统亮暗变化 */

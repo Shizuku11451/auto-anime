@@ -31,7 +31,8 @@ func installDesktopTray(hwnd uintptr, quit func()) (func(), error) {
 	shell := windows.NewLazySystemDLL("shell32.dll")
 	controls := windows.NewLazySystemDLL("comctl32.dll")
 	notify := shell.NewProc("Shell_NotifyIconW")
-	icon, _, _ := desktopUser32.NewProc("LoadIconW").Call(0, 32512)
+	// 托盘用内置应用图标（与标题栏、任务栏一致），取不到时回退系统默认图标。
+	icon := trayIcon()
 	data := desktopNotifyIcon{Window: hwnd, ID: 1, Flags: 1 | 2 | 4, Callback: trayMessage, Icon: icon}
 	data.Size = uint32(unsafe.Sizeof(data))
 	copy(data.Tip[:], windows.StringToUTF16("Auto-Anime · 双击打开，右键退出"))

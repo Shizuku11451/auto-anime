@@ -29,6 +29,18 @@ Windows 是次要适配平台，保留桌面便携包、基础回归与打包检
 - Docker 专用的 `/install` 部署配置页在 Windows 上返回 404，设置页与首次向导不显示该入口；修改媒体目录直接填盘符或 UNC 路径。
 - 发布包是 GUI 子系统：`Auto-Anime.exe --server` 或 `-version` 从终端运行时程序会附着到已有控制台，让日志和错误可见；双击启动不会新开控制台窗口。输出重定向到文件或管道时保持原样。
 
+## 窗口外观与图标
+
+- 桌面窗口声明 Per-Monitor V2 DPI 感知（`backend/rsrc_windows_amd64.syso` 里的清单，启动时另有兜底设置），窗口按系统 DPI 换算物理像素并限制在主屏工作区内：125%/150% 缩放下文字不发虚。`desktop.log` 会打印实际生效的 DPI 感知级别、系统 DPI 与初始尺寸，排查显示问题时先看这一行。
+- 原生标题栏跟随应用主题：启动时取系统「应用模式」，之后由界面在切换亮暗或系统主题变化时调用 `/api/desktop/theme` 同步（服务模式返回 `applied=false`，不影响其他接口）。
+- 程序图标来自 `backend/assets/auto-anime.ico`，由 `go-winres` 预生成的 `backend/rsrc_windows_amd64.syso` 内嵌（资源 ID 1），同时用于 exe 文件图标、标题栏、任务栏与系统托盘；资源缺失时回退系统默认图标。更新图标（需要 Pillow 与联网下载 go-winres）：
+
+```powershell
+python tools/make_windows_icon.py   # 由 FPK 图标生成多尺寸 ico
+cd backend
+go generate ./...                  # 重新生成 rsrc_windows_amd64.syso
+```
+
 `DB_PATH`、`DOWNLOAD_DIR`、`COVERS_DIR`、`LIBRARY_DIR`、`QBITTORRENT_DATA_DIR` 均可通过环境变量覆盖。搬迁便携包前先正常退出；不自动搬迁早期版本的盘根 `C:\data` 或 `E:\data`。同一数据库只运行一个实例，新版 Windows 服务和桌面入口共用数据库锁；不要同时运行不带该锁的旧版本。
 
 例如在 PowerShell 中指定独立媒体库后启动（已保存的界面设置优先）：
