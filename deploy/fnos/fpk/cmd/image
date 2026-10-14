@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Optional offline payload; online packages do not contain this directory.
+load_bundled_image() {
+    local bundle="${TRIM_APPDEST:?}/image" reference expected actual
+    [ -d "$bundle" ] || return 0
+    [ -f "$bundle/image.tar.gz" ] && [ -f "$bundle/image.sha256" ] && [ -f "$bundle/reference" ] || {
+        mount_error '离线镜像文件不完整，请重新下载安装包。'; return 1
+    }
+    reference="$(cat "$bundle/reference")"
+    [[ "$reference" =~ ^ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+:[A-Za-z0-9_.-]+$ ]] || {
+        mount_error '离线镜像引用无效。'; return 1
+    }
+    expected="$(cat "$bundle/image.sha256")"
+    [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || { mount_error '离线镜像校验记录无效。'; return 1; }
+    printf '%s\n' '正在校验离线镜像…'
+    actual="$(sha256sum "$bundle/image.tar.gz" | awk '{print $1}')" || return 1
+    [ "$actual" = "$expected" ] || { mount_error '离线镜像 SHA-256 校验失败。'; return 1; }
+    printf '%s\n' '正在导入离线镜像，无需访问镜像仓库…'
+    if ! docker load -i "$bundle/image.tar.gz"; then
+        mount_error '离线镜像导入失败，请检查 Docker、可用空间和应用日志。'; return 1
+    fi
+    docker image inspect "$reference" >/dev/null 2>&1 || {
+        mount_error '导入后缺少配套镜像，请重新下载对应安装包。'; return 1
+    }
+}

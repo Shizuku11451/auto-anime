@@ -1,0 +1,65 @@
+name: FPK offline test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fpk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check package scripts
+        run: |
+          bash -n deploy/fnos/build-fpk.sh
+          bash deploy/fnos/test-fpk.sh
+          python3 -m unittest discover -s tools -p 'test_*.py'
+      - name: Prepare isolated x86-64 package
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('deploy/fnos/fpk')
+          p = root / 'manifest'
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('= auto-anime\n', '= auto-anime-offline-test\n')
+          s = s.replace('= all\n', '= x86\n')
+          s = s.replace('= 8000\n', '= 18015\n')
+          s = s.replace('= Auto-Anime 自动追番', '= Auto-Anime 离线安装测试')
+          p.write_text(s, encoding='utf-8')
+          for name in ['config/resource', 'config/privilege', 'app/ui/config']:
+              p = root / name
+              s = p.read_text(encoding='utf-8').replace('auto-anime', 'auto-anime-offline-test')
+              if name == 'app/ui/config':
+                  s = s.replace('"8000"', '"18015"')
+              p.write_text(s, encoding='utf-8')
+          p = root / 'manifest'
+          p.write_text(p.read_text(encoding='utf-8').replace('= auto-anime.Application', '= auto-anime-offline-test.Application'), encoding='utf-8')
+          p = root / 'wizard/install'
+          p.write_text(p.read_text(encoding='utf-8').replace('"6881"', '"16895"'), encoding='utf-8')
+          p = root / 'app/docker/docker-compose.yaml'
+          p.write_text(p.read_text(encoding='utf-8').replace('/var/apps/auto-anime/', '/var/apps/auto-anime-offline-test/'), encoding='utf-8')
+          PY
+      - name: Fetch and save release image
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:0.0.1"
+          docker pull --platform linux/amd64 "$IMAGE"
+          test "$(docker image inspect "$IMAGE" --format '{{.Architecture}}')" = amd64
+          docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/image.tar.gz"
+      - name: Build offline package
+        run: |
+          export IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          export IMAGE_ARCHIVE="$RUNNER_TEMP/image.tar.gz"
+          bash deploy/fnos/build-fpk.sh "0.0.1-offline.${GITHUB_RUN_NUMBER}" 0.0.1
+          cd dist/fnos
+          sha256sum *.fpk > checksums.txt
+          printf '%s\n' '独立测试应用 auto-anime-offline-test；网页18015，BT16895。' \
+            '自带正式0.0.1的Linux amd64镜像；不是新程序版本。' \
+            '需要飞牛 Docker；不覆盖正式应用。尚未完成 NAS 安装验收。' > BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fnos-offline-test-${{ github.run_number }}
+          path: dist/fnos/
+          if-no-files-found: error
+          retention-days: 14

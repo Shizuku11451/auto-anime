@@ -76,16 +76,27 @@ sed -i "s|^version\s*=.*$|version               = $version|" "$staging/manifest"
 sed -i "s|image:\s*ghcr\.io/shizuku11451/auto-anime:[^[:space:]]*|image: $image_repository:$image_tag|" "$staging/app/docker/docker-compose.yaml"
 chmod 755 "$staging"/cmd/*
 
+# IMAGE_ARCHIVE is a docker save gzip archive for the exact selected tag.
+if [ -n "${IMAGE_ARCHIVE:-}" ]; then
+  [ -f "$IMAGE_ARCHIVE" ] || { echo '离线镜像文件不存在' >&2; exit 1; }
+  mkdir -p "$staging/app/image"
+  cp -- "$IMAGE_ARCHIVE" "$staging/app/image/image.tar.gz"
+  sha256sum "$staging/app/image/image.tar.gz" | awk '{print $1}' > "$staging/app/image/image.sha256"
+  printf '%s\n' "$image_repository:$image_tag" > "$staging/app/image/reference"
+  sed -i 's/pull_policy: missing/pull_policy: never/' "$staging/app/docker/docker-compose.yaml"
+fi
+
 (cd "$staging" && "$fnpack" build)
 
-if [ ! -f "$staging/auto-anime.fpk" ]; then
+appname="$(awk -F= '/^appname[[:space:]]*=/ {gsub(/[[:space:]]/, "", $2); print $2}' "$staging/manifest")"
+if [ ! -f "$staging/$appname.fpk" ]; then
   echo "没有生成 auto-anime.fpk" >&2
   exit 1
 fi
 
 mkdir -p "$out_dir"
 target="$out_dir/auto-anime-$version-fnos.fpk"
-python3 "$repo_root/tools/normalize_fpk.py" "$staging/auto-anime.fpk" "$target"
+python3 "$repo_root/tools/normalize_fpk.py" "$staging/$appname.fpk" "$target"
 
 echo
 echo "已生成：$target"

@@ -3,9 +3,11 @@
 CONTAINER_NAME="${TRIM_APPNAME:-auto-anime}"
 script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 . "$script_dir/storage"
+. "$script_dir/image"
 
 case "$1" in
 start)
+    load_bundled_image || exit $?
     prepare_mounts && run_compose up -d --remove-orphans --wait --wait-timeout 120
     exit $?
     ;;

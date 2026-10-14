@@ -16,6 +16,22 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export TRIM_PKGETC="$tmp" TRIM_UID=991 TRIM_GID=986
 . "$root/deploy/fnos/fpk/cmd/storage"
+. "$root/deploy/fnos/fpk/cmd/image"
+# Offline payload failures must never silently fall back to a registry pull.
+(
+  export TRIM_APPDEST="$tmp/offline"
+  mkdir -p "$TRIM_APPDEST/image"
+  if load_bundled_image; then echo '接受了不完整离线镜像' >&2; exit 1; fi
+  printf 'payload' > "$TRIM_APPDEST/image/image.tar.gz"
+  printf 'ghcr.io/test/repo:0.0.1\n' > "$TRIM_APPDEST/image/reference"
+  printf '%064d\n' 0 > "$TRIM_APPDEST/image/image.sha256"
+  if load_bundled_image; then echo '接受了错误校验值' >&2; exit 1; fi
+  sha256sum "$TRIM_APPDEST/image/image.tar.gz" | awk '{print $1}' > "$TRIM_APPDEST/image/image.sha256"
+  docker() { [ "$1" = load ] || [ "$1 $2" = 'image inspect' ]; }
+  load_bundled_image
+  docker() { return 1; }
+  if load_bundled_image; then echo '忽略了镜像导入失败' >&2; exit 1; fi
+)
 TRIM_DATA_ACCESSIBLE_PATHS='' prepare_mounts
 grep -q '"volumes":\[\]' "$tmp/authorized-mounts.json"
 for path in / /vol1 /vol1/@appcenter/auto-anime /vol1/@appconf/auto-anime; do
