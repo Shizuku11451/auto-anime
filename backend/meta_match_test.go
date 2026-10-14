@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	titleparse "auto-anime/internal/title"
 )
 
 const bracketedMushokuTitle = "[7月新番][无职转生 第三季 ～到了异世界就拿出真本事～][Mushoku Tensei III: Isekai Ittara Honki Dasu] [1080P][GB][MP4][简中]"
@@ -34,7 +36,7 @@ func TestMetaQueriesKeepBracketedNames(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.title, func(t *testing.T) {
-			if got := metaQueryTitles(c.title); !reflect.DeepEqual(got, c.want) {
+			if got := titleparse.QueryTitles(c.title); !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("queries: got %#v, want %#v", got, c.want)
 			}
 		})
@@ -118,11 +120,11 @@ func TestMetaSearchFallbackPreservesOriginalSeason(t *testing.T) {
 				}
 				json.NewEncoder(w).Encode(map[string]any{"list": list})
 			})
-			subject, err := searchBangumiAliases(context.Background(), metaQueryTitles(bracketedMushokuTitle))
+			subject, err := searchBangumiAliases(context.Background(), titleparse.QueryTitles(bracketedMushokuTitle))
 			if err != nil || subject == nil || subject.ID != 3 {
 				t.Fatalf("fallback chose %+v (%v), queries=%v", subject, err, queries)
 			}
-			if queries[len(queries)-1] != target || len(queries) > maxMetaQueries {
+			if queries[len(queries)-1] != target || len(queries) > titleparse.MaxMetaQueries {
 				t.Fatalf("unexpected queries: %v", queries)
 			}
 		})
@@ -222,8 +224,8 @@ func TestMetaFailureDoesNotRenewMiss(t *testing.T) {
 
 func TestMetaSearchBudgetAndCancellation(t *testing.T) {
 	aliases := []string{"第一动画 ～副标题～", "Second Anime: Subtitle", "Third Anime", "Fourth Anime", "Fifth Anime", "Sixth Anime", "Seventh Anime"}
-	queries := metaSearchQueries(append(aliases, aliases...))
-	if len(queries) != maxMetaQueries {
+	queries := titleparse.SearchQueries(append(aliases, aliases...))
+	if len(queries) != titleparse.MaxMetaQueries {
 		t.Fatalf("search limit: %v", queries)
 	}
 	seen := map[string]bool{}
@@ -279,8 +281,8 @@ func TestMetaSearchNameCanCorrectSeason(t *testing.T) {
 	if err := db.QueryRow("SELECT name_cn FROM anime_meta").Scan(&name); err != nil || name != searchName {
 		t.Fatalf("explicit season correction ignored: %q %v", name, err)
 	}
-	aliases := metaLookupAliases(bracketedMushokuTitle, "无职转生")
-	if metaAliasesScore(aliases, "", "无职转生 第二季") != 0 {
+	aliases := titleparse.LookupAliases(bracketedMushokuTitle, "无职转生")
+	if titleparse.AliasesScore(aliases, "", "无职转生 第二季") != 0 {
 		t.Fatal("short custom keyword lost the original season")
 	}
 }
@@ -312,59 +314,7 @@ func TestMetaSearchEscapesQuery(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"list":[]}`)
 	})
-	if _, err := searchBangumiAliases(context.Background(), metaQueryTitles(query)); err != nil {
+	if _, err := searchBangumiAliases(context.Background(), titleparse.QueryTitles(query)); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestMetaMatchingRespectsSeasonAndIdentity(t *testing.T) {
-	cases := []struct {
-		query, name, nameCN string
-		want                bool
-	}{
-		{"无职转生 第三季", "無職転生Ⅲ ～異世界行ったら本気だす～", "无职转生 第三季 ～到了异世界就拿出真本事～", true},
-		{"无职转生 第三季", "無職転生Ⅱ ～異世界行ったら本気だす～", "无职转生 第二季 ～到了异世界就拿出真本事～", false},
-		{"无职转生 第三季", "無職転生 ～異世界行ったら本気だす～", "无职转生～到了异世界就拿出真本事～", false},
-		{"Mushoku Tensei III", "Mushoku Tensei Ⅲ", "", true},
-		{"Mushoku Tensei III", "Mushoku Tensei II", "", false},
-		{"无职转生 第二季 第2部分", "無職転生Ⅱ ～異世界行ったら本気だす～", "无职转生 第二季 ～到了异世界就拿出真本事～", false},
-		{"无职转生 第二季 第2部分", "無職転生Ⅱ ～異世界行ったら本気だす～ 第2クール", "无职转生 第二季 ～到了异世界就拿出真本事～ 第2部分", true},
-		{"夏日动画", "夏日动画 第二季", "", false},
-		{"魔法少女小圆", "魔法少女育成计划", "", false},
-		{"Fate/stay night", "Fate/Grand Order", "", false},
-		{"葬送的芙莉莲 S01 · 1080P", "葬送のフリーレン", "葬送的芙莉莲", true},
-		{"灰与幻想的格林姆迦尔", "灰と幻想のグリムガル", "灰与幻想之格林姆迦尔", true},
-		{"间谍过家家 / SPY X FAMILY", "SPY×FAMILY", "间谍过家家", true},
-		{"SPY X FAMILY", "SPY×FAMILY", "间谍过家家", true},
-		{"HUNTER X HUNTER", "HUNTER×HUNTER", "全职猎人", true},
-		{"That Time I Got Reincarnated as a Slime Season 3", "That Time I Got Reincarnated as a Slime Season 3", "关于我转生变成史莱姆这档事 第三季", true},
-		{"间谍过家家 / SPY X FAMILY II", "SPY×FAMILY Season 2", "间谍过家家 第二季", true},
-		{"间谍过家家 / SPY X FAMILY II", "SPY×FAMILY", "间谍过家家", false},
-	}
-	for _, c := range cases {
-		t.Run(c.query+"/"+c.name, func(t *testing.T) {
-			score := metaAliasesScore(metaQueryTitles(c.query), c.name, c.nameCN)
-			if got := score > 0; got != c.want {
-				t.Fatalf("accept=%v, want %v (score=%d)", got, c.want, score)
-			}
-		})
-	}
-}
-
-func TestMetaRomanMarkersOnlyAtSeasonSuffix(t *testing.T) {
-	for _, tc := range []struct {
-		title  string
-		season int
-	}{
-		{"SPY X FAMILY", 0}, {"HUNTER X HUNTER", 0},
-		{"That Time I Got Reincarnated as a Slime Season 3", 3},
-		{"Mushoku Tensei III: Isekai Ittara Honki Dasu", 3},
-		{"無職転生Ⅲ ～異世界行ったら本気だす～", 3},
-		{"测试动画 [II]", 2}, {"测试动画 II Part 2", 2},
-	} {
-		_, season, _ := metaTitleParts(tc.title)
-		if season != tc.season {
-			t.Errorf("season of %q: got %d want %d", tc.title, season, tc.season)
-		}
 	}
 }

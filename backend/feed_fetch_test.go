@@ -1,7 +1,6 @@
 package main
 
 import (
-	keywordfilter "auto-anime/internal/filter"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	keywordfilter "auto-anime/internal/filter"
 )
 
 func noFeedPageDelay(t *testing.T) {

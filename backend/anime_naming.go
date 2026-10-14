@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	titleparse "auto-anime/internal/title"
 )
 
 // ---- 番剧命名 ----
@@ -40,7 +42,7 @@ func standardizeAnimeTitle(animeTitle string) {
 		}
 		return
 	}
-	standard := standardSeriesName(nameCN, name)
+	standard := titleparse.StandardSeriesName(nameCN, name)
 	if standard == animeTitle {
 		return
 	}

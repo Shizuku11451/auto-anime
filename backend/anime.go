@@ -1,7 +1,6 @@
 package main
 
 import (
-	keywordfilter "auto-anime/internal/filter"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	keywordfilter "auto-anime/internal/filter"
 )
 
 // 番剧订阅管理：animes 表把番剧、季、集与资源统一成一等实体。

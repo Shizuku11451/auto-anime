@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	titleparse "auto-anime/internal/title"
 )
 
 // Cover metadata via Bangumi (bgm.tv). Lookups run in a background worker so
@@ -226,7 +228,7 @@ func lookupAndCacheMeta(animeTitle string) {
 			mikanFailed = true
 		}
 	}
-	aliases := metaLookupAliases(animeTitle, searchName)
+	aliases := titleparse.LookupAliases(animeTitle, searchName)
 	ctx, cancel := context.WithTimeout(context.Background(), metaLookupTimeout)
 	defer cancel()
 	subject, err := searchBangumiAliases(ctx, aliases)
@@ -419,7 +421,7 @@ func searchBangumiListContext(ctx context.Context, query string) ([]bangumiSubje
 func searchBangumiAliases(ctx context.Context, aliases []string) (*bangumiSubject, error) {
 	var candidates []bangumiSubject
 	seen := map[int]bool{}
-	for i, query := range metaSearchQueries(aliases) {
+	for i, query := range titleparse.SearchQueries(aliases) {
 		if i > 0 {
 			timer := time.NewTimer(500 * time.Millisecond)
 			select {
@@ -450,7 +452,7 @@ func searchBangumiAliases(ctx context.Context, aliases []string) (*bangumiSubjec
 func bestMetaCandidate(aliases []string, candidates []bangumiSubject) (*bangumiSubject, int) {
 	best, score, runnerUp := -1, 0, 0
 	for i := range candidates {
-		n := metaAliasesScore(aliases, candidates[i].Name, candidates[i].NameCN)
+		n := titleparse.AliasesScore(aliases, candidates[i].Name, candidates[i].NameCN)
 		if n > score {
 			best, score, runnerUp = i, n, score
 		} else {

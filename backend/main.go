@@ -1,7 +1,6 @@
 package main
 
 import (
-	keywordfilter "auto-anime/internal/filter"
 	"bytes"
 	"context"
 	"database/sql"
@@ -23,6 +22,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	keywordfilter "auto-anime/internal/filter"
+	titleparse "auto-anime/internal/title"
 )
 
 var db *sql.DB
@@ -378,7 +380,7 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 		if err := ctx.Err(); err != nil {
 			return n, err
 		}
-		if it.Title == "" || it.Link == "" || !filter.Allows(it.Title) || !allowsSeason(it.Title, f.SeasonFilter, f.AllowUnknownSeason) {
+		if it.Title == "" || it.Link == "" || !filter.Allows(it.Title) || !titleparse.AllowsSeason(it.Title, f.SeasonFilter, f.AllowUnknownSeason) {
 			continue
 		}
 		// Older rows kept only the download URL. Fill the original page on the
@@ -398,7 +400,7 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 				continue
 			}
 		}
-		info := extractAnimeInfo(it.Title)
+		info := titleparse.Extract(it.Title)
 		// 多来源归并：某部番剧的规则命中原始标题时，条目归入该番剧，
 		// 不再按本地识别标题另立门户。
 		animeID := int64(0)
@@ -801,7 +803,7 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 	if in.SeasonFilter != nil {
 		season = *in.SeasonFilter
 	}
-	if !validSeasonFilter(season) {
+	if !titleparse.ValidSeasonFilter(season) {
 		http.Error(w, "季数条件无效", 400)
 		return
 	}
@@ -849,7 +851,7 @@ func preview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "请求参数无效", 400)
 		return
 	}
-	if !validSeasonFilter(in.SeasonFilter) {
+	if !titleparse.ValidSeasonFilter(in.SeasonFilter) {
 		http.Error(w, "季数条件无效", 400)
 		return
 	}
@@ -863,7 +865,7 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	filtered := make([]feedItem, 0, len(items))
 	filter := keywordfilter.New(in.Include, in.Exclude)
 	for _, item := range items {
-		if item.Title != "" && item.Link != "" && filter.Allows(item.Title) && allowsSeason(item.Title, in.SeasonFilter, in.AllowUnknownSeason) {
+		if item.Title != "" && item.Link != "" && filter.Allows(item.Title) && titleparse.AllowsSeason(item.Title, in.SeasonFilter, in.AllowUnknownSeason) {
 			filtered = append(filtered, item)
 		}
 	}
@@ -994,7 +996,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 		f := &input.Feeds[i]
 		f.Name, f.URL = strings.TrimSpace(f.Name), strings.TrimSpace(f.URL)
 		u, err := url.Parse(f.URL)
-		if f.Name == "" || err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || !validSeasonFilter(f.SeasonFilter) {
+		if f.Name == "" || err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || !titleparse.ValidSeasonFilter(f.SeasonFilter) {
 			http.Error(w, "备份包含无效订阅", 400)
 			return
 		}
@@ -1197,7 +1199,7 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	var seasonValue, unknownValue any
 	if in.SeasonFilter != nil {
-		if !validSeasonFilter(*in.SeasonFilter) {
+		if !titleparse.ValidSeasonFilter(*in.SeasonFilter) {
 			http.Error(w, "季数条件无效", 400)
 			return
 		}

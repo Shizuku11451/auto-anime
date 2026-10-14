@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	titleparse "auto-anime/internal/title"
 )
 
 const (
@@ -152,10 +154,10 @@ func discoverItemsFromEntries(entries []feedEntry) []discoverItem {
 		if entry.Title == "" || entry.resourceURL() == "" {
 			continue
 		}
-		info := extractAnimeInfo(entry.Title)
+		info := titleparse.Extract(entry.Title)
 		items = append(items, discoverItem{
 			Title: entry.Title, AnimeTitle: info.Title, Group: info.Group,
-			Season:  resourceSeason(entry.Title),
+			Season:  titleparse.ResourceSeason(entry.Title),
 			Episode: info.Episode, Quality: info.Quality,
 			Link: entry.Link, Torrent: entry.Torrent, Published: entry.Published,
 		})

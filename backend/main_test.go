@@ -1,7 +1,6 @@
 package main
 
 import (
-	keywordfilter "auto-anime/internal/filter"
 	"bytes"
 	"context"
 	"fmt"
@@ -15,6 +14,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	keywordfilter "auto-anime/internal/filter"
+	titleparse "auto-anime/internal/title"
 )
 
 func TestParseRSSAndAtom(t *testing.T) {
@@ -332,7 +334,7 @@ func TestAllowedKeywords(t *testing.T) {
 }
 
 func TestExtractAnimeInfo(t *testing.T) {
-	info := extractAnimeInfo("[字幕组] 夏日番外篇 - 03 [1080p]")
+	info := titleparse.Extract("[字幕组] 夏日番外篇 - 03 [1080p]")
 	if info.Group != "字幕组" || info.Episode != "03" || info.Quality != "1080P" || info.Title != "夏日番外篇" {
 		t.Fatalf("unexpected info: %+v", info)
 	}
@@ -348,7 +350,7 @@ func TestExtractAnimeInfo(t *testing.T) {
 		{"[黒ネズミたち] 與妳相戀到生命盡頭 - 09 (ABEMA 1920x1080 AVC AAC MKV)", "09"},
 	}
 	for _, c := range cases {
-		if got := extractAnimeInfo(c.title).Episode; got != c.episode {
+		if got := titleparse.Extract(c.title).Episode; got != c.episode {
 			t.Errorf("episode of %q: got %q want %q", c.title, got, c.episode)
 		}
 	}
@@ -358,7 +360,7 @@ func TestExtractAnimeInfo(t *testing.T) {
 		"[字幕组] 番名 [WebRip HEVC-10bit AAC]",
 	}
 	for _, title := range nonEpisodes {
-		if got := extractAnimeInfo(title).Episode; got != "" {
+		if got := titleparse.Extract(title).Episode; got != "" {
 			t.Errorf("unexpected episode %q from %q", got, title)
 		}
 	}

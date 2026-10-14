@@ -1,4 +1,4 @@
-package main
+package title
 
 import (
 	"regexp"
@@ -20,7 +20,8 @@ import (
 // 季标记只用来确定季号，不再留在系列名里——季由归档时的 Season XX 目录与 NFO 承载。
 // 系列名保留中文名：「中文名 / 原名」这种双语标题只取中文那段，番剧文件夹名更一致。
 
-type animeInfo struct {
+// Info contains the series identity and release labels extracted from a title.
+type Info struct {
 	Title   string
 	Season  int
 	Episode string
@@ -169,8 +170,9 @@ var cjkResourceMarkers = []string{
 	"合集", "全集", "补档", "字幕组", "字幕組", "压制", "重制",
 }
 
-// extractAnimeInfo 分析资源标题；见本文件顶部说明。
-func extractAnimeInfo(raw string) animeInfo {
+// Extract 分析资源标题；见本文件顶部说明。
+// Extract separates release metadata from the series name without altering raw.
+func Extract(raw string) Info {
 	info := analyzeTitle(raw, true)
 	if strings.TrimSpace(info.Title) != "" {
 		return info
@@ -193,8 +195,8 @@ func extractAnimeInfo(raw string) animeInfo {
 }
 
 // analyzeTitle 是标题分析的主体：stripGroup 为 false 时不吃开头的方括号。
-func analyzeTitle(raw string, stripGroup bool) animeInfo {
-	info := animeInfo{Title: strings.TrimSpace(raw)}
+func analyzeTitle(raw string, stripGroup bool) Info {
+	info := Info{Title: strings.TrimSpace(raw)}
 	clean := strings.TrimSpace(raw)
 	if stripGroup {
 		if m := groupPattern.FindStringSubmatch(clean); len(m) > 1 {
@@ -207,7 +209,7 @@ func analyzeTitle(raw string, stripGroup bool) animeInfo {
 	}
 	info.Season, clean = takeSeason(clean)
 	// Read evidence before cleaning bracket labels such as [S1 Reseed Fin].
-	if season := resourceSeason(raw); season > 0 {
+	if season := ResourceSeason(raw); season > 0 {
 		info.Season = season
 	} else if season < 0 {
 		info.Season = 0
@@ -302,14 +304,14 @@ func takeSeason(raw string) (int, string) {
 	season := 0
 	clean := raw
 	if m := episodeTagPattern.FindStringSubmatch(clean); len(m) > 1 {
-		if n, ok := parseSeasonNumber(m[1]); ok && n >= 1 && n <= 999 {
+		if n, ok := ParseSeasonNumber(m[1]); ok && n >= 1 && n <= 999 {
 			season = n
 		}
 	}
 	for _, pattern := range seasonPatterns {
 		m := pattern.FindStringSubmatch(clean)
 		if len(m) > 1 && season == 0 {
-			if n, ok := parseSeasonNumber(m[1]); ok && n >= 1 && n <= 999 {
+			if n, ok := ParseSeasonNumber(m[1]); ok && n >= 1 && n <= 999 {
 				season = n
 			}
 		}
@@ -361,8 +363,9 @@ func romanNumber(text string) int {
 	return 0
 }
 
-// parseSeasonNumber 解析阿拉伯数字与「三」「十二」这类中文数字。
-func parseSeasonNumber(text string) (int, bool) {
+// ParseSeasonNumber 解析阿拉伯数字与「三」「十二」这类中文数字。
+// ParseSeasonNumber accepts numeric and supported Chinese season markers.
+func ParseSeasonNumber(text string) (int, bool) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return 0, false
@@ -602,9 +605,9 @@ func isChineseName(text string) bool {
 
 // ---- 规范番剧名 ----
 
-// standardSeriesName 给媒体库用的规范番剧名：优先 Bangumi 中文名，其次日文原名，
+// StandardSeriesName 给媒体库用的规范番剧名：优先 Bangumi 中文名，其次日文原名，
 // 都会剥掉季标记（季由 Season 目录与 NFO 承载）。两者都不可用时返回空字符串。
-func standardSeriesName(nameCN, name string) string {
+func StandardSeriesName(nameCN, name string) string {
 	for _, candidate := range []string{nameCN, name} {
 		if standard := stripSeasonMarkers(candidate); standard != "" {
 			return standard

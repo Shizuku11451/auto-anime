@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	titleparse "auto-anime/internal/title"
 )
 
 // 找番：在内置或自定义的资源站搜索关键词，直接拿到可订阅的 RSS 地址。
@@ -131,7 +133,7 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "搜索源不存在", http.StatusBadRequest)
 		return
 	}
-	base, season := discoverIntent(keyword)
+	base, season := titleparse.DiscoverIntent(keyword)
 	if r.URL.Query().Get("literal") == "1" {
 		base, season = keyword, 0
 	}
@@ -144,7 +146,7 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 	queries := []string{}
 	pages, successes := 0, 0
 	history, limited := false, false
-	for i, query := range discoverQueries(keyword, base, season) {
+	for i, query := range titleparse.DiscoverQueries(keyword, base, season) {
 		if ctx.Err() != nil || budget.pages <= 0 || budget.items <= 0 || budget.bytes <= 0 {
 			warnings = append(warnings, "部分扩展查询未完成：达到超时或读取预算。")
 			limited = true

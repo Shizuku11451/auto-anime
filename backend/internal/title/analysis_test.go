@@ -1,4 +1,4 @@
-package main
+package title
 
 import "testing"
 
@@ -106,7 +106,7 @@ func TestAnalyzeTitleSplitsNameSeasonEpisode(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		info := extractAnimeInfo(c.raw)
+		info := Extract(c.raw)
 		if info.Title != c.title || info.Season != c.season || info.Episode != c.episode || info.Group != c.group || info.Quality != c.quality {
 			t.Errorf("analyze %q:\n got  %+v\n want title=%q season=%d episode=%q group=%q quality=%q",
 				c.raw, info, c.title, c.season, c.episode, c.group, c.quality)
@@ -130,9 +130,9 @@ func TestParseSeasonNumber(t *testing.T) {
 		{"x", 0, false},
 	}
 	for _, c := range cases {
-		got, ok := parseSeasonNumber(c.text)
+		got, ok := ParseSeasonNumber(c.text)
 		if got != c.want || ok != c.ok {
-			t.Errorf("parseSeasonNumber(%q) = %d,%v want %d,%v", c.text, got, ok, c.want, c.ok)
+			t.Errorf("ParseSeasonNumber(%q) = %d,%v want %d,%v", c.text, got, ok, c.want, c.ok)
 		}
 	}
 }
@@ -151,8 +151,8 @@ func TestStandardSeriesNameStripsSeasonMarkers(t *testing.T) {
 		{"", "", ""},
 	}
 	for _, c := range cases {
-		if got := standardSeriesName(c.nameCN, c.name); got != c.want {
-			t.Errorf("standardSeriesName(%q, %q) = %q, want %q", c.nameCN, c.name, got, c.want)
+		if got := StandardSeriesName(c.nameCN, c.name); got != c.want {
+			t.Errorf("StandardSeriesName(%q, %q) = %q, want %q", c.nameCN, c.name, got, c.want)
 		}
 	}
 }
@@ -178,7 +178,7 @@ func TestAnalyzeTitleStripsNoiseTags(t *testing.T) {
 		{"[Group] 剧场版 鬼灭之刃 无限列车篇 [1080p]", "剧场版 鬼灭之刃 无限列车篇", "", "1080P"},
 	}
 	for _, c := range cases {
-		info := extractAnimeInfo(c.raw)
+		info := Extract(c.raw)
 		if info.Title != c.title || info.Episode != c.episode || info.Quality != c.quality {
 			t.Errorf("analyze %q:\n got  %+v\n want title=%q episode=%q quality=%q", c.raw, info, c.title, c.episode, c.quality)
 		}
@@ -198,7 +198,7 @@ func TestAnalyzeTitleIgnoresEpisodeRange(t *testing.T) {
 		{"[Group] 我推的孩子 [12][1080p]", "我推的孩子", "12"},
 	}
 	for _, c := range cases {
-		info := extractAnimeInfo(c.raw)
+		info := Extract(c.raw)
 		if info.Title != c.title || info.Episode != c.episode {
 			t.Errorf("analyze %q:\n got  %+v\n want title=%q episode=%q", c.raw, info, c.title, c.episode)
 		}
@@ -223,7 +223,7 @@ func TestAnalyzeTitleReadsSeasonAndLongEpisode(t *testing.T) {
 		{"[Group] 无职转生 2023 - 01 [1080p]", "无职转生", 0, "01"},
 	}
 	for _, c := range cases {
-		info := extractAnimeInfo(c.raw)
+		info := Extract(c.raw)
 		if info.Title != c.title || info.Season != c.season || info.Episode != c.episode {
 			t.Errorf("analyze %q:\n got  %+v\n want title=%q season=%d episode=%q", c.raw, info, c.title, c.season, c.episode)
 		}
@@ -244,7 +244,7 @@ func TestAnalyzeTitlePrefersChineseName(t *testing.T) {
 		{"[Group] Fate/stay night [01][1080p]", "Fate/stay night"},
 	}
 	for _, c := range cases {
-		if info := extractAnimeInfo(c.raw); info.Title != c.title {
+		if info := Extract(c.raw); info.Title != c.title {
 			t.Errorf("analyze %q: title = %q, want %q", c.raw, info.Title, c.title)
 		}
 	}

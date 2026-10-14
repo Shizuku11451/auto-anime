@@ -1,4 +1,4 @@
-package main
+package title
 
 import (
 	"regexp"
@@ -7,7 +7,8 @@ import (
 	"unicode"
 )
 
-const maxMetaQueries = 6
+// MaxMetaQueries bounds metadata search expansion.
+const MaxMetaQueries = 6
 
 var (
 	metaBrackets          = regexp.MustCompile(`[\[\]【】()（）]`)
@@ -57,7 +58,7 @@ func metaScript(s string) int {
 	return script
 }
 
-func metaQueryTitles(title string) []string {
+func QueryTitles(title string) []string {
 	// Bound processing of untrusted RSS names, including malformed brackets.
 	runes := []rune(title)
 	if len(runes) > 512 {
@@ -75,7 +76,7 @@ func metaQueryTitles(title string) []string {
 			if normalizeMetaText(part) == "" {
 				continue
 			}
-			base, season, split := metaTitleParts(part)
+			base, season, split := TitleParts(part)
 			marker := (base == "" && (season > 0 || split > 0)) ||
 				(metaNumber(part) > 0 && strings.Trim(part, "IVX") == "")
 			if len(out) > 0 && i == 0 && (marker ||
@@ -108,17 +109,17 @@ func metaQueryTitles(title string) []string {
 
 // An explicit season/part correction in the configured search name wins over
 // a release label; a shortened search name still inherits the original hints.
-func metaLookupAliases(title, searchName string) []string {
-	original := metaQueryTitles(title)
-	custom := metaQueryTitles(searchName)
+func LookupAliases(title, searchName string) []string {
+	original := QueryTitles(title)
+	custom := QueryTitles(searchName)
 	season, part := 0, 0
 	for _, alias := range custom {
-		_, s, p := metaTitleParts(alias)
+		_, s, p := TitleParts(alias)
 		season, part = mergeMetaNumber(season, s), mergeMetaNumber(part, p)
 	}
 	aliases := append([]string(nil), custom...)
 	for _, alias := range original {
-		_, s, p := metaTitleParts(alias)
+		_, s, p := TitleParts(alias)
 		if (season > 0 && s > 0 && season != s) || (part > 0 && p > 0 && part != p) {
 			continue
 		}
@@ -129,13 +130,13 @@ func metaLookupAliases(title, searchName string) []string {
 
 // Try intact aliases first, then shorter names. Ranking always uses the intact
 // aliases and their season/part markers, never the broadened search keyword.
-func metaSearchQueries(aliases []string) []string {
+func SearchQueries(aliases []string) []string {
 	var queries []string
 	seen := map[string]bool{}
 	add := func(q string) {
 		q = strings.TrimSpace(q)
 		key := normalizeMetaText(q)
-		if len(queries) < maxMetaQueries && len([]rune(key)) >= 2 && !seen[key] {
+		if len(queries) < MaxMetaQueries && len([]rune(key)) >= 2 && !seen[key] {
 			seen[key] = true
 			queries = append(queries, q)
 		}
@@ -263,22 +264,24 @@ func stripMetaMarkers(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func metaTitleParts(s string) (string, int, int) {
+// TitleParts returns a normalized name and its season and part evidence.
+func TitleParts(s string) (string, int, int) {
 	s = metaInlineTechnical.ReplaceAllString(s, " ")
 	s, season, part := parseMetaMarkers(s)
 	return normalizeMetaText(s), season, part
 }
 
-func metaAliasesScore(aliases []string, name, nameCN string) int {
+// AliasesScore ranks names only when their season and part evidence agree.
+func AliasesScore(aliases []string, name, nameCN string) int {
 	qSeason, qPart, cSeason, cPart := 0, 0, 0, 0
 	var queries, candidates []string
 	for _, alias := range aliases {
-		base, season, part := metaTitleParts(alias)
+		base, season, part := TitleParts(alias)
 		queries = append(queries, base)
 		qSeason, qPart = mergeMetaNumber(qSeason, season), mergeMetaNumber(qPart, part)
 	}
 	for _, alias := range []string{nameCN, name} {
-		base, season, part := metaTitleParts(alias)
+		base, season, part := TitleParts(alias)
 		candidates = append(candidates, base)
 		cSeason, cPart = mergeMetaNumber(cSeason, season), mergeMetaNumber(cPart, part)
 	}

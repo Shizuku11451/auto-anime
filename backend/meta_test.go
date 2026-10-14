@@ -72,53 +72,6 @@ func withMetaTestEnv(t *testing.T) {
 	t.Cleanup(func() { coversDir, bangumiEnabled, metaQueue = oldDir, oldEnabled, oldQueue })
 }
 
-func TestMetaQueryTitles(t *testing.T) {
-	cases := []struct {
-		title string
-		want  []string
-	}{
-		{"与你相恋到生命尽头 / Kimi ga Shinu made Koi wo Shitai [WebRip][1080p][简日内嵌]", []string{"与你相恋到生命尽头", "Kimi ga Shinu made Koi wo Shitai"}},
-		{"夏日番外篇 [1080p]", []string{"夏日番外篇"}},
-		{"无职转生 第三季 ～到了异世界就拿出真本事～ / Mushoku Tensei III [10][1080P]", []string{"无职转生 第三季 ～到了异世界就拿出真本事～", "Mushoku Tensei III"}},
-		{"", nil},
-	}
-	for _, c := range cases {
-		got := metaQueryTitles(c.title)
-		if len(got) != len(c.want) {
-			t.Fatalf("queries of %q: got %#v want %#v", c.title, got, c.want)
-		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Fatalf("queries of %q: got %#v want %#v", c.title, got, c.want)
-			}
-		}
-	}
-}
-
-func TestMetaAccept(t *testing.T) {
-	if metaAliasesScore(metaQueryTitles("葬送的芙莉莲"), "葬送のフリーレン", "葬送的芙莉莲") == 0 {
-		t.Fatal("exact name_cn should match")
-	}
-	if metaAliasesScore(metaQueryTitles("无职转生 第二季"), "Mushoku Tensei II", "无职转生 第二季") == 0 {
-		t.Fatal("season suffix should still match")
-	}
-	if metaAliasesScore(metaQueryTitles("葬送的芙莉莲"), "夏日动画", "夏日动画") > 0 {
-		t.Fatal("unrelated subject must not match")
-	}
-	if metaAliasesScore(metaQueryTitles("与"), "与", "与") > 0 {
-		t.Fatal("single-character queries must not match")
-	}
-	if metaAliasesScore(metaQueryTitles("  "), "テスト", "测试") > 0 {
-		t.Fatal("empty query must not match")
-	}
-	if metaAliasesScore(metaQueryTitles("葬送的芙莉莲 S01 · 1080P"), "葬送のフリーレン", "葬送的芙莉莲") == 0 {
-		t.Fatal("season and quality noise should be ignored")
-	}
-	if metaAliasesScore(metaQueryTitles("Kimi-ga-Shinu-made-Koi-wo-Shitai"), "Kimi ga Shinu made Koi wo Shitai", "") == 0 {
-		t.Fatal("punctuation differences should match")
-	}
-}
-
 func TestCoverLookupCachesAndServes(t *testing.T) {
 	testDatabase(t)
 	server, imageHits := startMetaTestServer(t, "测试动画")

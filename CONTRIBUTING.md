@@ -10,6 +10,7 @@ Auto-Anime 使用 Go 后端与 Vue 前端，面向 NAS 和 Docker 部署。请�
 | --- | --- | --- |
 | `backend/` | Go 模块、服务入口、业务协调与集成测试 | 在此目录运行 Go 命令 |
 | `backend/internal/filter/` | 关键词与简繁等价匹配 | 使用内嵌字典，不依赖网络，纯逻辑测试随包维护 |
+| `backend/internal/title/` | 标题、季集、搜索季数与元数据名称匹配 | 共用解析规则，不依赖数据库和网络，纯逻辑测试随包维护 |
 | `backend/static/` | 随服务交付的前端构建产物 | 由 `web/` 构建生成并入库，不手工修改 |
 | `web/` | Vue、TypeScript、样式与前端测试 | Node.js 仅用于前端开发与构建 |
 | `deploy/fnos/` | 飞牛 Compose、安装配置页与 FPK 模板 | 安装配置页由前端构建生成，不手工修改 |

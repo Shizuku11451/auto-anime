@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	titleparse "auto-anime/internal/title"
 )
 
 // mediaServer answers every request with a small MP4 payload.
@@ -381,7 +383,7 @@ func TestArchiveUsesParsedTitleTags(t *testing.T) {
 		},
 	}
 	for i, c := range cases {
-		info := extractAnimeInfo(c.title)
+		info := titleparse.Extract(c.title)
 		link := fmt.Sprintf("%s/case%d.mp4", server.URL, i)
 		result, err := db.Exec("INSERT INTO items(title,link,anime_title,episode,season_auto) VALUES(?,?,?,?,?)",
 			c.title, link, info.Title, info.Episode, info.Season)
