@@ -81,7 +81,7 @@ sudo appcenter-cli start auto-anime
 
 ### 自带镜像试验
 
-Actions 的 `FPK offline test` 手动流程生成独立应用 `auto-anime-offline-test`，网页端口 18015、BT 默认 16895，仅针对 x86-64 飞牛。包内携带正式 `0.0.1` 的 amd64 镜像，不代表新程序版本；安装校验 SHA-256 后通过 `docker load` 导入，使用 `pull_policy: never` 禁止联网拉取。仍需预装并启动飞牛 Docker，包下载、解包及镜像导入需要额外空间。该流程不替换正式 FPK 或发布镜像，尚需验证官方包限制、安装耗时与 NAS 实际行为。
+Actions 的 `FPK offline test` 手动流程生成独立应用 `auto-anime-offline`，网页端口 18015、BT 默认 16895，仅针对 x86-64 飞牛。包内携带正式 `0.0.1` 的 amd64 镜像，不代表新程序版本；安装校验 SHA-256 后通过 `docker load` 导入，使用 `pull_policy: never` 禁止联网拉取。仍需预装并启动飞牛 Docker，包下载、解包及镜像导入需要额外空间。该流程不替换正式 FPK 或发布镜像，尚需验证官方包限制、安装耗时与 NAS 实际行为。
 
 Linux 打包脚本可通过 `IMAGE_ARCHIVE` 指定对应镜像引用的 `docker save` gzip 文件；未指定时保持原在线包行为。当前 PowerShell 打包入口尚未提供该选项。自带镜像在应用目录内保留以供再次启动导入，不属于数据库或媒体备份。
 
