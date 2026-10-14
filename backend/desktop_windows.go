@@ -43,9 +43,134 @@ func desktopError(message string) {
 	desktopUser32.NewProc("MessageBoxW").Call(0, uintptr(unsafe.Pointer(desktopText(message))), uintptr(unsafe.Pointer(desktopText("Auto-Anime"))), 0x10)
 }
 
+// ---- 窗口 DPI ----
+//
+// Go 程序默认没有 DPI 感知声明，Windows 会把整个窗口位图按系统缩放比例拉伸，
+// 在 125%/150% 的屏幕上文字和界面都会发虚。桌面入口在创建窗口之前声明按显示器感知
+// （Per-Monitor V2，逐级回退到系统感知），并把设计尺寸换算成物理像素、再限制在
+// 主屏工作区内，让界面在任意缩放下都清晰且不会超出屏幕。
+
+const (
+	dpiAwarenessContextPerMonitorAwareV2 = ^uintptr(3) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+	processPerMonitorDpiAware            = 2           // PROCESS_PER_MONITOR_DPI_AWARE
+	spiGetWorkArea                       = 0x0030
+	desktopDpiBaseline                   = 96 // 100% 缩放
+	desktopWindowWidth                   = 1100
+	desktopWindowHeight                  = 760
+	desktopWindowMinWidth                = 420
+	desktopWindowMinHeight               = 480
+	desktopWindowMargin                  = 40 // 工作区留白，避免窗口顶满屏幕
+)
+
+var (
+	desktopShcore = windows.NewLazySystemDLL("shcore.dll")
+
+	procSetProcessDpiAwarenessContext       = desktopUser32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware                  = desktopUser32.NewProc("SetProcessDPIAware")
+	procGetDpiForSystem                     = desktopUser32.NewProc("GetDpiForSystem")
+	procSystemParametersInfoW               = desktopUser32.NewProc("SystemParametersInfoW")
+	procGetThreadDpiAwarenessContext        = desktopUser32.NewProc("GetThreadDpiAwarenessContext")
+	procGetAwarenessFromDpiAwarenessContext = desktopUser32.NewProc("GetAwarenessFromDpiAwarenessContext")
+	procSetProcessDpiAwareness              = desktopShcore.NewProc("SetProcessDpiAwareness")
+)
+
+// callOptional 只在系统确实提供该函数时调用；LazyProc 对缺失的函数会直接 panic，
+// 这里用于兼容没有 shcore.dll / GetDpiForSystem 的旧系统。
+func callOptional(proc *windows.LazyProc, args ...uintptr) (uintptr, bool) {
+	if err := proc.Find(); err != nil {
+		return 0, false
+	}
+	value, _, _ := proc.Call(args...)
+	return value, true
+}
+
+// enableDesktopDpiAwareness 声明进程 DPI 感知，返回实际生效的级别（写进日志便于排查）。
+// 重复调用或清单已经声明过时，改为报告当前生效级别，不误报成 unaware。
+func enableDesktopDpiAwareness() string {
+	if ok, _ := callOptional(procSetProcessDpiAwarenessContext, dpiAwarenessContextPerMonitorAwareV2); ok != 0 {
+		return "per-monitor v2"
+	}
+	// shcore 的 SetProcessDpiAwareness 成功时返回 S_OK(0)。
+	if hr, found := callOptional(procSetProcessDpiAwareness, processPerMonitorDpiAware); found && hr == 0 {
+		return "per-monitor"
+	}
+	if ok, _ := callOptional(procSetProcessDPIAware); ok != 0 {
+		return "system"
+	}
+	return dpiAwarenessLabel(currentDpiAwareness())
+}
+
+// currentDpiAwareness 读取当前生效的 DPI 感知级别：0 不感知、1 系统感知、2 按显示器感知；
+// 旧系统读不到时返回 -1。
+func currentDpiAwareness() int {
+	context, found := callOptional(procGetThreadDpiAwarenessContext)
+	if !found || context == 0 {
+		return -1
+	}
+	level, found := callOptional(procGetAwarenessFromDpiAwarenessContext, context)
+	if !found {
+		return -1
+	}
+	return int(level)
+}
+
+func dpiAwarenessLabel(level int) string {
+	switch level {
+	case 0:
+		return "unaware"
+	case 1:
+		return "system"
+	case 2:
+		return "per-monitor"
+	}
+	return "unaware"
+}
+
+// systemDpi 返回系统 DPI；取不到时按 96（100%）。
+func systemDpi() uintptr {
+	if dpi, found := callOptional(procGetDpiForSystem); found && dpi >= desktopDpiBaseline {
+		return dpi
+	}
+	return desktopDpiBaseline
+}
+
+type desktopRect struct{ Left, Top, Right, Bottom int32 }
+
+// primaryWorkArea 返回主屏工作区（不含任务栏）；读不到时 ok=false。
+func primaryWorkArea() (desktopRect, bool) {
+	var rect desktopRect
+	ok, found := callOptional(procSystemParametersInfoW, spiGetWorkArea, 0, uintptr(unsafe.Pointer(&rect)), 0)
+	if !found || ok == 0 || rect.Right <= rect.Left || rect.Bottom <= rect.Top {
+		return desktopRect{}, false
+	}
+	return rect, true
+}
+
+// scaleForDpi 把设计尺寸（逻辑像素）换算成给定 DPI 下的物理像素。
+func scaleForDpi(value, dpi int) int {
+	return value * dpi / desktopDpiBaseline
+}
+
+// desktopWindowSize 把设计尺寸换算成物理像素，并限制在主屏工作区内。
+func desktopWindowSize() (width, height, dpi int) {
+	dpi = int(systemDpi())
+	width, height = scaleForDpi(desktopWindowWidth, dpi), scaleForDpi(desktopWindowHeight, dpi)
+	if area, ok := primaryWorkArea(); ok {
+		if maxWidth := int(area.Right-area.Left) - desktopWindowMargin; maxWidth > 0 && width > maxWidth {
+			width = maxWidth
+		}
+		if maxHeight := int(area.Bottom-area.Top) - desktopWindowMargin; maxHeight > 0 && height > maxHeight {
+			height = maxHeight
+		}
+	}
+	return width, height, dpi
+}
+
 func runDesktop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// 必须在创建任何窗口之前声明 DPI 感知，否则系统会拉伸整个窗口位图导致界面发虚。
+	dpiAwareness := enableDesktopDpiAwareness()
 	root := filepath.Dir(env("DB_PATH", defaultDBPath()))
 	if err := os.MkdirAll(root, 0700); err != nil {
 		desktopError("数据目录不可写，请将程序解压到有写权限的目录：" + err.Error())
@@ -80,6 +205,8 @@ func runDesktop() {
 	previousLog := log.Writer()
 	log.SetOutput(logFile)
 	defer log.SetOutput(previousLog)
+	windowWidth, windowHeight, dpi := desktopWindowSize()
+	log.Printf("窗口 DPI 感知 %s，系统 DPI %d（%d%% 缩放），初始尺寸 %dx%d", dpiAwareness, dpi, dpi*100/desktopDpiBaseline, windowWidth, windowHeight)
 	if _, err := webviewloader.GetInstalledVersion(); err != nil {
 		desktopError("未检测到 Microsoft Edge WebView2 Runtime，请安装运行时后重试：" + err.Error())
 		return
@@ -103,14 +230,14 @@ func runDesktop() {
 	}
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		DataPath: filepath.Join(root, "webview2"), AutoFocus: true,
-		WindowOptions: webview.WindowOptions{Title: "Auto-Anime 自动追番", Width: 1100, Height: 760, Center: true},
+		WindowOptions: webview.WindowOptions{Title: "Auto-Anime 自动追番", Width: uint(windowWidth), Height: uint(windowHeight), Center: true},
 	})
 	if w == nil {
 		desktopError("无法创建桌面窗口，请安装 Microsoft Edge WebView2 Runtime 后重试。日志位于数据目录的 desktop.log。")
 		return
 	}
 	defer w.Destroy()
-	w.SetSize(420, 480, webview.HintMin)
+	w.SetSize(scaleForDpi(desktopWindowMinWidth, dpi), scaleForDpi(desktopWindowMinHeight, dpi), webview.HintMin)
 	w.SetHtml(`<!doctype html><meta charset="utf-8"><style>body{font:18px system-ui;padding:48px;color:#333}@media(prefers-color-scheme:dark){body{background:#18181b;color:#eee}}</style><h1>Auto-Anime</h1><p>正在启动服务与下载器，请稍候…</p><p>关闭窗口后继续在系统托盘运行；右键托盘图标可退出。</p>`)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
