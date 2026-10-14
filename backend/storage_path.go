@@ -33,7 +33,8 @@ func windowsAbsolutePath(value string) bool {
 	}
 	if strings.HasPrefix(value, `\\`) || strings.HasPrefix(value, "//") {
 		rest := strings.TrimLeft(value, `/\`)
-		parts := strings.SplitN(filepath.ToSlash(rest), "/", 3)
+		// 反斜杠显式替换：Linux 上 filepath.ToSlash 不会改写 Windows 分隔符。
+		parts := strings.SplitN(strings.ReplaceAll(rest, `\`, "/"), "/", 3)
 		return len(parts) >= 2 && parts[0] != "" && parts[1] != ""
 	}
 	return false

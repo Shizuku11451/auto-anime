@@ -271,7 +271,9 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 // separators are trimmed except for roots ("C:/", "//server/share" keeps its
 // form without the trailing slash).
 func normalizeRemotePath(value string) string {
-	value = filepath.ToSlash(strings.TrimSpace(value))
+	// Replace backslashes explicitly: filepath.ToSlash only rewrites the host
+	// separator, so a Windows-style downloader path would stay unchanged on Linux.
+	value = strings.ReplaceAll(strings.TrimSpace(value), `\`, "/")
 	for len(value) > 1 && strings.HasSuffix(value, "/") {
 		if len(value) == 3 && value[1] == ':' {
 			break // Keep the drive root readable as "C:/".
