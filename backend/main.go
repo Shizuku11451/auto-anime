@@ -775,7 +775,11 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 
 func feeds(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0) FROM feeds ORDER BY id DESC")
+		rows, err := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0) FROM feeds ORDER BY id DESC")
+		if err != nil {
+			http.Error(w, "读取订阅失败", 500)
+			return
+		}
 		defer rows.Close()
 		out := []Feed{}
 		for rows.Next() {
@@ -787,11 +791,26 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 			f.Enabled = enabled == 1
 			out = append(out, f)
 		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, "读取订阅失败", 500)
+			return
+		}
 		jsonOut(w, out)
 		return
 	}
 	var in FeedInput
-	if json.NewDecoder(r.Body).Decode(&in) != nil || !strings.HasPrefix(in.URL, "http") {
+	if json.NewDecoder(r.Body).Decode(&in) != nil {
+		http.Error(w, "请求参数无效", 400)
+		return
+	}
+	in.Name, in.URL = strings.TrimSpace(in.Name), strings.TrimSpace(in.URL)
+	if in.Name == "" {
+		http.Error(w, "订阅名称不能为空", 400)
+		return
+	}
+	// 与恢复备份、编辑订阅同一套校验：只认有主机名的 http/https，
+	// "httpfoo://" 或 "http:evil" 这类前缀相似但不可抓取的地址不再被接受。
+	if !validFeedURL(in.URL) {
 		http.Error(w, "RSS 地址无效", 400)
 		return
 	}
@@ -822,6 +841,13 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 	newID, _ := result.LastInsertId()
 	storagePath, warning := applySubscriptionStorage(storage, target, "")
 	jsonOut(w, map[string]any{"ok": true, "id": newID, "storage_path": storagePath, "storage_warning": warning})
+}
+
+// validFeedURL 判断订阅地址是否为可抓取的 http/https URL：伪协议（"httpfoo://"）
+// 或缺少主机名（"http:///rss"）的地址即使前缀像 http 也不能保存。
+func validFeedURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Hostname() != "" && (u.Scheme == "http" || u.Scheme == "https")
 }
 
 // feedStorageDir validates the subscription save location (番剧根目录) of a
@@ -1139,13 +1165,16 @@ func importOPML(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(item.XMLURL, "http://") && !strings.HasPrefix(item.XMLURL, "https://") {
 			continue
 		}
-		_, err = tx.Exec("INSERT INTO feeds(name,url,created_at) VALUES(?,?,?) ON CONFLICT(url) DO NOTHING", name, item.XMLURL, time.Now().Format(time.RFC3339))
+		result, err := tx.Exec("INSERT INTO feeds(name,url,created_at) VALUES(?,?,?) ON CONFLICT(url) DO NOTHING", name, item.XMLURL, time.Now().Format(time.RFC3339))
 		if err != nil {
 			tx.Rollback()
 			http.Error(w, "导入失败", 500)
 			return
 		}
-		count++
+		// 已存在同一 URL 时冲突分支不写入任何行，不能计入新增数量。
+		if n, rowsErr := result.RowsAffected(); rowsErr == nil && n > 0 {
+			count++
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		http.Error(w, "导入失败", 500)
@@ -1161,17 +1190,11 @@ func deleteFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	rows, _ := db.Query("SELECT downloader,task_id FROM items WHERE feed_id=? AND COALESCE(task_id,'')<>''", id)
-	if rows != nil {
-		for rows.Next() {
-			var downloader, taskID string
-			if rows.Scan(&downloader, &taskID) == nil {
-				removeDownloaderTask(downloader, taskID)
-			}
-		}
-		rows.Close()
-	}
+	// 先只读任务标识，再关掉结果集走网络：SQLite 连接池只有一条连接，持着 rows
+	// 调下载器（内置 qBittorrent 登录最长 30 秒）会阻塞其它数据库读写。
+	tasks := pendingDownloaderTasks(db, "SELECT downloader,task_id FROM items WHERE feed_id=? AND COALESCE(task_id,'')<>''", id)
 	_, _ = db.Exec("DELETE FROM items WHERE feed_id=?", id)
+	cancelDownloaderTasks(tasks)
 	result, err := db.Exec("DELETE FROM feeds WHERE id=?", id)
 	if err != nil {
 		http.Error(w, "删除失败", 500)

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -353,4 +354,198 @@ func TestConcurrentRuntimeConfig(t *testing.T) {
 		}(worker == 0)
 	}
 	wg.Wait()
+}
+
+// 删除订阅必须先读完任务标识并关闭结果集，再走下载器 RPC：SQLite 连接池只有
+// 一条连接，持着 rows 调网络（内置 qBittorrent 登录最长 30 秒）会让同步、
+// 轮询和界面请求全部排队等待。
+func TestDeleteFeedReleasesDatabaseBeforeCancellingTasks(t *testing.T) {
+	testDatabase(t)
+	probes := make(chan error, 4)
+	var rpcCalls atomic.Int32
+	useAria2RPCServer(t, func(w http.ResponseWriter, r *http.Request) {
+		rpcCalls.Add(1)
+		// 下载器响应期间数据库连接必须已经空闲：仍被占用时这里会等到超时。
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		var one int
+		probes <- db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+		fmt.Fprint(w, `{"result":"ok"}`)
+	})
+	feed, err := db.Exec("INSERT INTO feeds(name,url) VALUES('订阅','https://test/feed.xml')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedID, _ := feed.LastInsertId()
+	if _, err := db.Exec("INSERT INTO items(feed_id,title,link,downloader,task_id) VALUES(?,?,?,?,?)", feedID, "测试动画", "https://test/1", "aria2", "gid-1"); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	deleteFeed(rec, httptest.NewRequest("DELETE", fmt.Sprintf("/api/feeds/%d", feedID), nil))
+	if rec.Code != 200 {
+		t.Fatalf("删除订阅返回 %d", rec.Code)
+	}
+	if rpcCalls.Load() == 0 {
+		t.Fatal("删除订阅没有取消下载器任务")
+	}
+	select {
+	case probeErr := <-probes:
+		if probeErr != nil {
+			t.Fatalf("下载器 RPC 期间数据库连接仍被占用: %v", probeErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("下载器 RPC 未在预期时间内完成")
+	}
+	var feeds, items int
+	if err := db.QueryRow("SELECT (SELECT COUNT(*) FROM feeds),(SELECT COUNT(*) FROM items)").Scan(&feeds, &items); err != nil {
+		t.Fatal(err)
+	}
+	if feeds != 0 || items != 0 {
+		t.Fatalf("删除订阅后仍有数据：feeds=%d items=%d", feeds, items)
+	}
+}
+
+// 番剧删除只在事务提交后取消下载器任务：事务失败不能留下「记录还在、任务已被
+// 取消」的不一致状态，成功时也不该在网络等待期间占住唯一连接。
+func TestAnimeDeleteCancelsTasksOnlyAfterCommit(t *testing.T) {
+	testDatabase(t)
+	var rpcCalls atomic.Int32
+	useAria2RPCServer(t, func(w http.ResponseWriter, r *http.Request) {
+		rpcCalls.Add(1)
+		fmt.Fprint(w, `{"result":"ok"}`)
+	})
+	id, err := ensureAnime("待删除番剧")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO items(anime_id,anime_title,title,link,status,downloader,task_id) VALUES(?,?,?,?,?,?,?)",
+		id, "待删除番剧", "第 1 集", "https://test/ep1", "已暂停", "aria2", "gid-2"); err != nil {
+		t.Fatal(err)
+	}
+	animeCleanupMu.Lock()
+	defer animeCleanupMu.Unlock()
+	if _, err := db.Exec("CREATE TRIGGER fail_anime_delete BEFORE DELETE ON animes BEGIN SELECT RAISE(FAIL,'simulated failure'); END"); err != nil {
+		t.Fatal(err)
+	}
+	if _, status, err := manageAnime(animeManageInput{Action: "delete", IDs: []int64{id}, DeleteItems: true}); err == nil || status != 500 {
+		t.Fatalf("事务失败仍报告成功：status=%d err=%v", status, err)
+	}
+	if rpcCalls.Load() != 0 {
+		t.Fatal("事务回滚后仍取消了下载器任务")
+	}
+	if _, err := db.Exec("DROP TRIGGER fail_anime_delete"); err != nil {
+		t.Fatal(err)
+	}
+	if _, status, err := manageAnime(animeManageInput{Action: "delete", IDs: []int64{id}, DeleteItems: true}); err != nil || status != 200 {
+		t.Fatalf("删除番剧失败：status=%d err=%v", status, err)
+	}
+	if rpcCalls.Load() == 0 {
+		t.Fatal("提交后未取消下载器任务")
+	}
+}
+
+func importOPMLForTest(t *testing.T, body string) int {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	importOPML(rec, httptest.NewRequest("POST", "/api/import-opml", strings.NewReader(body)))
+	if rec.Code != 200 {
+		t.Fatalf("导入 OPML 返回 %d：%s", rec.Code, rec.Body.String())
+	}
+	var out map[string]int
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out["imported"]
+}
+
+// 重复导入同一份 OPML 时，冲突分支不写入任何行，不能计入新增数量。
+func TestImportOPMLCountsOnlyNewFeeds(t *testing.T) {
+	testDatabase(t)
+	body := `<?xml version="1.0" encoding="UTF-8"?><opml version="2.0"><body>
+		<outline text="A" xmlUrl="https://example.test/a.xml"/>
+		<outline text="B" xmlUrl="https://example.test/b.xml"/>
+	</body></opml>`
+	if got := importOPMLForTest(t, body); got != 2 {
+		t.Fatalf("首次导入新增 %d，期望 2", got)
+	}
+	if got := importOPMLForTest(t, body); got != 0 {
+		t.Fatalf("重复导入新增 %d，期望 0", got)
+	}
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM feeds").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("订阅行数 %d，期望 2", count)
+	}
+}
+
+// 列表接口在数据库不可用时必须返回 500；丢弃 db.Query 错误会在 defer
+// rows.Close() 上触发 nil 指针 panic。
+func TestFeedsListReportsDatabaseFailure(t *testing.T) {
+	testDatabase(t)
+	db.Close()
+	defer initDB()
+	rec := httptest.NewRecorder()
+	feeds(rec, httptest.NewRequest("GET", "/api/feeds", nil))
+	if rec.Code != 500 {
+		t.Fatalf("数据库不可用时返回 %d，期望 500", rec.Code)
+	}
+}
+
+// 创建订阅没有空名称校验、URL 只做 http 前缀检查时，会写入无名订阅，
+// 并让 "httpfoo://" 这类无法抓取的地址拖到同步阶段才报错。
+func TestCreateFeedValidatesNameAndURL(t *testing.T) {
+	testDatabase(t)
+	for _, tc := range []struct{ label, body, want string }{
+		{"空名称", `{"name":"   ","url":"https://example.test/rss"}`, "订阅名称不能为空"},
+		{"伪协议", `{"name":"订阅","url":"httpfoo://example.test/rss"}`, "RSS 地址无效"},
+		{"缺主机名", `{"name":"订阅","url":"http:///rss"}`, "RSS 地址无效"},
+		{"无协议", `{"name":"订阅","url":"example.test/rss"}`, "RSS 地址无效"},
+	} {
+		rec := httptest.NewRecorder()
+		feeds(rec, httptest.NewRequest("POST", "/api/feeds", strings.NewReader(tc.body)))
+		if rec.Code != 400 || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Fatalf("%s 应返回 400 %q：%d %s", tc.label, tc.want, rec.Code, rec.Body.String())
+		}
+	}
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM feeds").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("非法订阅被写入：%d 条", count)
+	}
+}
+
+// 创建订阅会预建番剧记录并写 animes.storage_dir，必须和自动清理、改名的写锁互斥：
+// 测试持写锁期间发起请求，请求应阻塞到锁释放，而不是在清理窗口里改番剧。
+func TestCreateFeedTakesAnimeCleanupLock(t *testing.T) {
+	testDatabase(t)
+	body, _ := json.Marshal(map[string]any{
+		"name": "订阅", "url": "https://example.test/rss",
+		"target_title": "夏日动画", "storage_dir": filepath.ToSlash(t.TempDir()),
+	})
+	done := make(chan int, 1)
+	animeCleanupMu.Lock()
+	go func() {
+		rec := httptest.NewRecorder()
+		feeds(rec, httptest.NewRequest("POST", "/api/feeds", strings.NewReader(string(body))))
+		done <- rec.Code
+	}()
+	select {
+	case code := <-done:
+		animeCleanupMu.Unlock()
+		t.Fatalf("写锁期间创建订阅已完成（%d），未持有 animeCleanupMu", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+	animeCleanupMu.Unlock()
+	select {
+	case code := <-done:
+		if code != 200 {
+			t.Fatalf("释放锁后创建订阅返回 %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("释放锁后创建订阅仍未完成")
+	}
 }

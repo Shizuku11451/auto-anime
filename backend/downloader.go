@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
@@ -640,6 +641,43 @@ func removeDownloaderTask(downloader, taskID string) {
 		if err := aria2RPC("aria2.remove", []any{taskID}, nil); err != nil {
 			_ = aria2RPC("aria2.removeDownloadResult", []any{taskID}, nil)
 		}
+	}
+}
+
+// downloaderTask 是一条待取消的下载器任务标识。
+type downloaderTask struct {
+	Downloader string
+	TaskID     string
+}
+
+// pendingDownloaderTasks 只读取待取消的任务标识，读完立即关闭结果集。
+// 取消任务要走网络（内置 qBittorrent 登录最长 30 秒），而 SQLite 连接池只有
+// 一条连接：持着 rows 或事务调用 removeDownloaderTask 会让所有数据库操作排队，
+// 所以这里只查不取消，调用方拿到结果后按需在事务外统一取消。
+func pendingDownloaderTasks(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}, query string, args ...any) []downloaderTask {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		log.Printf("读取待取消的下载任务失败: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	var tasks []downloaderTask
+	for rows.Next() {
+		var task downloaderTask
+		if rows.Scan(&task.Downloader, &task.TaskID) == nil {
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks
+}
+
+// cancelDownloaderTasks 统一取消收集到的任务。调用方必须已经结束事务或关闭
+// 结果集，避免网络等待占住数据库连接。
+func cancelDownloaderTasks(tasks []downloaderTask) {
+	for _, task := range tasks {
+		removeDownloaderTask(task.Downloader, task.TaskID)
 	}
 }
 

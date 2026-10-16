@@ -32,7 +32,7 @@ var coversDir = env("COVERS_DIR", filepath.Join(filepath.Dir(env("DB_PATH", defa
 var metaClient = newClient(15 * time.Second)
 var metaQueue = make(chan string, 256)
 
-const metaUserAgent = "auto-anime/1.0 (https://github.com/sssshj114/auto-anime)"
+const metaUserAgent = "auto-anime/1.0 (https://github.com/Shizuku11451/auto-anime)"
 
 const metaLookupTimeout = 30 * time.Second
 

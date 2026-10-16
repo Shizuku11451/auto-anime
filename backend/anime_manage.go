@@ -113,8 +113,11 @@ func animeManageAPI(w http.ResponseWriter, r *http.Request) {
 
 // The caller holds animeCleanupMu exclusively, protecting RSS sync and edits.
 // Each batch is atomic; media and downloader files are never removed or moved.
+// Downloader tasks are cancelled only after the transaction commits, so no
+// network round trip runs while the batch holds SQLite's single connection.
 func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 	out := animeManageResult{}
+	var tasks []downloaderTask
 	bad := func(code int, message string) (animeManageResult, int, error) {
 		return out, code, fmt.Errorf("%s", message)
 	}
@@ -169,16 +172,8 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 			return bad(409, "该番剧仍有资源，请明确选择同时删除资源记录")
 		}
 		if in.Action == "delete" && in.DeleteItems {
-			rows, queryErr := tx.Query("SELECT downloader,task_id FROM items WHERE "+related+" AND COALESCE(task_id,'')<>''", a.ID, a.Title)
-			if queryErr == nil {
-				for rows.Next() {
-					var downloader, taskID string
-					if rows.Scan(&downloader, &taskID) == nil {
-						removeDownloaderTask(downloader, taskID)
-					}
-				}
-				rows.Close()
-			}
+			// 只收集任务标识：取消要走网络，不能在事务内、结果集未关闭时进行。
+			tasks = append(tasks, pendingDownloaderTasks(tx, "SELECT downloader,task_id FROM items WHERE "+related+" AND COALESCE(task_id,'')<>''", a.ID, a.Title)...)
 		}
 		var itemResult, feedResult sql.Result
 		if in.Action == "merge" {
@@ -218,6 +213,8 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 	if err = tx.Commit(); err != nil {
 		return bad(500, "提交失败，操作已回滚")
 	}
+	// 数据库已提交，此时取消下载器任务不再占用事务与唯一连接。
+	cancelDownloaderTasks(tasks)
 	out.OK = true
 	return out, 200, nil
 }

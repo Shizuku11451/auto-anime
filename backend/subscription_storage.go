@@ -45,12 +45,18 @@ func appendWarning(existing, message string) string {
 // 返回实际目录与一条可展示的提示。目录创建失败只提示、不阻断订阅保存：挂载可能
 // 稍后才补齐，归档时会按同一路径重试。previousBase 是该订阅此前的选择，用于在
 // 用户清空保存位置时回收本订阅写入的目录。
+//
+// 本函数会创建番剧记录并改写 animes.storage_dir，因此自己持有 animeCleanupMu
+// 读锁，与自动清理、改名的写锁互斥；调用方不得已经持有该锁，否则会等自己
+// （与 anime_naming.go 同一约定）。
 func applySubscriptionStorage(base, title, previousBase string) (string, string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return "", ""
 	}
+	animeCleanupMu.RLock()
+	defer animeCleanupMu.RUnlock()
 	root := subscriptionSeriesRoot(base, title)
 	if root == "" {
 		// 清空保存位置＝回到默认位置，只回收本订阅写入的目录，
