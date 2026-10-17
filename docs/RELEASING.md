@@ -8,7 +8,7 @@
 
 - 适配目标为飞牛 fnOS、Linux 和 Windows。飞牛 NAS 为主适配平台，FPK 为优先交付方式、飞牛 Compose 为备用；发布验收重点是安装、初始化、目录授权、下载归档、重启与升级后的数据保留。
 - Linux 提供 amd64 / arm64 Docker 镜像与独立服务程序；分别记录构建、模拟启动和实机结果，不把 Linux 支持等同于所有 NAS 品牌已验收。
-- Windows 10/11 x64 为次要适配平台，保留桌面 ZIP、随包下载器及基础回归与打包检查，不取消现有 Windows 发布和检查任务。
+- Windows 10/11 x64 为次要适配平台，保留单文件内置 BT 下载器、桌面 ZIP 的 qBittorrent 回退及基础回归与打包检查，不取消现有 Windows 发布和检查任务。
 - 其他 NAS 品牌、macOS 与其他架构不属于当前专门适配承诺。适配目标不代表本次 Release 已通过对应平台安装验收，发布说明须列明实际验证与未验证项。
 
 ## 发布前
@@ -45,13 +45,14 @@ git push origin v1.2.0
 | 文件 / 镜像 | 内容 |
 | --- | --- |
 | `auto-anime-<版本>-linux-amd64` / `-linux-arm64` | 带嵌入前端的程序，不含独立下载器 |
-| `auto-anime-<版本>-windows-amd64.exe` | Windows 主程序，不包含随包 qBittorrent |
-| `auto-anime-<版本>-windows-amd64-desktop.zip` | 桌面程序、下载器与第三方许可资料 |
+| `auto-anime-<版本>-windows-amd64.exe` | Windows 主程序，内置纯 Go BT 下载器，不需要额外 qBittorrent |
+| `auto-anime-<版本>-windows-amd64-desktop.zip` | 桌面程序、qBittorrent 回退、第三方许可与源码资料 |
 | `auto-anime-<版本>-fnos.fpk` | 飞牛模板、向导、生命周期脚本及同版本 amd64 镜像（自 v0.0.2 起）；仍需预装 Docker |
+| `THIRD-PARTY-NOTICES.md` | 内置 BT 引擎等第三方许可说明 |
 | `checksums.txt` | Release 附件 SHA-256 |
 | `ghcr.io/<owner>/<repo>:<版本>` / `:latest` | Linux amd64/arm64 Docker 镜像，内置 qBittorrent |
 
-具体以 Release 实际附件为准。桌面 ZIP 打包需 Python、7z 和固定版本官方安装包；只提取、不执行安装器。FPK 使用官方 fnpack 并规范化权限与 checksum，构建方法见[FPK 指南](FNOS_APP.md#构建与分发)。
+具体以 Release 实际附件为准。桌面 ZIP 打包需 Python、7z 和固定版本官方安装包，用于可选 qBittorrent 回退；只提取、不执行安装器。单文件与 ZIP 的默认下载方式都是内置 BT 下载器。FPK 使用官方 fnpack 并规范化权限与 checksum，构建方法见[FPK 指南](FNOS_APP.md#构建与分发)。
 
 fork 工作流使用自身仓库的全小写镜像名及更新源，手动 Compose 示例不会自动改成 fork 地址，应主动调整。
 

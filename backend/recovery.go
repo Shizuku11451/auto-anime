@@ -84,7 +84,7 @@ func resumeDownloads(ids []int) {
 
 func validateDownloadTarget() error {
 	cfg := runtimeConfig()
-	if cfg.downloadMode != "builtin" && cfg.downloadMode != "direct" && cfg.downloadMode != "aria2" && cfg.downloadMode != "qbittorrent" && cfg.downloadMode != "transmission" {
+	if cfg.downloadMode != "native" && cfg.downloadMode != "builtin" && cfg.downloadMode != "direct" && cfg.downloadMode != "aria2" && cfg.downloadMode != "qbittorrent" && cfg.downloadMode != "transmission" {
 		return fmt.Errorf("未知下载模式")
 	}
 	if (cfg.downloadMode == "aria2" && cfg.aria2URL == "") || (cfg.downloadMode == "qbittorrent" && cfg.qbitURL == "") || (cfg.downloadMode == "transmission" && cfg.transmissionURL == "") {

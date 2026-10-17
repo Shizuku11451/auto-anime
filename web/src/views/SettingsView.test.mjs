@@ -52,8 +52,20 @@ function setup() {
   const context = { exports: {}, window: {}, location, AbortController, require: id => { assert.ok(id in modules, id); return modules[id] } }
   runInNewContext(compiled, context)
   const state = context.exports.default.setup({}, { expose() {} })
-  return { state, writes, location, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
+  return { state, data, writes, location, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
 }
+
+test('Windows 显示内置 BT 下载器，其他平台不显示', async () => {
+  const h = setup()
+  await h.state.load()
+  assert.equal(h.state.availableModes.value.includes('native'), false)
+  h.data.os = 'windows'
+  h.data.download_mode = 'native'
+  await h.state.load()
+  assert.equal(h.state.form.download_mode, 'native')
+  assert.equal(h.state.availableModes.value.includes('native'), true)
+  assert.equal(h.state.availableModes.value.includes('builtin'), true)
+})
 
 test('设置未读取或读取失败时不得提交默认值，重试成功后才允许保存', async () => {
   const h = setup()

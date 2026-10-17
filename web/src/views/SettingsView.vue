@@ -22,14 +22,20 @@ const narrow = useMediaQuery('(max-width: 1000px)')
 const isWindowsOS = computed(() => isWindows(info.value?.os))
 const pathExample = computed(() => storageDirExample(info.value?.os))
 
-const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
+const ALL_MODES = ['native', 'builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const MODE_DESC: Record<string, string> = {
-  builtin: '内置 qBittorrent 自动下载磁力和种子资源，完成后归档；普通直链由本程序下载',
+  native: '程序内置 BT 引擎下载磁力与种子，完成后归档；普通直链仍由本程序下载，无需安装 qBittorrent',
+  builtin: '内置 qBittorrent 自动下载磁力和种子资源，完成后归档；Windows 上作为旧版回退',
   direct: 'HTTP/HTTPS 直链由本程序直接下载，磁力与种子需要外部下载器',
   aria2: '通过 JSON-RPC 提交任务，完成后从映射路径复制归档',
   qbittorrent: '通过 WebUI 接口提交任务并按标签跟踪进度',
   transmission: '通过 RPC 提交任务并轮询完成状态',
 }
+const availableModes = computed(() => {
+  const modes: string[] = isWindowsOS.value ? [...ALL_MODES] : ALL_MODES.filter(m => m !== 'native')
+  if (form.download_mode && !modes.includes(form.download_mode)) modes.push(form.download_mode)
+  return modes
+})
 
 const form = reactive({
   web_user: '',
@@ -111,7 +117,7 @@ useEventListener(window, 'beforeunload', (event: BeforeUnloadEvent) => {
   if (dirty.value) { event.preventDefault(); event.returnValue = '' }
 })
 
-const modeIndex = computed(() => Math.max(0, MODES.indexOf(form.download_mode as (typeof MODES)[number])))
+const modeIndex = computed(() => Math.max(0, availableModes.value.indexOf(form.download_mode)))
 
 async function load() {
   loading.value = true
@@ -261,12 +267,12 @@ async function save() {
         </header>
 
         <select v-if="narrow" v-model="form.download_mode" class="mode-select" aria-label="下载模式">
-          <option v-for="m in MODES" :key="m" :value="m">{{ MODE_LABEL[m] }}</option>
+          <option v-for="m in availableModes" :key="m" :value="m">{{ MODE_LABEL[m] }}</option>
         </select>
-        <div v-else class="seg" role="radiogroup" aria-label="下载模式" :style="{ '--active': modeIndex, '--n': MODES.length }">
+        <div v-else class="seg" role="radiogroup" aria-label="下载模式" :style="{ '--active': modeIndex, '--n': availableModes.length }">
           <span class="seg-indicator" aria-hidden="true" />
           <button
-            v-for="m in MODES"
+            v-for="m in availableModes"
             :key="m"
             type="button"
             role="radio"
@@ -280,8 +286,12 @@ async function save() {
         </div>
 
         <Transition name="fade" mode="out-in">
-          <div v-if="form.download_mode === 'builtin'" key="builtin" class="mode-panel direct-note">
-            <p v-if="isWindowsOS" class="field-hint">程序自带 qBittorrent，无需填写地址或密码。下载任务和续传数据会随数据目录保存，重启后继续下载。</p>
+          <div v-if="form.download_mode === 'native'" key="native" class="mode-panel direct-note">
+            <p class="field-hint">程序内置 BT 引擎，无需安装 qBittorrent。磁力与种子由本程序下载，普通直链仍走本地下载；任务和续传数据保存在数据目录的 <code>bt</code> 子目录，重启后继续。</p>
+            <p v-if="isWindowsOS" class="field-hint">首次使用时 Windows 防火墙可能询问网络访问，请允许专用网络；默认从 BT 端口 6881 开始监听。</p>
+          </div>
+          <div v-else-if="form.download_mode === 'builtin'" key="builtin" class="mode-panel direct-note">
+            <p v-if="isWindowsOS" class="field-hint">旧版内置 qBittorrent 回退，需要程序目录中的 <code>qbittorrent\</code> 或设置 <code>QBITTORRENT_PATH</code>。新安装建议使用内置 BT 下载器。</p>
             <p v-else class="field-hint">Docker 镜像已包含 qBittorrent，无需填写地址或密码。下载任务和续传数据会随数据目录保存，重启后继续下载。</p>
           </div>
           <div v-else-if="form.download_mode === 'aria2'" key="aria2" class="mode-panel">

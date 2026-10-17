@@ -137,6 +137,8 @@ func pollDownloaderTasks() {
 			switch t.Downloader {
 			case "aria2":
 				state, err = aria2Poll(t.TaskID)
+			case "native":
+				state, err = nativeDownloads.poll(context.Background(), t)
 			case "qbittorrent", "builtin":
 				if qbitBroken[t.Downloader] {
 					return
@@ -631,6 +633,12 @@ func removeDownloaderTask(downloader, taskID string) {
 		return
 	}
 	switch downloader {
+	case "native":
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := nativeDownloads.remove(ctx, taskID); err != nil {
+			log.Printf("取消内置 BT 任务失败: %v", err)
+		}
 	case "builtin":
 		if client, err := qbitLoginFor("builtin"); err == nil {
 			if err := client.remove(taskID); err != nil {

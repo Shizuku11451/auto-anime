@@ -23,12 +23,17 @@ const isWindowsOS = computed(() => isWindows(platformOS.value))
 const currentHint = computed(() => {
   if (current.value.key === 'download') {
     return isWindowsOS.value
-      ? '桌面版使用随包 qBittorrent，也可连接已有下载器或选择本地直链。'
+      ? 'Windows 默认使用内置 BT 下载器，也可选择随包 qBittorrent、已有下载器或本地直链。'
       : 'Docker 默认使用内置 qBittorrent，也可连接已有下载器或选择本地直链。'
   }
   return current.value.hint
 })
-const MODES = ['builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
+const ALL_MODES = ['native', 'builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
+const availableModes = computed(() => {
+  const modes: string[] = isWindowsOS.value ? [...ALL_MODES] : ALL_MODES.filter(m => m !== 'native')
+  if (form.mode && !modes.includes(form.mode)) modes.push(form.mode)
+  return modes
+})
 
 const step = ref(0)
 const dir = ref<1 | -1>(1)
@@ -57,7 +62,7 @@ const form = reactive({
   user: '',
   pass: '',
   pass2: '',
-  mode: 'direct' as (typeof MODES)[number],
+  mode: 'direct' as (typeof ALL_MODES)[number],
   library_dir: '',
   aria2_url: '',
   aria2_token: '',
@@ -105,7 +110,7 @@ async function loadStatus() {
     if (!r.ok) throw new Error('读取失败')
     const s = (await r.json()) as SetupStatus
     if (version !== statusVersion) return
-    if (typeof s.required !== 'boolean' || !MODES.includes(s.download_mode)) throw new Error('配置不完整')
+    if (typeof s.required !== 'boolean' || !(ALL_MODES as readonly string[]).includes(s.download_mode)) throw new Error('配置不完整')
     if (!s.required) { location.replace('/'); return }
     form.mode = s.download_mode
     form.library_dir = s.library_dir ?? ''
@@ -372,7 +377,7 @@ function enterPanel() {
             <div class="field">
               <label for="su-mode">下载模式</label>
               <select id="su-mode" v-model="form.mode">
-                <option v-for="m in MODES" :key="m" :value="m">{{ MODE_LABEL[m] }}</option>
+                <option v-for="m in availableModes" :key="m" :value="m">{{ MODE_LABEL[m] }}</option>
               </select>
             </div>
             <Transition name="fade" mode="out-in">
@@ -448,8 +453,11 @@ function enterPanel() {
                   </div>
                 </div>
               </div>
+              <p v-if="form.mode === 'native'" key="native" class="field-hint direct-hint">
+                程序内置 BT 引擎，无需安装 qBittorrent；磁力与种子由本程序下载，任务和续传数据保存在数据目录的 bt 子目录，重启后继续。
+              </p>
               <p v-else-if="form.mode === 'builtin'" key="builtin" class="field-hint direct-hint">
-                {{ isWindowsOS ? '程序带 qBittorrent，自动启动和连接，无需填写地址或密码。' : '镜像已包含 qBittorrent，由程序自动启动和连接，无需填写地址或密码。' }}任务与续传数据保存在数据目录，重启后继续下载。
+                {{ isWindowsOS ? '旧版内置 qBittorrent 回退，需要程序目录中的 qbittorrent\\ 或设置 QBITTORRENT_PATH。' : '镜像已包含 qBittorrent，由程序自动启动和连接，无需填写地址或密码。' }}任务与续传数据保存在数据目录，重启后继续下载。
               </p>
               <p v-else key="direct" class="field-hint direct-hint">
                 本地直链会直接下载 HTTP/HTTPS 资源；磁力链接与种子在没有下载器时会停在「等待下载器」，之后可在设置页补充。

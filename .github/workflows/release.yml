@@ -147,6 +147,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Include third-party notices
+        run: cp THIRD-PARTY-NOTICES.md dist/THIRD-PARTY-NOTICES.md
       - name: Checksums
         working-directory: dist
         run: |

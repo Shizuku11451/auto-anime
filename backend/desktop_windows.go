@@ -358,11 +358,6 @@ func runDesktop() {
 	}
 	defer listener.Close()
 	url := "http://" + listener.Addr().String()
-	if os.Getenv("DOWNLOAD_MODE") == "" {
-		if exe, err := os.Executable(); err == nil && bundledQbitExecutable(filepath.Dir(exe)) != "" {
-			downloadMode = "builtin"
-		}
-	}
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		DataPath: filepath.Join(root, "webview2"), AutoFocus: true,
 		WindowOptions: webview.WindowOptions{Title: "Auto-Anime 自动追番", Width: uint(windowWidth), Height: uint(windowHeight), Center: true, IconId: desktopIconID},

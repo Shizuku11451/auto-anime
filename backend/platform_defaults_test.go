@@ -45,6 +45,18 @@ func TestDefaultDataDirFollowsPlatform(t *testing.T) {
 	}
 }
 
+// 下载方式默认值按平台取值：Windows 自带进程内 BT 下载器，容器/Linux 仍由
+// 部署配置选择 builtin，源码运行走 direct。
+func TestDefaultDownloadModeFollowsPlatform(t *testing.T) {
+	want := "direct"
+	if runtime.GOOS == "windows" {
+		want = "native"
+	}
+	if got := defaultDownloadMode(); got != want {
+		t.Fatalf("defaultDownloadMode = %q, want %q", got, want)
+	}
+}
+
 // 媒体库默认值按平台取值：容器/Linux 留空（归档落下载目录，模板显式给 /media）；
 // Windows 用程序同级的 media\，与下载器源文件所在的 data\ 分开，媒体服务器可直接扫描。
 func TestDefaultLibraryDirFollowsPlatform(t *testing.T) {

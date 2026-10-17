@@ -73,6 +73,7 @@ def main():
         notices.mkdir()
         repo = pathlib.Path(__file__).resolve().parent.parent
         shutil.copy2(repo / "docs" / "WINDOWS.md", package / "Windows使用说明.md")
+        shutil.copy2(repo / "THIRD-PARTY-NOTICES.md", package / "THIRD-PARTY-NOTICES.md")
         # Ship the upstream source archive and GPL text with the redistributed
         # downloader; dependencies and build instructions remain in that source.
         download(f"https://codeload.github.com/qbittorrent/qBittorrent/tar.gz/refs/tags/release-{VERSION}",
@@ -83,6 +84,7 @@ def main():
             f"qBittorrent {VERSION}: https://www.qbittorrent.org/ (GPL-2.0-or-later)\n"
             "Official installer and license files are preserved in qbittorrent/.\n"
             "Source and build instructions: included source tar.gz; https://github.com/qbittorrent/qBittorrent\n"
+            "Built-in BT downloader: github.com/cenkalti/rain (MIT); see THIRD-PARTY-NOTICES.md.\n"
             "Desktop wrapper: github.com/jchv/go-webview2 (MIT), github.com/jchv/go-winloader (ISC).\n"
             "Microsoft Edge WebView2 Runtime is provided separately by Microsoft.\n", encoding="utf-8")
         for module, revision, filename in [("go-webview2", "56598839c808a2340edee99204db479f410e9bf4", "LICENSE"),

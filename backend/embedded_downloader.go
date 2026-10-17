@@ -263,16 +263,18 @@ func startEmbeddedQBittorrent() error {
 		}
 	}
 	// 精简单文件版可能不带 qBittorrent。找不到可执行文件时（没有随包文件，或指到了
-	// 不存在的路径）不能让整个服务拉不起来：启动即退出会让界面进不去、设置也改不回来，
-	// 所以降级到 direct 并明确告警。其它失败（端口被占、进程退出）仍然照常报错退出。
+	// 不存在的路径）不能让整个服务拉不起来：启动即退出会让界面进不去、设置也改不回来。
+	// Windows 上新任务临时改用进程内 BT 下载器；旧 builtin 任务仍需要 qBittorrent
+	// 才能继续跟踪，因此只告警、不自动改写任务归属。其它失败（端口被占、进程退出）
+	// 仍然照常报错退出。
 	if runtime.GOOS == "windows" {
 		if _, err := embeddedQbitExecutable(); err != nil {
 			log.Printf("内置 qBittorrent 在 Windows 上不可用：%v", err)
 			if downloadMode == "builtin" {
-				log.Printf("已临时改用 direct 下载模式；可在设置页改用 direct/外部下载器，或安装 qBittorrent 并设置 QBITTORRENT_PATH 后重启")
-				downloadMode = "direct"
+				log.Printf("已临时改用内置 BT 下载器；可在设置页改用 native/direct/外部下载器，或安装 qBittorrent 并设置 QBITTORRENT_PATH 后重启")
+				downloadMode = "native"
 			} else {
-				log.Printf("库中 %d 个内置下载器条目无法继续跟踪，请在设置页改用可用下载器后重新提交", count)
+				log.Printf("库中 %d 个旧内置 qBittorrent 条目无法继续跟踪，请在设置页改用可用下载器后重新提交", count)
 			}
 			return nil
 		}

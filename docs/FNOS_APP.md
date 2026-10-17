@@ -50,6 +50,8 @@
 
 ## 构建与分发
 
+桌面入口与应用中心使用同一套蓝紫渐变圆角矩形星芒图标，与 Windows 桌面版一致；网页横版 Logo 不变。维护者修改 `backend/assets/app-icon.png` 后，在仓库根目录执行 `python tools/make_windows_icon.py`（需要 Pillow），统一生成 `ICON.PNG`、`ICON_256.PNG` 和 `app/ui/images/icon_64.png`、`icon_256.png`，再重新打包。已有安装需升级含新图标的 FPK 并刷新飞牛桌面后才会使用新资源；单独更新服务端镜像不会替换 FPK 图标。
+
 以下从仓库根目录运行，`1.2.0` 仅是示例，应替换为实际版本。
 
 ```powershell

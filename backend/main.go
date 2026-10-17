@@ -32,7 +32,7 @@ var downloadDir = env("DOWNLOAD_DIR", filepath.Join(defaultDataDir(), "downloads
 var dbFile = defaultDBPath()
 var libraryDir = env("LIBRARY_DIR", defaultLibraryDir())
 var pollMinutes = 30
-var downloadMode = env("DOWNLOAD_MODE", "direct")
+var downloadMode = env("DOWNLOAD_MODE", defaultDownloadMode())
 var aria2URL = env("ARIA2_URL", "")
 var aria2Token = env("ARIA2_TOKEN", "")
 var qbitURL = strings.TrimRight(env("QBIT_URL", ""), "/")
@@ -164,6 +164,16 @@ type rss struct {
 type rssLink struct {
 	Href string `xml:"href,attr"`
 	Rel  string `xml:"rel,attr"`
+}
+
+// defaultDownloadMode 是未设置 DOWNLOAD_MODE 时的默认下载方式。Windows 本机
+// 默认使用进程内 BT 下载器，不再要求随包 qBittorrent；容器与 Linux 仍由部署
+// 配置显式选择 builtin，源码运行保持 direct。
+func defaultDownloadMode() string {
+	if runtime.GOOS == "windows" {
+		return "native"
+	}
+	return "direct"
 }
 
 // defaultDataDir 是未配置环境变量时数据目录的默认值：容器与 Linux 服务器沿用 /data
@@ -546,6 +556,10 @@ func performDownload(ctx context.Context, id int) {
 		failDownload(id, vErr.Error())
 		return
 	}
+	if cfg.downloadMode == "native" && (u.Scheme == "magnet" || torrentLink(link)) {
+		submitNativeDownload(id, link)
+		return
+	}
 	if cfg.downloadMode == "builtin" && (u.Scheme == "magnet" || torrentLink(link)) {
 		submitQBittorrentMode(id, link, "builtin")
 		return
@@ -595,6 +609,10 @@ func performDownload(ctx context.Context, id int) {
 		return
 	}
 	if errors.Is(e, errTorrentResource) {
+		if cfg.downloadMode == "native" {
+			submitNativeDownload(id, link)
+			return
+		}
 		if cfg.downloadMode == "builtin" {
 			submitQBittorrentMode(id, link, "builtin")
 			return
@@ -627,6 +645,32 @@ func submitQBittorrentMode(id int, link, downloaderName string) {
 		return
 	}
 	setSubmitted(id, downloaderName, hash, "已发送到 qBittorrent")
+}
+
+// submitNativeDownload 把磁力或种子交给进程内 BT 引擎。任务标识使用小写
+// info hash，和 qBittorrent 的哈希身份保持同一形式；普通 HTTP 直链仍走直链。
+func submitNativeDownload(id int, link string) {
+	hash := magnetInfoHash(link)
+	var data []byte
+	if hash == "" {
+		var err error
+		data, err = fetchTorrentBytes(link)
+		if err != nil {
+			failDownload(id, "获取种子文件失败："+err.Error())
+			return
+		}
+		hash = torrentInfoHash(data)
+	}
+	if !nativeInfoHashPattern.MatchString(hash) {
+		failDownload(id, "无法识别种子标识；暂不支持 BT v2 种子或磁力链接")
+		return
+	}
+	ref := taskRef{ID: id, Downloader: "native", TaskID: hash, SubmittedAt: time.Now().Unix()}
+	if err := nativeDownloads.add(context.Background(), ref, link, data); err != nil {
+		failDownload(id, "内置下载器提交失败："+err.Error())
+		return
+	}
+	setSubmitted(id, "native", hash, "下载中")
 }
 
 func setSubmitted(id int, downloaderName, taskID, status string) {
@@ -1450,6 +1494,12 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 		log.Printf("媒体库目录：%s", libraryDir)
 	}
 	warnStoredPathsForPlatform()
+	if err := startNativeDownloader(); err != nil {
+		// BT 引擎故障不应让整个桌面窗口打不开；设置页可切换下载方式，轮询/提交
+		// 时会继续按退避重试。健康检查在该状态下返回 503。
+		log.Printf("内置 BT 下载器暂不可用：%v", err)
+	}
+	defer stopNativeDownloader()
 	if err := startEmbeddedQBittorrent(); err != nil {
 		return err
 	}

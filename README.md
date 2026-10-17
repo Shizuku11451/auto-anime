@@ -32,7 +32,7 @@
 <table>
   <tr>
     <td width="50%" valign="top"><strong>找番，不必来回切换</strong><br><br>内置多个资源来源，支持 RSS 订阅、关键词过滤与 OPML 导入。</td>
-    <td width="50%" valign="top"><strong>下载，不必一直盯着</strong><br><br>Docker 内置 qBittorrent，支持外部下载器与直链；排队、进度、暂停与继续。</td>
+    <td width="50%" valign="top"><strong>下载，不必一直盯着</strong><br><br>Windows 内置 BT 下载器，Docker 内置 qBittorrent；支持外部下载器与直链，排队、进度、暂停与继续。</td>
   </tr>
   <tr>
     <td width="50%" valign="top"><strong>归档，不必手动整理</strong><br><br>识别番名与季集，按季归档并生成 NFO 与封面，方便媒体服务扫描。</td>
@@ -48,13 +48,15 @@
 | --- | --- |
 | **飞牛 fnOS** · 主要维护平台 | [FPK 应用包](docs/FNOS_APP.md) / [Docker Compose](docs/FNOS.md) |
 | **Linux** · amd64 / arm64 | Docker Compose / 独立服务端程序 |
-| **Windows 10/11** · x64 | [便携桌面 ZIP](docs/WINDOWS.md)，需要 WebView2 Runtime |
+| **Windows 10/11** · x64 | [单文件程序或便携桌面 ZIP](docs/WINDOWS.md)，需要 WebView2 Runtime |
 
 其他 NAS 品牌与 macOS 暂不承诺专门适配。功能以所安装版本为准；构建通过不等于目标设备验收，安装前请查看[对应版本的发布说明与附件](https://github.com/Shizuku11451/auto-anime/releases)。
 
+Windows 与飞牛桌面采用统一的圆角矩形星芒图标，网页横版 Logo 不变；已有安装需使用包含新图标的 Windows 程序或飞牛 FPK，单独更新容器镜像不会改变飞牛桌面图标。
+
 ## 快速安装
 
-飞牛 FPK 自 v0.0.2 起自带 x86-64 镜像，仍需 Docker，安装阶段无需访问 GHCR。Windows 桌面包在解压目录下使用 `data` 保存数据、`media` 保存归档媒体。
+飞牛 FPK 自 v0.0.2 起自带 x86-64 镜像，仍需 Docker，安装阶段无需访问 GHCR。Windows 单文件已自带 BT 下载器；桌面包在解压目录下使用 `data` 保存数据、`media` 保存归档媒体。
 
 飞牛推荐先看 [FPK 安装说明](docs/FNOS_APP.md) 或 [Compose 图形安装指南](docs/FNOS.md)。已有 Docker Compose 的环境可直接运行：
 
@@ -67,7 +69,7 @@ docker compose up -d
 
 打开 `http://NAS地址:8000`，创建管理员账户并完成初始化。
 
-默认使用内置 qBittorrent，每 30 分钟同步、同时下载 2 个任务。数据保存在 `./docker-data`，容器内默认媒体目录为 `/data/downloads`。
+Docker 默认使用内置 qBittorrent，Windows 默认使用内置 BT 下载器；每 30 分钟同步、同时下载 2 个任务。Docker 数据保存在 `./docker-data`，容器内默认媒体目录为 `/data/downloads`。
 
 > **安装前留意**：需要能访问 GitHub / GHCR，且数据目录可写、端口可用。使用其他媒体目录时，先添加 volume 挂载，再填写容器内路径；仅修改网页路径不会增加挂载。详见[配置参考](docs/CONFIGURATION.md)。目标版本没有发布镜像时，请使用[源码构建](CONTRIBUTING.md#源码镜像构建)。
 

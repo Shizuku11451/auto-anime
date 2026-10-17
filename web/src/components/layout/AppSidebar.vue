@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import BrandMark from '@/components/ui/BrandMark.vue'
+import RouteLink from '@/components/ui/RouteLink.vue'
 import ThemeToggle from '@/components/ui/ThemeToggle.vue'
 import ServiceTools from './ServiceTools.vue'
 import { useAppStore } from '@/stores/app'
@@ -36,16 +37,17 @@ function showRelease() {
 
     <nav class="nav" aria-label="主导航" :style="{ '--active': activeIndex }">
       <span class="nav-indicator" aria-hidden="true" />
-      <RouterLink
+      <RouteLink
         v-for="(item, i) in NAV_ITEMS"
         :key="item.name"
         :to="item.to"
+        :active="i === activeIndex"
         class="nav-link"
         :class="{ active: i === activeIndex }"
       >
         <component :is="item.icon" class="nav-ic" aria-hidden="true" />
         <span>{{ item.label }}</span>
-      </RouterLink>
+      </RouteLink>
     </nav>
 
     <div class="spacer" />

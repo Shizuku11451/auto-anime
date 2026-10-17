@@ -19,7 +19,7 @@
 | `LIBRARY_DIR` | Windows 程序同级 `media\`；其它平台空 | 媒体根目录（番剧文件夹的父目录）；飞牛模板显式设为 `/media`，Windows 清空界面设置时回退下载目录 |
 | `COVERS_DIR` | 数据库同级 `covers` | 本地封面缓存 |
 | `PORT` | `8000` | HTTP 监听端口；桌面模式仅回环，服务模式不限定回环 |
-| `DOWNLOAD_MODE` | 源码 `direct`；Docker 显式 `builtin` | Windows 桌面入口发现随包下载器时选择 `builtin`，数据库值优先 |
+| `DOWNLOAD_MODE` | Windows `native`；其它源码 `direct`；Docker 显式 `builtin` | Windows 单文件默认内置 BT 下载器；桌面包可切换 `builtin` 回退，数据库值优先 |
 | `POLL_MINUTES` | `30` | RSS 同步间隔，分钟，最小 5 |
 | `DOWNLOADER_POLL_SECONDS` | `10` | 下载器轮询间隔，秒，最小 5 |
 | `KEEP_SOURCE_FILES` | `true` | 归档成功后保留下载器源文件做种 |
@@ -41,13 +41,25 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 
 | 值 | 用途 |
 | --- | --- |
-| `builtin` | 私有内置 qBittorrent 处理 BT；普通 HTTP(S) 文件由服务下载 |
+| `native` | 进程内纯 Go BT 引擎；Windows 默认，无需 qBittorrent |
+| `builtin` | 私有内置 qBittorrent 处理 BT；Docker/Linux 默认，Windows 可作为旧版回退 |
 | `direct` | HTTP(S) 文件，磁力和种子进入等待下载器状态 |
 | `qbittorrent` | 外部 qBittorrent WebUI API |
 | `aria2` | 外部 Aria2 JSON-RPC |
 | `transmission` | 外部 Transmission RPC |
 
-切换默认模式只影响后续提交，已有任务按原下载器身份跟踪。内置与外部 qBittorrent 配置相互独立，不接管其他客户端任务。
+切换默认模式只影响后续提交，已有任务按原下载器身份跟踪。内置与外部 qBittorrent 配置相互独立，不接管其他客户端任务；`native` 与 `builtin` 也使用独立任务身份，旧 `builtin` 任务不会自动迁移。
+
+### 内置 BT 下载器（Windows 默认）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `NATIVE_BT_DATA_DIR` | 数据库同级 `bt` | 会话库 `session.db` 与源文件根目录 |
+| `NATIVE_BT_PORT` | `6881` | BT 监听起始端口（TCP） |
+| `NATIVE_BT_PORT_RANGE` | `10` | 监听端口数量，1–100；每活动任务使用一个端口 |
+| `NATIVE_DHT_PORT` | 同 `NATIVE_BT_PORT` | DHT UDP 端口 |
+
+Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。源文件在 `data\bt\downloads\<infohash>\`，归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后停止任务并按安全条件清理。停止/取消只停止任务，不删除源文件；重启由 `session.db` 恢复进度。
 
 ### 内置 qBittorrent
 
@@ -58,7 +70,7 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 | `EMBEDDED_QBIT_PORT` | `8080` | 私有 WebUI，仅回环监听，Docker 无需映射 |
 | `QBITTORRENT_BT_PORT` | `6881` | BT / DHT 端口，应与 TCP、UDP 映射一致 |
 
-Windows 可使用 `qbittorrent.exe` 或 `qbittorrent-nox.exe`。找不到可执行文件时告警并临时降级为直链，不改写旧任务归属。`profile/` 保存恢复配置，`downloads/` 保存源文件；凭据不进入设置响应或 JSON 备份。
+Windows 可使用 `qbittorrent.exe` 或 `qbittorrent-nox.exe`。找不到可执行文件时告警，当前 `builtin` 新任务临时改用 `native`，不改写旧任务归属；旧 `builtin` 任务仍需要 qBittorrent 才能继续跟踪。`profile/` 保存恢复配置，`downloads/` 保存源文件；凭据不进入设置响应或 JSON 备份。
 
 运行中退出后按 2、4、8、16、32、60 秒退避恢复，连续运行 5 分钟重置退避。WebUI 就绪后给予旧任务 90 秒恢复等待，保留任务 ID、暂停与进度；超时不存在才报错，不自动重提。健康检查在内置下载器恢复过程中可能返回 503，管理页面仍可访问。Compose 为正常退出留出 45 秒。
 
@@ -114,6 +126,8 @@ Docker 内填写容器路径，NAS 文件夹必须先映射。例如 `/volume1/m
 - 元数据不可达不阻塞基础下载；封面本地缓存，手动绑定与纠正优先于自动匹配。
 
 资源可用性探测只看 tracker，未实现 DHT 探测，不保证资源一定可下载。管理页面的脚本、样式、图标不从公共 CDN 加载。
+
+Windows 与飞牛桌面的圆角矩形应用图标随各自程序/FPK 提供，无需配置；不改变默认目录或网页横版 Logo。更换飞牛图标需要升级 FPK，而不是只更新容器镜像；Windows 需要完全退出旧程序再启动新版本，任务栏固定项可能需要重新固定以刷新缓存。
 
 ## 网页专有设置与接口兼容
 

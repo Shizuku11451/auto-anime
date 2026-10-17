@@ -56,6 +56,22 @@ function setup() {
 function response(body, ok = true) { return { ok, json: async () => body, text: async () => '模拟失败' } }
 function account(h) { Object.assign(h.state.form, { user: '测试用户', pass: 'test-password', pass2: 'test-password' }) }
 
+test('Windows 首次向导接受并显示内置 BT 下载器', async () => {
+  const h = setup()
+  h.status(async () => response({
+    required: true,
+    download_mode: 'native',
+    os: 'windows',
+    library_dir: 'D:\\番剧',
+    download_dir: 'D:\\Auto-Anime\\data\\downloads',
+    keep_source_files: true,
+  }))
+  await h.state.loadStatus()
+  assert.equal(h.state.form.mode, 'native')
+  assert.equal(h.state.availableModes.value.includes('native'), true)
+  assert.equal(h.state.availableModes.value.includes('builtin'), true)
+})
+
 test('未读取或读取失败不能推进和保存，重试沿用实际下载方式与媒体目录', async () => {
   const h = setup()
   h.state.go(1)

@@ -1,4 +1,4 @@
-"""由飞牛应用图标生成 Windows 多尺寸 ico（标题栏 16、任务栏 32、资源管理器/Alt+Tab 48/256）。
+"""由统一原图生成飞牛 PNG 和 Windows 多尺寸 ico。
 
 缺少对应尺寸时 Windows 会自行缩放，界面与任务栏图标会发虚。需要 Pillow：
 
@@ -13,13 +13,27 @@ import pathlib
 from PIL import Image
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "deploy" / "fnos" / "fpk" / "ICON_256.PNG"
+SOURCE = ROOT / "backend" / "assets" / "app-icon.png"
 TARGET = ROOT / "backend" / "assets" / "auto-anime.ico"
 SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+FPK = ROOT / "deploy" / "fnos" / "fpk"
+PNG_TARGETS = {
+    FPK / "ICON.PNG": 64,
+    FPK / "ICON_256.PNG": 256,
+    FPK / "app" / "ui" / "images" / "icon_64.png": 64,
+    FPK / "app" / "ui" / "images" / "icon_256.png": 256,
+}
 
 
 def main() -> None:
-    image = Image.open(SOURCE).convert("RGBA")
+    with Image.open(SOURCE) as source:
+        image = source.convert("RGBA")
+    if image.width != image.height or image.width < 256:
+        raise ValueError("App icon source must be square and at least 256 pixels")
+    for path, size in PNG_TARGETS.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image.resize((size, size), Image.Resampling.LANCZOS).save(path, format="PNG")
+        print(f"{path.relative_to(ROOT)}: {size}x{size}")
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     image.save(TARGET, format="ICO", sizes=SIZES)
     written = sorted(Image.open(TARGET).info.get("sizes", []))

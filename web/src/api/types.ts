@@ -372,9 +372,10 @@ export interface CorrectResult {
   cleanup_warning: string
 }
 
-export type DownloadMode = 'builtin' | 'direct' | 'aria2' | 'qbittorrent' | 'transmission'
+export type DownloadMode = 'native' | 'builtin' | 'direct' | 'aria2' | 'qbittorrent' | 'transmission'
 
 export const MODE_LABEL: Record<string, string> = {
+  native: '内置 BT 下载器',
   builtin: '内置 qBittorrent',
   direct: '本地直链',
   aria2: 'Aria2',

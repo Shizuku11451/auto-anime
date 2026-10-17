@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
+import RouteLink from '@/components/ui/RouteLink.vue'
 import { NAV_ITEMS } from '@/nav'
 
 const route = useRoute()
@@ -10,16 +11,17 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
 <template>
   <nav class="tabbar" aria-label="主导航" :style="{ '--active': activeIndex, '--n': NAV_ITEMS.length }">
     <span class="tab-indicator" aria-hidden="true" />
-    <RouterLink
+    <RouteLink
       v-for="(item, i) in NAV_ITEMS"
       :key="item.name"
       :to="item.to"
+      :active="i === activeIndex"
       class="tab"
       :class="{ active: i === activeIndex }"
     >
       <component :is="item.icon" class="tab-ic" aria-hidden="true" />
       <span class="tab-label">{{ item.label }}</span>
-    </RouterLink>
+    </RouteLink>
   </nav>
 </template>
 

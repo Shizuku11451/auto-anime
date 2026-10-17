@@ -96,13 +96,13 @@ func TestEmbeddedQbitLeavesExternalDownloadersAlone(t *testing.T) {
 	downloadMode = "builtin"
 	err := startEmbeddedQBittorrent()
 	if runtime.GOOS == "windows" {
-		// Windows Release 不带 qBittorrent：降级到 direct 并告警，不能启动即退出，
+		// Windows 单文件版不带 qBittorrent：临时改用 native 并告警，不能启动即退出，
 		// 否则界面进不去、设置也改不回来（见 platform_defaults_test.go）。
 		if err != nil {
 			t.Fatalf("Windows 上应降级而不是报错: %v", err)
 		}
-		if downloadMode != "direct" {
-			t.Fatalf("downloadMode = %q, want direct", downloadMode)
+		if downloadMode != "native" {
+			t.Fatalf("downloadMode = %q, want native", downloadMode)
 		}
 		return
 	}

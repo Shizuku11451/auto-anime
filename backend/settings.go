@@ -300,7 +300,7 @@ func validateSettings(in *settingsInput) error {
 	}
 	if in.DownloadMode != nil {
 		switch *in.DownloadMode {
-		case "builtin", "direct", "aria2", "qbittorrent", "transmission":
+		case "native", "builtin", "direct", "aria2", "qbittorrent", "transmission":
 		default:
 			return fmt.Errorf("下载方式无效")
 		}

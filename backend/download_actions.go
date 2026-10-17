@@ -227,6 +227,10 @@ func controlDownloaderTask(t taskRef, pause bool) (string, error) {
 			return "", fmt.Errorf("Aria2 未确认任务控制结果")
 		}
 		return gid, nil
+	case "native":
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return nativeDownloads.control(ctx, t, pause)
 	case "qbittorrent", "builtin":
 		client, err := qbitLoginFor(t.Downloader)
 		if err != nil {
