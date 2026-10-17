@@ -2,6 +2,8 @@ module auto-anime
 
 go 1.23.0
 
+replace github.com/cenkalti/rain => ./third_party/rain
+
 require (
 	github.com/cenkalti/rain v1.13.0
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808

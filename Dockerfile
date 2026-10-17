@@ -7,6 +7,7 @@ ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 ENV CGO_ENABLED=0
 COPY backend/go.mod backend/go.sum ./
+COPY backend/third_party ./third_party
 RUN go mod download
 COPY backend/*.go .
 COPY backend/internal ./internal

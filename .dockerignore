@@ -8,6 +8,8 @@
 !backend/go.sum
 !backend/internal/
 !backend/internal/**
+!backend/third_party/
+!backend/third_party/**
 !backend/static/
 !backend/static/**
 !scripts/

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type sourceCleanup struct {
@@ -178,6 +180,16 @@ func cleanupSource(c sourceCleanup) error {
 	}
 	if _, err := cleanupPaths(c); err != nil {
 		return err
+	}
+	if c.Downloader == "native" {
+		// Forget before deleting payload, including retries after a prior stop.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := nativeDownloads.retireSource(ctx, c.taskRef)
+		cancel()
+		if err != nil {
+			return err
+		}
+		c.Stopped = true
 	}
 	if !c.Stopped {
 		if err := stopSourceTask(c); err != nil {

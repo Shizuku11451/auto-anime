@@ -22,9 +22,8 @@ import (
 // native downloader 是 Windows 版默认的进程内 BT 引擎。它不依赖 qBittorrent，
 // 但仍复用现有条目、任务身份、并发名额、归档与源文件清理。
 //
-// 任务身份固定为小写 40 位 info hash。rain 的 RemoveTorrent 会删除数据，因此
-// 取消/删除只 Stop()，绝不调用 RemoveTorrent；只有“尚未开始写文件的非法种子”
-// 才允许 RemoveTorrent 清理空目录。
+// 新任务身份为 infohash-itemID；旧 40 位 hash 继续恢复。取消/清理使用本地
+// Rain 补丁的 ForgetTorrent，只释放会话状态和端口，绝不删除源文件。
 
 const (
 	nativeDefaultBTDataDir = "bt"
@@ -33,8 +32,21 @@ const (
 )
 
 var nativeInfoHashPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var nativeTaskIDPattern = regexp.MustCompile(`^[0-9a-f]{40}(-[1-9][0-9]*)?$`)
+
+func nativeTaskID(hash string, itemID int) string {
+	return fmt.Sprintf("%s-%d", strings.ToLower(hash), itemID)
+}
+
+func nativeTaskHash(id string) string {
+	if !nativeTaskIDPattern.MatchString(id) {
+		return ""
+	}
+	return strings.SplitN(id, "-", 2)[0]
+}
 
 var errNativeStopping = errors.New("内置 BT 下载器正在关闭")
+var errNativeSharedTask = errors.New("旧内置 BT 任务被多个条目共用，无法独立控制；请移除重复记录（保留媒体）后重试")
 
 type nativeSettings struct {
 	Root      string
@@ -298,8 +310,7 @@ func closeNativeSession(session *raintorrent.Session) {
 	}
 }
 
-// reconcileNativeSession 加载会话后不自动启动任何任务：活动条目由轮询校验路径后
-// 恢复，暂停条目保持停止；无条目关联的任务只停止，不删除数据。
+// 活动条目由轮询恢复，暂停条目保持停止；孤立会话释放资源但不删除数据。
 func reconcileNativeSession(session *raintorrent.Session) {
 	if db == nil {
 		return
@@ -315,27 +326,34 @@ func reconcileNativeSession(session *raintorrent.Session) {
 		TaskID string
 		Link   string
 	}
-	items := map[string]nativeItem{}
+	items := map[string][]nativeItem{}
 	for rows.Next() {
 		var item nativeItem
 		if rows.Scan(&item.ID, &item.Status, &item.TaskID, &item.Link) == nil && item.TaskID != "" {
-			items[strings.ToLower(item.TaskID)] = item
+			key := strings.ToLower(item.TaskID)
+			items[key] = append(items[key], item)
 		}
 	}
 	rows.Close()
 	keepSource := runtimeConfig().keepSourceFiles
 	for _, torrent := range session.ListTorrents() {
 		id := strings.ToLower(torrent.ID())
-		item, ok := items[id]
+		owners, ok := items[id]
 		if !ok {
-			torrent.Stop()
-			log.Printf("停止无条目关联的内置 BT 任务 %s，保留源文件", id)
+			_ = session.ForgetTorrent(id)
+			log.Printf("释放无条目关联的内置 BT 任务 %s，保留源文件", id)
 			continue
 		}
-		if item.Status == "已保存" && keepSource {
+		allSaved := true
+		for _, item := range owners {
+			allSaved = allSaved && item.Status == "已保存"
+		}
+		if allSaved && keepSource {
 			if err := nativeStartTorrent(torrent); err != nil {
 				log.Printf("恢复内置 BT 做种失败（%s）：%v", id, err)
 			}
+		} else if allSaved {
+			_ = session.ForgetTorrent(id)
 		}
 	}
 }
@@ -369,8 +387,8 @@ func (n *nativeDownloader) withSession(ctx context.Context, fn func(*raintorrent
 	if err := n.ensure(ctx); err != nil {
 		return err
 	}
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	if n.stopping || n.session == nil {
 		return errNativeStopping
 	}
@@ -378,7 +396,7 @@ func (n *nativeDownloader) withSession(ctx context.Context, fn func(*raintorrent
 }
 
 func (n *nativeDownloader) add(ctx context.Context, ref taskRef, link string, data []byte) error {
-	if !nativeInfoHashPattern.MatchString(strings.ToLower(ref.TaskID)) {
+	if nativeTaskHash(strings.ToLower(ref.TaskID)) == "" {
 		return fmt.Errorf("内置 BT 任务标识无效")
 	}
 	return n.withSession(ctx, func(session *raintorrent.Session) error {
@@ -388,7 +406,24 @@ func (n *nativeDownloader) add(ctx context.Context, ref taskRef, link string, da
 }
 
 func nativeAddToSession(session *raintorrent.Session, ref taskRef, link string, data []byte) (*raintorrent.Torrent, error) {
+	if nativeTaskHash(ref.TaskID) == "" {
+		return nil, fmt.Errorf("内置 BT 任务标识无效")
+	}
+	if len(data) > 0 && torrentInfoHash(data) != nativeTaskHash(ref.TaskID) {
+		return nil, fmt.Errorf("种子文件与任务标识不一致")
+	}
+	if len(data) == 0 && magnetInfoHash(link) != nativeTaskHash(ref.TaskID) {
+		return nil, fmt.Errorf("磁力链接与任务标识不一致")
+	}
 	if torrent := session.GetTorrent(strings.ToLower(ref.TaskID)); torrent != nil {
+		return torrent, nativeStartTorrent(torrent)
+	}
+	if err := nativeMakeRoom(session); err != nil {
+		return nil, err
+	}
+	if torrent, err := session.LoadTorrent(ref.TaskID); err != nil {
+		return nil, err
+	} else if torrent != nil {
 		return torrent, nativeStartTorrent(torrent)
 	}
 	if len(data) > 0 {
@@ -397,8 +432,7 @@ func nativeAddToSession(session *raintorrent.Session, ref taskRef, link string, 
 			return nil, fmt.Errorf("内置 BT 下载器添加种子失败：%w", err)
 		}
 		if err := nativeStartTorrent(torrent); err != nil {
-			// 尚未开始写文件，RemoveTorrent 只会清理这个任务的空目录和会话记录。
-			_ = session.RemoveTorrent(torrent.ID())
+			_ = session.ForgetTorrent(torrent.ID())
 			return nil, err
 		}
 		return torrent, nil
@@ -416,29 +450,66 @@ func nativeAddToSession(session *raintorrent.Session, ref taskRef, link string, 
 	return torrent, nil
 }
 
+// Stopped/history torrents retain resume data on disk, not a permanent port.
+// Seeding yields capacity to a new download; active downloads are never evicted.
+func nativeMakeRoom(session *raintorrent.Session) error {
+	if session.HasFreePort() {
+		return nil
+	}
+	for _, torrent := range session.ListTorrents() {
+		if db != nil {
+			var active int
+			if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE downloader='native' AND task_id=? AND status IN ("+activeTaskStatusSQL+")", torrent.ID()).Scan(&active); err != nil {
+				return err
+			}
+			if active > 0 {
+				continue // Completed payload must be archived before yielding its slot.
+			}
+		}
+		switch torrent.Stats().Status {
+		case raintorrent.Stopped, raintorrent.Seeding:
+			return session.UnloadTorrent(torrent.ID())
+		}
+	}
+	return raintorrent.ErrNoFreePort
+}
+
 func nativeStartTorrent(torrent *raintorrent.Torrent) error {
 	files, err := torrent.Files()
 	if err != nil {
 		// rain 目前用普通错误表示元数据未就绪；统一按等待处理，避免把正在
 		// 下载元数据的磁力任务误判为失败。
-		torrent.Start()
-		return nil
+		return torrent.Start()
 	}
 	if err := validateNativeFiles(torrent.Dir(), files); err != nil {
 		return err
 	}
-	torrent.Start()
-	return nil
+	return torrent.Start()
 }
 
 func (n *nativeDownloader) poll(ctx context.Context, ref taskRef) (taskState, error) {
 	var state taskState
 	err := n.withSession(ctx, func(session *raintorrent.Session) error {
+		// Older releases shared one torrent across items. Do not restart it
+		// behind a paused owner's back, even before the user resolves duplicates.
+		if db != nil && nativeInfoHashPattern.MatchString(ref.TaskID) {
+			var paused int
+			if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE downloader='native' AND task_id=? AND id<>? AND status IN ('已暂停','等待继续')", ref.TaskID, ref.ID).Scan(&paused); err != nil {
+				return err
+			}
+			if paused > 0 {
+				return errNativeSharedTask
+			}
+		}
 		torrent := session.GetTorrent(strings.ToLower(ref.TaskID))
 		if torrent == nil {
 			var err error
 			torrent, err = nativeEnsureTorrent(session, ref)
 			if err != nil {
+				if errors.Is(err, raintorrent.ErrNoFreePort) {
+					state = taskState{Pending: true}
+					return nil
+				}
 				return err
 			}
 		}
@@ -455,11 +526,20 @@ func nativeEnsureTorrent(session *raintorrent.Session, ref taskRef) (*raintorren
 	if torrent := session.GetTorrent(strings.ToLower(ref.TaskID)); torrent != nil {
 		return torrent, nil
 	}
+	if nativeTaskHash(ref.TaskID) == "" {
+		return nil, fmt.Errorf("内置 BT 任务标识无效")
+	}
+	if err := nativeMakeRoom(session); err != nil {
+		return nil, err
+	}
+	if torrent, err := session.LoadTorrent(ref.TaskID); err != nil || torrent != nil {
+		return torrent, err
+	}
 	var link string
 	if db == nil || db.QueryRow("SELECT link FROM items WHERE id=?", ref.ID).Scan(&link) != nil {
 		return nil, fmt.Errorf("读取内置 BT 任务资源失败")
 	}
-	hash := strings.ToLower(ref.TaskID)
+	hash := nativeTaskHash(strings.ToLower(ref.TaskID))
 	var data []byte
 	if magnetHash := magnetInfoHash(link); magnetHash != "" {
 		if hash == "" {
@@ -485,7 +565,7 @@ func nativeEnsureTorrent(session *raintorrent.Session, ref taskRef) (*raintorren
 	if !nativeInfoHashPattern.MatchString(hash) {
 		return nil, fmt.Errorf("无法识别内置 BT 任务标识")
 	}
-	return nativeAddToSession(session, taskRef{ID: ref.ID, Downloader: "native", TaskID: hash, SubmittedAt: ref.SubmittedAt}, link, data)
+	return nativeAddToSession(session, ref, link, data)
 }
 
 func nativeTorrentState(torrent *raintorrent.Torrent) taskState {
@@ -497,7 +577,9 @@ func nativeTorrentState(torrent *raintorrent.Torrent) taskState {
 	if err != nil {
 		// 磁力元数据还没到；rain 的超时/重启由会话自己处理，这里只保持等待。
 		if stats.Status == raintorrent.Stopped {
-			torrent.Start()
+			if err := torrent.Start(); err != nil {
+				return taskState{Fail: "启动内置下载器任务失败：" + err.Error()}
+			}
 		}
 		return taskState{Pending: true}
 	}
@@ -513,7 +595,9 @@ func nativeTorrentState(torrent *raintorrent.Torrent) taskState {
 	}
 	if stats.Status == raintorrent.Stopped {
 		// StopAfterMetadata 或意外停止：活动条目由轮询重新启动，不在这里误报暂停。
-		torrent.Start()
+		if err := torrent.Start(); err != nil {
+			return taskState{Fail: "启动内置下载器任务失败：" + err.Error()}
+		}
 		return taskState{Pending: true}
 	}
 	progress := 0
@@ -525,14 +609,11 @@ func nativeTorrentState(torrent *raintorrent.Torrent) taskState {
 }
 
 func nativeFinished(stats raintorrent.Stats) bool {
-	if stats.Status == raintorrent.Seeding {
-		return true
-	}
 	if stats.Bytes.Total <= 0 || stats.Bytes.Completed < stats.Bytes.Total {
 		return false
 	}
 	switch stats.Status {
-	case raintorrent.Downloading, raintorrent.Stopped:
+	case raintorrent.Seeding, raintorrent.Downloading, raintorrent.Stopped:
 		return true
 	default:
 		return false
@@ -561,7 +642,22 @@ func nativeArchiveFiles(torrent *raintorrent.Torrent, files []raintorrent.File) 
 }
 
 func (n *nativeDownloader) control(ctx context.Context, ref taskRef, pause bool) (string, error) {
+	if nativeTaskHash(ref.TaskID) == "" {
+		return "", fmt.Errorf("内置 BT 任务标识无效")
+	}
 	err := n.withSession(ctx, func(session *raintorrent.Session) error {
+		if db != nil {
+			var shared int
+			if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE downloader='native' AND task_id=? AND id<>?", ref.TaskID, ref.ID).Scan(&shared); err != nil {
+				return err
+			}
+			if shared > 0 {
+				return errNativeSharedTask
+			}
+		}
+		if pause && session.GetTorrent(ref.TaskID) == nil {
+			return nil // An unloaded torrent is already stopped.
+		}
 		torrent := session.GetTorrent(strings.ToLower(ref.TaskID))
 		if torrent == nil {
 			var err error
@@ -588,7 +684,9 @@ func nativePause(torrent *raintorrent.Torrent) error {
 	if torrent.Stats().Status == raintorrent.Stopped {
 		return nil
 	}
-	torrent.Stop()
+	if err := torrent.Stop(); err != nil {
+		return err
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		stats := torrent.Stats()
@@ -624,8 +722,7 @@ func nativeResume(torrent *raintorrent.Torrent) error {
 			if err := validateNativeFiles(torrent.Dir(), files); err != nil {
 				return err
 			}
-			torrent.Start()
-			return nil
+			return torrent.Start()
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("下载器尚未确认继续")
@@ -636,14 +733,29 @@ func nativeResume(torrent *raintorrent.Torrent) error {
 
 func (n *nativeDownloader) remove(ctx context.Context, taskID string) error {
 	taskID = strings.ToLower(taskID)
-	if !nativeInfoHashPattern.MatchString(taskID) {
+	if nativeTaskHash(taskID) == "" {
 		return nil
 	}
 	return n.withSession(ctx, func(session *raintorrent.Session) error {
-		if torrent := session.GetTorrent(taskID); torrent != nil {
-			torrent.Stop()
+		if db != nil {
+			var owners int
+			if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE downloader='native' AND task_id=?", taskID).Scan(&owners); err != nil {
+				return err
+			}
+			if owners > 0 {
+				return nil
+			}
 		}
-		return nil
+		return session.ForgetTorrent(taskID)
+	})
+}
+
+func (n *nativeDownloader) retireSource(ctx context.Context, ref taskRef) error {
+	return n.withSession(ctx, func(session *raintorrent.Session) error {
+		if nativeTaskHash(ref.TaskID) == "" {
+			return fmt.Errorf("内置 BT 任务标识无效")
+		}
+		return session.ForgetTorrent(ref.TaskID)
 	})
 }
 

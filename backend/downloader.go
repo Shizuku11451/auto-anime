@@ -180,6 +180,9 @@ func recordTaskQueryError(t taskRef, err error) {
 	if errors.As(err, &networkError) && networkError.Timeout() {
 		message = "下载器响应超时，将自动重试"
 	}
+	if errors.Is(err, errNativeSharedTask) {
+		message = errNativeSharedTask.Error()
+	}
 	// A temporary RPC failure is not a failed download. Keep its identity and
 	// progress, and avoid applying a late error to a replacement task.
 	result, updateErr := db.Exec("UPDATE items SET task_error=? WHERE id=? AND downloader=? AND task_id=? AND status IN ("+activeTaskStatusSQL+")", message, t.ID, t.Downloader, t.TaskID)

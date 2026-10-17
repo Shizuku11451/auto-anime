@@ -25,6 +25,7 @@ import (
 
 	keywordfilter "auto-anime/internal/filter"
 	titleparse "auto-anime/internal/title"
+	raintorrent "github.com/cenkalti/rain/torrent"
 )
 
 var db *sql.DB
@@ -648,7 +649,7 @@ func submitQBittorrentMode(id int, link, downloaderName string) {
 }
 
 // submitNativeDownload 把磁力或种子交给进程内 BT 引擎。任务标识使用小写
-// info hash，和 qBittorrent 的哈希身份保持同一形式；普通 HTTP 直链仍走直链。
+// info hash 与条目 ID 组合，避免不同条目互相控制；普通 HTTP 直链仍走直链。
 func submitNativeDownload(id int, link string) {
 	hash := magnetInfoHash(link)
 	var data []byte
@@ -665,12 +666,16 @@ func submitNativeDownload(id int, link string) {
 		failDownload(id, "无法识别种子标识；暂不支持 BT v2 种子或磁力链接")
 		return
 	}
-	ref := taskRef{ID: id, Downloader: "native", TaskID: hash, SubmittedAt: time.Now().Unix()}
+	ref := taskRef{ID: id, Downloader: "native", TaskID: nativeTaskID(hash, id), SubmittedAt: time.Now().Unix()}
 	if err := nativeDownloads.add(context.Background(), ref, link, data); err != nil {
+		if errors.Is(err, raintorrent.ErrNoFreePort) {
+			setSubmitted(id, "native", ref.TaskID, "下载中")
+			return
+		}
 		failDownload(id, "内置下载器提交失败："+err.Error())
 		return
 	}
-	setSubmitted(id, "native", hash, "下载中")
+	setSubmitted(id, "native", ref.TaskID, "下载中")
 }
 
 func setSubmitted(id int, downloaderName, taskID, status string) {

@@ -56,10 +56,12 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 | --- | --- | --- |
 | `NATIVE_BT_DATA_DIR` | 数据库同级 `bt` | 会话库 `session.db` 与源文件根目录 |
 | `NATIVE_BT_PORT` | `6881` | BT 监听起始端口（TCP） |
-| `NATIVE_BT_PORT_RANGE` | `10` | 监听端口数量，1–100；每活动任务使用一个端口 |
+| `NATIVE_BT_PORT_RANGE` | `10` | 监听端口数量，1–100；限制同时驻留的 BT 任务数，不限制累计任务数 |
 | `NATIVE_DHT_PORT` | 同 `NATIVE_BT_PORT` | DHT UDP 端口 |
 
-Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。源文件在 `data\bt\downloads\<infohash>\`，归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后停止任务并按安全条件清理。停止/取消只停止任务，不删除源文件；重启由 `session.db` 恢复进度。
+Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。新任务源文件在 `data\bt\downloads\<infohash-条目ID>\`，相同种子的不同条目独立下载和控制；旧 `<infohash>` 目录继续兼容，不自动搬迁。归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后释放会话状态，再按安全条件清理源文件，避免旧完成状态误用到重新创建的文件。
+
+暂停保留任务身份与续传信息；取消/移除记录会释放会话和端口，但不删除源文件。端口不足时，已暂停任务和已归档的做种任务可卸载到 `session.db`，源文件不变；活动下载不会被挤出，超出容量的新任务等待端口。暂停任务继续时从会话恢复，不必重新访问种子 URL。被卸载的历史做种不会在本轮运行中自动抢回端口，下次启动会在容量允许时恢复。旧版若多个条目共用同一任务，独立暂停/继续会被拒绝并提示移除重复记录（保留媒体）；存在已暂停共用条目时，后台轮询也不会自动重启该任务。
 
 ### 内置 qBittorrent
 

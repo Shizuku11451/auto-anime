@@ -71,6 +71,8 @@ docker compose up -d
 
 Docker 默认使用内置 qBittorrent，Windows 默认使用内置 BT 下载器；每 30 分钟同步、同时下载 2 个任务。Docker 数据保存在 `./docker-data`，容器内默认媒体目录为 `/data/downloads`。
 
+Windows 内置 BT 任务按条目独立控制，即使种子相同也不会互相暂停或取消。默认 10 个 BT 端口限制同时驻留的任务数，不限制累计下载数量；端口不足时暂停任务和历史做种让出资源，源文件与续传信息仍保留，优先保障新下载。详见[下载器配置](docs/CONFIGURATION.md#内置-bt-下载器windows-默认)。
+
 > **安装前留意**：需要能访问 GitHub / GHCR，且数据目录可写、端口可用。使用其他媒体目录时，先添加 volume 挂载，再填写容器内路径；仅修改网页路径不会增加挂载。详见[配置参考](docs/CONFIGURATION.md)。目标版本没有发布镜像时，请使用[源码构建](CONTRIBUTING.md#源码镜像构建)。
 
 ## 开始追番

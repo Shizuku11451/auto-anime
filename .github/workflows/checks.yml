@@ -44,6 +44,7 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           go test ./... -count=1 -timeout=240s
+          go test github.com/cenkalti/rain/internal/allocator -count=1 -timeout=60s
           go vet ./...
           go build ./...
       - name: Race detector
@@ -67,6 +68,8 @@ jobs:
         run: |
           # Windows 运行器的 fsync 明显慢于本机：套件本机 ~90s，CI 300s 起，超时留足余量。
           go test ./... -count=1 -timeout=1800s
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test github.com/cenkalti/rain/internal/allocator -count=1 -timeout=60s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

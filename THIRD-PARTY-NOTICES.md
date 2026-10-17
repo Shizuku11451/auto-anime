@@ -6,6 +6,8 @@ Auto-Anime 自身以 MIT 许可发布。下列第三方组件随程序或 Window
 
 Windows 默认下载器使用 [github.com/cenkalti/rain](https://github.com/cenkalti/rain) v1.13.0（MIT）。
 
+运行时源码以本地补丁版保存在 `backend/third_party/rain/`，通过 Go `replace` 构建，不增加新的外部库。补丁用于保留源文件的会话卸载/释放、端口复用、源文件缺失或大小变化时撤销完成状态，以及取消文件分配时释放句柄。原始许可与补丁范围见该目录的 `LICENSE` 和 `AUTO_ANIME_PATCHES.md`。
+
 ```text
 The MIT License (MIT)
 
