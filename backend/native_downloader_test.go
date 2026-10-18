@@ -220,7 +220,8 @@ func TestNativeRealPeerDownloadPauseResume(t *testing.T) {
 	oldNative, oldKeep := nativeDownloads, keepSourceFiles
 	nativeDownloads, keepSourceFiles = download, false
 	t.Cleanup(func() { nativeDownloads, keepSourceFiles = oldNative, oldKeep })
-	archive := filepath.Join(base, "archive.mkv")
+	// 归档目录与下载目录独立，避免触发保护归档目录内源文件的清理规则。
+	archive := filepath.Join(t.TempDir(), "archive.mkv")
 	if err := os.WriteFile(archive, data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,21 @@ func TestNativeRealPeerDownloadPauseResume(t *testing.T) {
 	}
 	processSourceCleanup()
 	if _, err := os.Stat(completed[0].Src); !os.IsNotExist(err) {
-		t.Fatalf("source file was not cleaned: %v", err)
+		var warning string
+		if readErr := db.QueryRow("SELECT task_error FROM items WHERE id=?", itemID).Scan(&warning); readErr != nil {
+			t.Fatal(readErr)
+		}
+		t.Fatalf("source file was not cleaned: %v; task_error=%q", err, warning)
+	}
+	if got, err := os.ReadFile(archive); err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("archive changed during source cleanup: %v", err)
+	}
+	var pending int
+	if err := db.QueryRow("SELECT COUNT(*) FROM source_cleanup WHERE item_id=?", itemID).Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Fatal("completed source cleanup was not retired")
 	}
 }
 
