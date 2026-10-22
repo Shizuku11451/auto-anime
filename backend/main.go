@@ -167,9 +167,9 @@ type rssLink struct {
 	Rel  string `xml:"rel,attr"`
 }
 
-// defaultDownloadMode 是未设置 DOWNLOAD_MODE 时的默认下载方式。Windows 本机
-// 默认使用进程内 BT 下载器，不再要求随包 qBittorrent；容器与 Linux 仍由部署
-// 配置显式选择 builtin，源码运行保持 direct。
+// defaultDownloadMode 是未设置 DOWNLOAD_MODE 时的默认下载方式。Windows 本机与
+// 容器镜像都默认使用进程内 BT 下载器，不再要求随包 qBittorrent（镜像不再安装，
+// Windows 桌面包只作旧版回退）；源码运行保持 direct，需要时用 DOWNLOAD_MODE 指定。
 func defaultDownloadMode() string {
 	if runtime.GOOS == "windows" {
 		return "native"

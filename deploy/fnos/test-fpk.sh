@@ -2,13 +2,20 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 for script in "$root"/deploy/fnos/fpk/cmd/* "$root/scripts/docker-entrypoint.sh"; do bash -n "$script"; done
-for port in 8000 18000; do
-  if TRIM_SERVICE_PORT="$port" wizard_bt_port="$port" wizard_keep_source=true bash "$root/deploy/fnos/fpk/cmd/install_init"; then
-    echo "接受了冲突端口 $port" >&2; exit 1
+# 网页端口落在 BT 端口段内必须被拒绝。
+for range in 7995-8004 17995-18004; do
+  if TRIM_SERVICE_PORT="$(( ${range%%-*} + 5 ))" wizard_bt_ports="$range" wizard_keep_source=true bash "$root/deploy/fnos/fpk/cmd/install_init"; then
+    echo "接受了包含网页端口的 BT 端口段 $range" >&2; exit 1
   fi
 done
-for port in 6881 16889; do
-  wizard_bt_port="$port" wizard_keep_source=false bash "$root/deploy/fnos/fpk/cmd/install_init"
+# 端口段必须是 10 个连续端口，且都落在 1-65535 内。
+for range in 6881-6889 0-9 65530-65536 6881- 6881-6890x 06881-06890; do
+  if wizard_bt_ports="$range" wizard_keep_source=false bash "$root/deploy/fnos/fpk/cmd/install_init"; then
+    echo "接受了非法 BT 端口段 $range" >&2; exit 1
+  fi
+done
+for range in 6881-6890 16889-16898; do
+  TRIM_SERVICE_PORT=8000 wizard_bt_ports="$range" wizard_keep_source=false bash "$root/deploy/fnos/fpk/cmd/install_init"
 done
 
 # 生成器不需要 Docker，也不能默默接受整卷/系统目录或坏 UID。

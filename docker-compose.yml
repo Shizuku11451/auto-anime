@@ -9,18 +9,18 @@ services:
     ports:
       # 左侧为 NAS 端口；网页端口冲突时可改成 "18000:8000"。
       - "8000:8000"
-      # BT 端口需同时修改 TCP、UDP 两行和 QBITTORRENT_BT_PORT。
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
+      # BT 用 10 个连续端口（一个任务占一个）。改起始端口时，TCP、UDP 两行与
+      # NATIVE_BT_PORT 三处必须一致。
+      - "6881-6890:6881-6890/tcp"
+      - "6881-6890:6881-6890/udp"
     environment:
       DB_PATH: /data/auto-anime.db
       DOWNLOAD_DIR: /data/downloads
       # 保持已有部署的默认归档位置；留空使用 /data/downloads。
       # 改用 /media 时，还须添加对应 NAS 文件夹的 volume 映射。
       LIBRARY_DIR: ""
-      DOWNLOAD_MODE: builtin
-      QBITTORRENT_DATA_DIR: /data/qbittorrent
-      QBITTORRENT_BT_PORT: "6881"
+      DOWNLOAD_MODE: native
+      NATIVE_BT_PORT: "6881"
       # true 保留下载源文件做种；改为 false 时仅在归档成功后删除源文件。
       KEEP_SOURCE_FILES: "true"
     volumes:

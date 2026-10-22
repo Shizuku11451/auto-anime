@@ -14,15 +14,16 @@ services:
     security_opt: ["no-new-privileges:true"]
     ports:
       - "${TRIM_SERVICE_PORT}:8000"
-      - "${wizard_bt_port}:${wizard_bt_port}/tcp"
-      - "${wizard_bt_port}:${wizard_bt_port}/udp"
+      # 内置 BT 引擎在容器内固定监听 10 个连续端口 6881-6890（一个任务占一个），
+      # 宿主机端口段必须也是 10 个，两侧数量不一致 Docker 会拒绝启动。
+      - "${wizard_bt_ports:-6881-6890}:6881-6890/tcp"
+      - "${wizard_bt_ports:-6881-6890}:6881-6890/udp"
     environment:
       DB_PATH: /data/auto-anime.db
       DOWNLOAD_DIR: /data/downloads
       LIBRARY_DIR: /media
-      DOWNLOAD_MODE: builtin
-      QBITTORRENT_DATA_DIR: /data/qbittorrent
-      QBITTORRENT_BT_PORT: "${wizard_bt_port}"
+      DOWNLOAD_MODE: native
+      NATIVE_BT_PORT: "6881"
       KEEP_SOURCE_FILES: "${wizard_keep_source}"
     volumes:
       - "${TRIM_PKGVAR}:/data"

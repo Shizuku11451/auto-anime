@@ -14,4 +14,4 @@ service_port               = 8000
 checkport                  = true
 ctl_stop                   = true
 disable_authorization_path = false
-changelog                  = 按授权目录挂载媒体，隔离宿主应用配置，支持目录读写检测与非 root 自更新。
+changelog                  = 按授权目录挂载媒体，隔离宿主应用配置，支持目录读写检测与非 root 自更新；BT 由程序内置引擎下载，镜像不再需要 qBittorrent。

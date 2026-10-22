@@ -7,14 +7,14 @@ const source = readFileSync(new URL('./generator.js', import.meta.url), 'utf8')
 const generate = runInNewContext(source + '\n generateCompose')
 const defaults = { custom: false, path: '', port: '8000', bt: '6881' }
 
-test('默认配置保留独立数据目录，网页端口只映射到 8000，BT 三处一致', () => {
+test('默认配置保留独立数据目录，网页端口只映射到 8000，BT 端口段三处一致', () => {
   const yaml = generate({ ...defaults, port: '18000', bt: '16881' })
   assert.ok(yaml.includes('source: "./media"'))
   assert.ok(yaml.includes('./data:/data'))
   assert.ok(yaml.includes('"18000:8000"'))
-  assert.ok(yaml.includes('"16881:16881/tcp"'))
-  assert.ok(yaml.includes('"16881:16881/udp"'))
-  assert.ok(yaml.includes('QBITTORRENT_BT_PORT: "16881"'))
+  assert.ok(yaml.includes('"16881-16890:16881-16890/tcp"'))
+  assert.ok(yaml.includes('"16881-16890:16881-16890/udp"'))
+  assert.ok(yaml.includes('NATIVE_BT_PORT: "16881"'))
   assert.ok(yaml.includes('KEEP_SOURCE_FILES: "true"'))
 })
 
@@ -34,6 +34,10 @@ test('无效路径和端口无法生成可部署配置', () => {
   for (const port of ['', '0', '65536', '12.5', '8000:80', '6881']) {
     assert.throws(() => generate({ ...defaults, port }))
   }
+  // 网页端口落在 BT 端口段里，或 BT 端口段越过 65535 上限，都不能生成配置。
+  assert.throws(() => generate({ ...defaults, port: '8005', bt: '8000' }))
+  assert.throws(() => generate({ ...defaults, port: '8000', bt: '65530' }))
+  assert.ok(generate({ ...defaults, port: '8000', bt: '65526' }).includes('"65526-65535:65526-65535/tcp"'))
 })
 
 test('可以关闭原文件保留，默认开启', () => {

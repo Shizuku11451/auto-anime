@@ -45,8 +45,8 @@ func TestDefaultDataDirFollowsPlatform(t *testing.T) {
 	}
 }
 
-// 下载方式默认值按平台取值：Windows 自带进程内 BT 下载器，容器/Linux 仍由
-// 部署配置选择 builtin，源码运行走 direct。
+// 下载方式默认值按平台取值：Windows 自带进程内 BT 下载器；容器镜像由
+// docker-compose 显式传 DOWNLOAD_MODE=native，源码运行走 direct。
 func TestDefaultDownloadModeFollowsPlatform(t *testing.T) {
 	want := "direct"
 	if runtime.GOOS == "windows" {
@@ -88,13 +88,12 @@ func TestDefaultLibraryDirFollowsPlatform(t *testing.T) {
 	}
 }
 
-// 当前模式不是 builtin、但库里有旧的内置条目时，Windows 上只告警，不改写当前模式。
+// 当前模式不是 builtin、但库里有旧的内置条目时只告警，不改写当前模式。
 func TestEmbeddedQBittorrentKeepsModeWithBuiltinItems(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("仅 Windows Release 不带内置 qBittorrent")
-	}
 	testDatabase(t)
-	t.Setenv("QBITTORRENT_PATH", "")
+	// 指向不存在的可执行文件，让「精简镜像/单文件版不带 qBittorrent」在
+	// 所有平台上都是确定结果，而不是取决于测试机 PATH 里有没有 qbittorrent-nox。
+	t.Setenv("QBITTORRENT_PATH", filepath.Join(t.TempDir(), "missing-qbit"))
 	oldMode := downloadMode
 	t.Cleanup(func() { downloadMode = oldMode })
 

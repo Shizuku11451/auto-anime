@@ -10,7 +10,7 @@
 
 ## 安装与目录选择
 
-1. 在「应用中心 → 手动安装」选择 `.fpk`，填写 BT 监听端口（默认 6881）和保留原文件做种（默认开启）。BT 端口不能与网页端口 8000 相同。
+1. 在「应用中心 → 手动安装」选择 `.fpk`，填写 BT 端口段（默认 `6881-6890`，必须是 10 个连续端口）和保留原文件做种（默认开启）。端口段不能包含网页端口 8000。
 2. 安装回调校验并导入包内同版本镜像；再次启动也会从本地包导入，无需下载。镜像导入完成后，最多等待 120 秒确认容器健康启动，再点击桌面入口完成网页初始化。镜像校验与导入不包含在这 120 秒内。默认整理位置是应用共享目录 `auto-anime/media`，容器内为 `/media`。
 3. 想用已有番剧目录，在「应用设置 → 访问权限」授权具体文件夹，例如 `/vol1/1000/ani`，选择读写权限。
 4. 停止并启动应用，宿主脚本读取最新授权列表并重新创建容器挂载。
@@ -22,7 +22,7 @@
 
 默认共享目录通过 `permission.ro: ["trim.photos"]` 给飞牛影视只读权限。自定义目录还需在影视自身的「访问权限」授权，Auto-Anime 的授权不会自动授予影视或其他媒体服务器。
 
-网页设置可修改做种策略，没有 BT 端口修改入口。Compose 手工部署改端口需同步端口映射与 `QBITTORRENT_BT_PORT`；FPK 使用安装向导提供的值，不建议直接修改飞牛管理的内部模板，重新安装前必须备份并核对授权。
+网页设置可修改做种策略，没有 BT 端口修改入口。内置 BT 引擎一个任务占一个端口，默认连续监听 10 个（`NATIVE_BT_PORT_RANGE`），宿主机侧必须映射同样多的端口；Compose 手工部署改端口需同时改 TCP/UDP 两行端口映射与 `NATIVE_BT_PORT`。FPK 使用安装向导提供的端口段，不建议直接修改飞牛管理的内部模板，重新安装前必须备份并核对授权。
 
 安装或启动失败时，应用中心会收到分类中文提示：镜像访问被拒绝、版本/架构缺失、仓库网络失败、端口占用、存储/权限异常、Docker 不可用或容器健康失败。完整 Docker 输出在 `/var/log/apps/auto-anime.log`，弹窗不复制原始输出或凭据。网络错误先检查 NAS 的 DNS 与镜像获取配置，网页代理不能帮助 Docker 拉取；不要通过删除数据库或媒体目录处理启动失败。分享日志前检查并脱敏。
 
@@ -71,7 +71,7 @@ deploy/fnos/build-fpk.sh 1.2.0
 命令行安装需要 root：
 
 ```bash
-printf 'wizard_bt_port=6881\nwizard_keep_source=true\n' > /tmp/aa-install.env
+printf 'wizard_bt_ports=6881-6890\nwizard_keep_source=true\n' > /tmp/aa-install.env
 sudo appcenter-cli install-fpk --volume 1 --env /tmp/aa-install.env /vol1/1000/auto-anime-1.2.0-fnos.fpk
 sudo appcenter-cli status auto-anime
 sudo appcenter-cli start auto-anime
@@ -83,11 +83,11 @@ sudo appcenter-cli start auto-anime
 
 ### 自带镜像试验
 
-Actions 的 `FPK offline test` 手动流程生成独立应用 `auto-anime-offline`，网页端口 18015、BT 默认 16895，仅针对 x86-64 飞牛。包内携带正式 `0.0.1` 的 amd64 镜像，不代表新程序版本；安装校验 SHA-256 后通过 `docker load` 导入，使用 `pull_policy: never` 禁止联网拉取。仍需预装并启动飞牛 Docker，包下载、解包及镜像导入需要额外空间。该流程不替换正式 FPK 或发布镜像，该独立试验包已构建成功并获用户安装反馈；正式新版本安装与升级仍需逐版本验收。
+Actions 的 `FPK offline test` 手动流程生成独立应用 `auto-anime-offline`，网页端口 18015、BT 默认 16895-16904，仅针对 x86-64 飞牛。包内携带正式 `0.0.1` 的 amd64 镜像，不代表新程序版本；安装校验 SHA-256 后通过 `docker load` 导入，使用 `pull_policy: never` 禁止联网拉取。仍需预装并启动飞牛 Docker，包下载、解包及镜像导入需要额外空间。该流程不替换正式 FPK 或发布镜像，该独立试验包已构建成功并获用户安装反馈；正式新版本安装与升级仍需逐版本验收。
 
 Linux 打包脚本可通过 `IMAGE_ARCHIVE` 指定对应镜像引用的 `docker save` gzip 文件；未指定时保持原在线包行为。当前 PowerShell 打包入口尚未提供该选项。自带镜像在应用目录内保留以供再次启动导入，不属于数据库或媒体备份。
 
-正式包保持 `auto-anime` 标识、网页端口 8000、默认 BT 端口 6881。它与 `auto-anime-offline` 测试应用数据独立，不会自动迁移测试应用数据；两者共用媒体前须核实目录与写入任务。已有正式应用升级前备份数据，图形升级尚需验收。
+正式包保持 `auto-anime` 标识、网页端口 8000、默认 BT 端口段 6881-6890。它与 `auto-anime-offline` 测试应用数据独立，不会自动迁移测试应用数据；两者共用媒体前须核实目录与写入任务。已有正式应用升级前备份数据，图形升级尚需验收。
 
 生命周期脚本、包权限、checksum 和公开镜像门槛有自动化测试；这不代表正式 GitHub Release、无缓存图形安装或升级已验收。安装前检查实际 Release 的说明与附件，不使用内部 `installcheck` 或 `review` 测试包作为正式制品。
 

@@ -3,20 +3,33 @@
 # 安装前校验向导输入。失败时把用户可见的错误写进 TRIM_TEMP_LOGFILE 并以非零状态退出。
 : "${TRIM_TEMP_LOGFILE:=/dev/null}"
 
-bt_port="${wizard_bt_port:-}"
+# 内置 BT 引擎在容器内固定监听 10 个连续端口，宿主机端口段长度必须一致，
+# 否则 Docker 会以「两侧端口数量不同」拒绝启动。这里与 docker-compose.yaml 的
+# 6881-6890 和 NATIVE_BT_PORT 必须保持同一套约定。
+bt_ports="${wizard_bt_ports:-6881-6890}"
+service_port="${TRIM_SERVICE_PORT:-8000}"
 
-if ! printf '%s' "$bt_port" | grep -Eq '^[0-9]{1,5}$'; then
-    echo "BT 监听端口必须是数字，当前值：${bt_port}" > "$TRIM_TEMP_LOGFILE"
+# 不接受前导零：写进 Compose 的端口值原样交给 Docker，06881 这类写法会被拒绝。
+if ! printf '%s' "$bt_ports" | grep -Eq '^[1-9][0-9]{0,4}-[1-9][0-9]{0,4}$'; then
+    echo "BT 端口段格式应为 起始-结束（如 6881-6890），两端都是 1-65535 的整数，当前值：${bt_ports}" > "$TRIM_TEMP_LOGFILE"
     exit 1
 fi
 
-if [ "$bt_port" -lt 1 ] || [ "$bt_port" -gt 65535 ]; then
-    echo "BT 监听端口需在 1-65535 之间，当前值：${bt_port}" > "$TRIM_TEMP_LOGFILE"
+bt_start="${bt_ports%%-*}"
+bt_end="${bt_ports##*-}"
+
+if [ "$bt_end" -gt 65535 ]; then
+    echo "BT 端口段需在 1-65535 之间，当前值：${bt_ports}" > "$TRIM_TEMP_LOGFILE"
     exit 1
 fi
 
-if [ "$bt_port" -eq "${TRIM_SERVICE_PORT:-8000}" ]; then
-    echo "BT 监听端口不能与网页端口 ${TRIM_SERVICE_PORT:-8000} 相同" > "$TRIM_TEMP_LOGFILE"
+if [ "$((bt_end - bt_start))" -ne 9 ]; then
+    echo "BT 端口段必须是 10 个连续端口（如 6881-6890），当前值：${bt_ports}" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+fi
+
+if [ "$bt_start" -le "$service_port" ] && [ "$service_port" -le "$bt_end" ]; then
+    echo "BT 端口段不能包含网页端口 ${service_port}，当前值：${bt_ports}" > "$TRIM_TEMP_LOGFILE"
     exit 1
 fi
 

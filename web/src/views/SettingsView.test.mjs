@@ -55,16 +55,21 @@ function setup() {
   return { state, data, writes, location, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
 }
 
-test('Windows 显示内置 BT 下载器，其他平台不显示', async () => {
+test('内置 BT 下载器在所有平台都可选，库里存的列表外旧值也不丢', async () => {
   const h = setup()
   await h.state.load()
-  assert.equal(h.state.availableModes.value.includes('native'), false)
+  // 容器镜像默认 DOWNLOAD_MODE=native，Linux 上同样要能选到 native。
+  assert.equal(h.state.availableModes.value.includes('native'), true)
+  assert.equal(h.state.availableModes.value.includes('builtin'), true)
   h.data.os = 'windows'
   h.data.download_mode = 'native'
   await h.state.load()
   assert.equal(h.state.form.download_mode, 'native')
-  assert.equal(h.state.availableModes.value.includes('native'), true)
-  assert.equal(h.state.availableModes.value.includes('builtin'), true)
+  // 界面列表里没有的旧值必须保留，不能在保存时被悄悄改掉。
+  h.data.download_mode = 'legacy-mode'
+  await h.state.load()
+  assert.equal(h.state.form.download_mode, 'legacy-mode')
+  assert.equal(h.state.availableModes.value.includes('legacy-mode'), true)
 })
 
 test('设置未读取或读取失败时不得提交默认值，重试成功后才允许保存', async () => {

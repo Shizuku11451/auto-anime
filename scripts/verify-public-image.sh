@@ -58,14 +58,15 @@ for arch in amd64 arm64; do
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as source:
     status = json.load(source)
-assert status['required'] is True and status['download_mode'] == 'builtin', 'Fresh setup must retain builtin downloader'
+assert status['required'] is True and status['download_mode'] == 'native', 'Fresh setup must default to the builtin BT engine'
 PY
+  # 内置 BT 引擎跑在应用进程内，没有独立进程可查；会话就绪时会打印监听端口。
   downloader_ready=false
   for attempt in $(seq 1 15); do
-    if docker exec "$container" pgrep -f '[q]bittorrent-nox' >/dev/null; then downloader_ready=true; break; fi
+    if docker logs "$container" 2>&1 | grep -q '内置 BT 下载器已就绪'; then downloader_ready=true; break; fi
     sleep 2
   done
-  [ "$downloader_ready" = true ] || { echo "linux/$arch 内置下载器未启动" >&2; exit 1; }
+  [ "$downloader_ready" = true ] || { echo "linux/$arch 内置 BT 下载器未启动" >&2; exit 1; }
   docker rm -f "$container" >/dev/null
   container=''
 done

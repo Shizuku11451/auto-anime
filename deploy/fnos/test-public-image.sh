@@ -23,9 +23,10 @@ docker() {
       else printf 'mock-container\n'; fi ;;
     inspect) if [ "$TEST_FAILURE" = health ]; then printf 'unhealthy\n'; else printf 'healthy\n'; fi ;;
     exec)
-      if [ "$3" = pgrep ]; then [ "$TEST_FAILURE" != downloader ]; else
-        if [ "$TEST_FAILURE" = setup ]; then printf '{"required":false,"download_mode":"direct"}'; else printf '{"required":true,"download_mode":"builtin"}'; fi
-      fi ;;
+      if [ "$TEST_FAILURE" = setup ]; then printf '{"required":false,"download_mode":"direct"}'; else printf '{"required":true,"download_mode":"native"}'; fi ;;
+    logs)
+      [ "$TEST_FAILURE" != downloader ] || return 1
+      printf '内置 BT 下载器已就绪，监听 TCP 6881-6890、UDP 6881\n' ;;
     rm) return 0 ;;
     *) return 99 ;;
   esac

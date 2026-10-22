@@ -37,7 +37,7 @@ jobs:
           p = root / 'manifest'
           p.write_text(p.read_text(encoding='utf-8').replace('= auto-anime.Application', '= auto-anime-offline.Application'), encoding='utf-8')
           p = root / 'wizard/install'
-          p.write_text(p.read_text(encoding='utf-8').replace('"6881"', '"16895"'), encoding='utf-8')
+          p.write_text(p.read_text(encoding='utf-8').replace('"6881-6890"', '"16895-16904"'), encoding='utf-8')
           p = root / 'app/docker/docker-compose.yaml'
           p.write_text(p.read_text(encoding='utf-8').replace('/var/apps/auto-anime/', '/var/apps/auto-anime-offline/'), encoding='utf-8')
           PY
@@ -54,7 +54,7 @@ jobs:
           bash deploy/fnos/build-fpk.sh "0.0.1-offline.${GITHUB_RUN_NUMBER}" 0.0.1
           cd dist/fnos
           sha256sum *.fpk > checksums.txt
-          printf '%s\n' '独立测试应用 auto-anime-offline；网页18015，BT16895。' \
+          printf '%s\n' '独立测试应用 auto-anime-offline；网页18015，BT16895-16904。' \
             '自带正式0.0.1的Linux amd64镜像；不是新程序版本。' \
             '需要飞牛 Docker；不覆盖正式应用。尚未完成 NAS 安装验收。' > BUILD_INFO.txt
       - uses: actions/upload-artifact@v4

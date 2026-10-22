@@ -1,3 +1,6 @@
+// 与后端 NATIVE_BT_PORT_RANGE 的默认值保持一致：BT 引擎默认连续监听 10 个端口。
+const BT_PORT_COUNT = 10;
+
 function generateCompose(options) {
   const custom = options.custom;
   const path = options.path.trim();
@@ -6,8 +9,18 @@ function generateCompose(options) {
   }
   const port = Number(options.port);
   const bt = Number(options.bt);
-  if (![port, bt].every(n => Number.isInteger(n) && n >= 1 && n <= 65535) || port === bt) {
-    throw new Error('端口须为 1 到 65535 的整数，网页与 BT 端口不能相同。');
+  if (![port, bt].every(n => Number.isInteger(n) && n >= 1 && n <= 65535)) {
+    throw new Error('端口须为 1 到 65535 的整数。');
+  }
+  // 内置 BT 引擎一个下载任务占一个端口，默认连续监听 BT_PORT_COUNT 个（与
+  // NATIVE_BT_PORT_RANGE 的默认值一致）。宿主机侧必须映射同样多的端口，
+  // 两侧数量不一致 Docker 会拒绝启动。
+  const btEnd = bt + BT_PORT_COUNT - 1;
+  if (btEnd > 65535) {
+    throw new Error(`BT 端口需要 ${BT_PORT_COUNT} 个连续端口，起始端口不能大于 ${65535 - BT_PORT_COUNT + 1}。`);
+  }
+  if (port >= bt && port <= btEnd) {
+    throw new Error(`网页端口不能落在 BT 端口段 ${bt}-${btEnd} 内。`);
   }
   // Compose performs environment interpolation even inside quoted YAML.
   const source = JSON.stringify((custom ? path : './media').replace(/\$/g, '$$$$'));
@@ -20,15 +33,15 @@ services:
     stop_grace_period: 45s
     ports:
       - "${port}:8000"
-      - "${bt}:${bt}/tcp"
-      - "${bt}:${bt}/udp"
+      # BT 连续 10 个端口（一个任务占一个），两侧数量必须一致。
+      - "${bt}-${btEnd}:${bt}-${btEnd}/tcp"
+      - "${bt}-${btEnd}:${bt}-${btEnd}/udp"
     environment:
       DB_PATH: /data/auto-anime.db
       DOWNLOAD_DIR: /data/downloads
       LIBRARY_DIR: /media
-      DOWNLOAD_MODE: builtin
-      QBITTORRENT_DATA_DIR: /data/qbittorrent
-      QBITTORRENT_BT_PORT: "${bt}"
+      DOWNLOAD_MODE: native
+      NATIVE_BT_PORT: "${bt}"
       KEEP_SOURCE_FILES: "${options.keepSource !== false}"
     volumes:
       - ./data:/data

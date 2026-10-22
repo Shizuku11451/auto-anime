@@ -56,14 +56,14 @@ function setup() {
 function response(body, ok = true) { return { ok, json: async () => body, text: async () => '模拟失败' } }
 function account(h) { Object.assign(h.state.form, { user: '测试用户', pass: 'test-password', pass2: 'test-password' }) }
 
-test('Windows 首次向导接受并显示内置 BT 下载器', async () => {
+test('首次向导在容器上接受并显示内置 BT 下载器', async () => {
   const h = setup()
   h.status(async () => response({
     required: true,
     download_mode: 'native',
-    os: 'windows',
-    library_dir: 'D:\\番剧',
-    download_dir: 'D:\\Auto-Anime\\data\\downloads',
+    os: 'linux',
+    library_dir: '/media',
+    download_dir: '/data/downloads',
     keep_source_files: true,
   }))
   await h.state.loadStatus()

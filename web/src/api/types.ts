@@ -376,7 +376,7 @@ export type DownloadMode = 'native' | 'builtin' | 'direct' | 'aria2' | 'qbittorr
 
 export const MODE_LABEL: Record<string, string> = {
   native: '内置 BT 下载器',
-  builtin: '内置 qBittorrent',
+  builtin: '内置 qBittorrent（旧版）',
   direct: '本地直链',
   aria2: 'Aria2',
   qbittorrent: '外部 qBittorrent',

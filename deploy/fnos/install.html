@@ -171,8 +171,9 @@ html[data-theme="light"] {
       <p>默认保留原文件与整理后的番剧两份。关闭后，归档成功才停止任务并清理源文件；也可在安装后的设置页修改。</p>
       <details><summary>端口设置（冲突时修改）</summary><div class="row">
         <label>网页端口<input name="port" type="number" value="8000" min="1" max="65535"></label>
-        <label>BT 端口<input name="bt" type="number" value="6881" min="1" max="65535"></label>
-      </div></details>
+        <label>BT 起始端口<input name="bt" type="number" value="6881" min="1" max="65526"></label>
+      </div>
+      <p>内置 BT 引擎会从起始端口起连续使用 10 个端口（一个下载任务占一个），网页端口不能落在这一段里。</p></details>
     </form>
   </section>
   <section><h2>2. 复制到飞牛</h2>
@@ -182,11 +183,14 @@ html[data-theme="light"] {
     <div class="row"><button id="copy" class="primary" type="button">复制完整配置</button><button id="download" type="button">下载配置文件</button></div>
   </section>
   <section><h2>3. 启动后打开网页</h2>
-    <p>访问 http://NAS局域网IP:网页端口，创建账户，保留内置 qBittorrent。媒体目录自动使用 /media，点击「检测保存目录」确认挂载和写权限。</p>
+    <p>访问 http://NAS局域网IP:网页端口，创建账户，保留内置 BT 下载器。媒体目录自动使用 /media，点击「检测保存目录」确认挂载和写权限。</p>
     <p>归档时仍需同时容纳源文件与整理后的番剧，请预留空间。此配置用于新安装；已有安装请保留原数据映射，改目录不会搬迁旧视频。</p>
     <p>镜像拉取需要 NAS 能访问 GHCR；本页不会部署容器，也不会修改 NAS 文件。</p>
   </section>
-</main><script>function generateCompose(options) {
+</main><script>// 与后端 NATIVE_BT_PORT_RANGE 的默认值保持一致：BT 引擎默认连续监听 10 个端口。
+const BT_PORT_COUNT = 10;
+
+function generateCompose(options) {
   const custom = options.custom;
   const path = options.path.trim();
   if (custom && (!path.startsWith('/') || path === '/' || path.length > 4096 || /[\x00-\x1f\x7f\\]/.test(path) || path.split('/').some(part => part === '.' || part === '..'))) {
@@ -194,8 +198,18 @@ html[data-theme="light"] {
   }
   const port = Number(options.port);
   const bt = Number(options.bt);
-  if (![port, bt].every(n => Number.isInteger(n) && n >= 1 && n <= 65535) || port === bt) {
-    throw new Error('端口须为 1 到 65535 的整数，网页与 BT 端口不能相同。');
+  if (![port, bt].every(n => Number.isInteger(n) && n >= 1 && n <= 65535)) {
+    throw new Error('端口须为 1 到 65535 的整数。');
+  }
+  // 内置 BT 引擎一个下载任务占一个端口，默认连续监听 BT_PORT_COUNT 个（与
+  // NATIVE_BT_PORT_RANGE 的默认值一致）。宿主机侧必须映射同样多的端口，
+  // 两侧数量不一致 Docker 会拒绝启动。
+  const btEnd = bt + BT_PORT_COUNT - 1;
+  if (btEnd > 65535) {
+    throw new Error(`BT 端口需要 ${BT_PORT_COUNT} 个连续端口，起始端口不能大于 ${65535 - BT_PORT_COUNT + 1}。`);
+  }
+  if (port >= bt && port <= btEnd) {
+    throw new Error(`网页端口不能落在 BT 端口段 ${bt}-${btEnd} 内。`);
   }
   // Compose performs environment interpolation even inside quoted YAML.
   const source = JSON.stringify((custom ? path : './media').replace(/\$/g, '$$$$'));
@@ -208,15 +222,15 @@ services:
     stop_grace_period: 45s
     ports:
       - "${port}:8000"
-      - "${bt}:${bt}/tcp"
-      - "${bt}:${bt}/udp"
+      # BT 连续 10 个端口（一个任务占一个），两侧数量必须一致。
+      - "${bt}-${btEnd}:${bt}-${btEnd}/tcp"
+      - "${bt}-${btEnd}:${bt}-${btEnd}/udp"
     environment:
       DB_PATH: /data/auto-anime.db
       DOWNLOAD_DIR: /data/downloads
       LIBRARY_DIR: /media
-      DOWNLOAD_MODE: builtin
-      QBITTORRENT_DATA_DIR: /data/qbittorrent
-      QBITTORRENT_BT_PORT: "${bt}"
+      DOWNLOAD_MODE: native
+      NATIVE_BT_PORT: "${bt}"
       KEEP_SOURCE_FILES: "${options.keepSource !== false}"
     volumes:
       - ./data:/data

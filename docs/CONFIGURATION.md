@@ -19,7 +19,7 @@
 | `LIBRARY_DIR` | Windows 程序同级 `media\`；其它平台空 | 媒体根目录（番剧文件夹的父目录）；飞牛模板显式设为 `/media`，Windows 清空界面设置时回退下载目录 |
 | `COVERS_DIR` | 数据库同级 `covers` | 本地封面缓存 |
 | `PORT` | `8000` | HTTP 监听端口；桌面模式仅回环，服务模式不限定回环 |
-| `DOWNLOAD_MODE` | Windows `native`；其它源码 `direct`；Docker 显式 `builtin` | Windows 单文件默认内置 BT 下载器；桌面包可切换 `builtin` 回退，数据库值优先 |
+| `DOWNLOAD_MODE` | Windows 与容器 `native`；其它源码 `direct` | 内置 BT 下载器；Windows 桌面包可切换 `builtin` 回退，数据库值优先 |
 | `POLL_MINUTES` | `30` | RSS 同步间隔，分钟，最小 5 |
 | `DOWNLOADER_POLL_SECONDS` | `10` | 下载器轮询间隔，秒，最小 5 |
 | `KEEP_SOURCE_FILES` | `true` | 归档成功后保留下载器源文件做种 |
@@ -41,8 +41,8 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 
 | 值 | 用途 |
 | --- | --- |
-| `native` | 进程内纯 Go BT 引擎；Windows 默认，无需 qBittorrent |
-| `builtin` | 私有内置 qBittorrent 处理 BT；Docker/Linux 默认，Windows 可作为旧版回退 |
+| `native` | 进程内纯 Go BT 引擎；容器镜像与 Windows 默认，无需 qBittorrent |
+| `builtin` | 私有内置 qBittorrent 处理 BT；旧版回退，镜像与 Windows 单文件版都不再随包提供 |
 | `direct` | HTTP(S) 文件，磁力和种子进入等待下载器状态 |
 | `qbittorrent` | 外部 qBittorrent WebUI API |
 | `aria2` | 外部 Aria2 JSON-RPC |
@@ -50,7 +50,7 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 
 切换默认模式只影响后续提交，已有任务按原下载器身份跟踪。内置与外部 qBittorrent 配置相互独立，不接管其他客户端任务；`native` 与 `builtin` 也使用独立任务身份，旧 `builtin` 任务不会自动迁移。
 
-### 内置 BT 下载器（Windows 默认）
+### 内置 BT 下载器（默认）
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 | `NATIVE_BT_PORT_RANGE` | `10` | 监听端口数量，1–100；限制同时驻留的 BT 任务数，不限制累计任务数 |
 | `NATIVE_DHT_PORT` | 同 `NATIVE_BT_PORT` | DHT UDP 端口 |
 
-Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。新任务源文件在 `data\bt\downloads\<infohash-条目ID>\`，相同种子的不同条目独立下载和控制；旧 `<infohash>` 目录继续兼容，不自动搬迁。归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后释放会话状态，再按安全条件清理源文件，避免旧完成状态误用到重新创建的文件。
+Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`，容器镜像用 `DOWNLOAD_MODE=native` 显式指定，源码运行仍是 `direct`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。新任务源文件在数据目录的 `bt/downloads/<infohash-条目ID>/`（Windows 为 `data\bt\downloads\`，容器为 `/data/bt/downloads/`），相同种子的不同条目独立下载和控制；旧 `<infohash>` 目录继续兼容，不自动搬迁。归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后释放会话状态，再按安全条件清理源文件，避免旧完成状态误用到重新创建的文件。
 
 暂停保留任务身份与续传信息；取消/移除记录会释放会话和端口，但不删除源文件。端口不足时，已暂停任务和已归档的做种任务可卸载到 `session.db`，源文件不变；活动下载不会被挤出，超出容量的新任务等待端口。暂停任务继续时从会话恢复，不必重新访问种子 URL。被卸载的历史做种不会在本轮运行中自动抢回端口，下次启动会在容量允许时恢复。旧版若多个条目共用同一任务，独立暂停/继续会被拒绝并提示移除重复记录（保留媒体）；存在已暂停共用条目时，后台轮询也不会自动重启该任务。
 
@@ -67,12 +67,12 @@ Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`。BT 流量直连，不套�
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `QBITTORRENT_DATA_DIR` | 数据库同级 `qbittorrent` | 配置、私有凭据、会话与源文件；镜像显式 `/data/qbittorrent` |
+| `QBITTORRENT_DATA_DIR` | 数据库同级 `qbittorrent` | 配置、私有凭据、会话与源文件 |
 | `QBITTORRENT_PATH` | 自动查找 | 显式可执行路径；Windows 优先程序同级 `qbittorrent/`，再查 PATH 的 `qbittorrent-nox` |
 | `EMBEDDED_QBIT_PORT` | `8080` | 私有 WebUI，仅回环监听，Docker 无需映射 |
 | `QBITTORRENT_BT_PORT` | `6881` | BT / DHT 端口，应与 TCP、UDP 映射一致 |
 
-Windows 可使用 `qbittorrent.exe` 或 `qbittorrent-nox.exe`。找不到可执行文件时告警，当前 `builtin` 新任务临时改用 `native`，不改写旧任务归属；旧 `builtin` 任务仍需要 qBittorrent 才能继续跟踪。`profile/` 保存恢复配置，`downloads/` 保存源文件；凭据不进入设置响应或 JSON 备份。
+Windows 可使用 `qbittorrent.exe` 或 `qbittorrent-nox.exe`，容器/Linux 查找 PATH 里的 `qbittorrent-nox`。镜像与 Windows 单文件版都不再随包提供，找不到可执行文件时只告警：当前 `builtin` 新任务临时改用 `native`，不改写旧任务归属；旧 `builtin` 任务仍需要 qBittorrent 才能继续跟踪。`profile/` 保存恢复配置，`downloads/` 保存源文件；凭据不进入设置响应或 JSON 备份。
 
 运行中退出后按 2、4、8、16、32、60 秒退避恢复，连续运行 5 分钟重置退避。WebUI 就绪后给予旧任务 90 秒恢复等待，保留任务 ID、暂停与进度；超时不存在才报错，不自动重提。健康检查在内置下载器恢复过程中可能返回 503，管理页面仍可访问。Compose 为正常退出留出 45 秒。
 

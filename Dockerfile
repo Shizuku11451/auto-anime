@@ -17,7 +17,8 @@ RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit
 # 直接编译整个包（含测试文件）并跑静态检查，避免发布一个连测试都编译不过的镜像
 RUN go vet ./...
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates qbittorrent-nox tini
+# 镜像不再随包 qBittorrent：BT 由程序内置的纯 Go 引擎（DOWNLOAD_MODE=native）处理。
+RUN apk add --no-cache ca-certificates tini
 WORKDIR /app
 ARG VERSION=dev
 ARG COMMIT=unknown
@@ -27,9 +28,10 @@ RUN { echo "version=${VERSION}"; echo "commit=${COMMIT}"; } > /app/meta.env
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
     && chmod -R a+rX /app \
-    && mkdir -p /data/downloads /data/qbittorrent
-ENV DOWNLOAD_MODE=builtin QBITTORRENT_DATA_DIR=/data/qbittorrent
+    && mkdir -p /data/downloads /data/bt
+ENV DOWNLOAD_MODE=native NATIVE_BT_PORT=6881
 EXPOSE 8000
+# BT 引擎默认使用 10 个连续端口（6881-6890），实际映射由部署配置的 ports 决定。
 EXPOSE 6881/tcp 6881/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://127.0.0.1:8000/api/health || exit 1
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]

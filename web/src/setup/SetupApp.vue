@@ -11,7 +11,7 @@ import { isWindows } from '@/utils/platform'
 
 const STEPS = [
   { key: 'account', title: '管理员账户', icon: UserRound, hint: '建议创建账户，保护订阅与下载管理；这是 Auto-Anime 的账户，与 NAS 账户无关。' },
-  { key: 'download', title: '下载方式', icon: HardDrive, hint: 'Docker 默认使用内置 qBittorrent，也可连接已有下载器或选择本地直链。' },
+  { key: 'download', title: '下载方式', icon: HardDrive, hint: '默认使用内置 BT 下载器，也可连接已有下载器或选择本地直链。' },
   { key: 'storage', title: '保存目录', icon: FolderOpen, hint: '选择整理好的番剧放在哪里，飞牛影视、Emby 或 Jellyfin 扫描这个目录。' },
   { key: 'network', title: '确认并开始', icon: Globe, hint: '已沿用部署配置；未配置时默认直连、每 30 分钟同步。确认后即可开始添加订阅。' },
 ] as const
@@ -24,13 +24,13 @@ const currentHint = computed(() => {
   if (current.value.key === 'download') {
     return isWindowsOS.value
       ? 'Windows 默认使用内置 BT 下载器，也可选择随包 qBittorrent、已有下载器或本地直链。'
-      : 'Docker 默认使用内置 qBittorrent，也可连接已有下载器或选择本地直链。'
+      : 'Docker 默认使用内置 BT 下载器，也可连接已有下载器或选择本地直链。'
   }
   return current.value.hint
 })
 const ALL_MODES = ['native', 'builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const availableModes = computed(() => {
-  const modes: string[] = isWindowsOS.value ? [...ALL_MODES] : ALL_MODES.filter(m => m !== 'native')
+  const modes: string[] = [...ALL_MODES]
   if (form.mode && !modes.includes(form.mode)) modes.push(form.mode)
   return modes
 })
@@ -454,10 +454,10 @@ function enterPanel() {
                 </div>
               </div>
               <p v-if="form.mode === 'native'" key="native" class="field-hint direct-hint">
-                程序内置 BT 引擎，无需安装 qBittorrent；磁力与种子由本程序下载，任务和续传数据保存在数据目录的 bt 子目录，重启后继续。
+                程序内置 BT 引擎，无需安装 qBittorrent；磁力与种子由本程序下载，任务和续传数据保存在数据目录的 bt 子目录，重启后继续。容器部署需已映射 BT 端口段（默认 6881-6890）。
               </p>
               <p v-else-if="form.mode === 'builtin'" key="builtin" class="field-hint direct-hint">
-                {{ isWindowsOS ? '旧版内置 qBittorrent 回退，需要程序目录中的 qbittorrent\\ 或设置 QBITTORRENT_PATH。' : '镜像已包含 qBittorrent，由程序自动启动和连接，无需填写地址或密码。' }}任务与续传数据保存在数据目录，重启后继续下载。
+                {{ isWindowsOS ? '旧版内置 qBittorrent 回退，需要程序目录中的 qbittorrent\\ 或设置 QBITTORRENT_PATH。' : '旧版内置 qBittorrent 回退，需要容器内存在 qbittorrent-nox 并设置 QBITTORRENT_PATH；当前镜像不再随包提供。' }}任务与续传数据保存在数据目录，重启后继续下载。
               </p>
               <p v-else key="direct" class="field-hint direct-hint">
                 本地直链会直接下载 HTTP/HTTPS 资源；磁力链接与种子在没有下载器时会停在「等待下载器」，之后可在设置页补充。
