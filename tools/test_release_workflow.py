@@ -64,7 +64,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('--network none', script)
         self.assertIn('--user "$uid:$gid" --cap-drop ALL', script)
         self.assertIn('[ "$uid" -ne 0 ]', script)
-        self.assertIn("pgrep -f '[q]bittorrent-nox'", script)
+        # 内置 BT 引擎跑在应用进程内，没有独立进程可查：就绪判断读容器日志，
+        # 并且必须真的断言到那行日志，不能只留一个空壳检查。
+        self.assertIn('docker logs "$container" 2>&1 | grep -q \'内置 BT 下载器已就绪\'', script)
+        self.assertNotIn('pgrep', script)
         self.assertNotIn('docker login', script)
 
 
