@@ -192,12 +192,14 @@ func TestEndToEndOneClickUpdate(t *testing.T) {
 	}
 	res.Body.Close()
 
-	// 等暂存更新包落盘（两种平台都会先写入数据目录）
+	// 等暂存更新包落盘（两种平台都会先写入数据目录）。应用先复制更新包、删掉旧记录，
+	// 再写新校验记录：只等更新包本身会出现「包已完整、记录还没写」的窗口，CI 上文件
+	// 系统慢时足以让下面的读取失败，所以这里等最后写入的校验记录。
 	staged := filepath.Join(dataDir, updateStageFileName)
-	waitForFile(staged, 60*time.Second)
-	if _, err := os.Stat(staged); err != nil {
+	record := staged + ".sha256"
+	if !waitForFile(record, 60*time.Second) {
 		st := updateStatus(client, baseURL)
-		t.Fatalf("未写入暂存更新包：%v（status=%q message=%q），日志：\n%s", err, st.Status, st.Message, readFileTail(appLog, 60))
+		t.Fatalf("未写入暂存更新包校验记录（status=%q message=%q），日志：\n%s", st.Status, st.Message, readFileTail(appLog, 60))
 	}
 
 	// Unix 上会就地替换并自动重启；Windows 无法替换运行中的文件，只会暂存。
@@ -220,7 +222,7 @@ func TestEndToEndOneClickUpdate(t *testing.T) {
 	if len(stagedBytes) != len(payloadBytes) {
 		t.Fatalf("暂存更新包大小异常：%d", len(stagedBytes))
 	}
-	recorded, err := os.ReadFile(staged + ".sha256")
+	recorded, err := os.ReadFile(record)
 	if err != nil || strings.TrimSpace(string(recorded)) != hex.EncodeToString(payloadSum[:]) {
 		t.Fatalf("校验记录不正确：%q %v", recorded, err)
 	}
