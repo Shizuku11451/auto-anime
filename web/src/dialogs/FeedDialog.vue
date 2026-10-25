@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { CircleAlert, CircleCheck, CircleHelp, Eye, Radar } from '@lucide/vue'
+import { ChevronDown, CircleAlert, CircleCheck, CircleHelp, Eye, Radar } from '@lucide/vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useDialogs } from '@/stores/dialogs'
@@ -29,6 +29,15 @@ const previewCount = ref(0)
 const seasonConfirmed = ref(false)
 const filterKey = computed(() => JSON.stringify([form.url.trim(), form.include.trim(), form.exclude.trim(), form.season, form.allowUnknown]))
 const previewReady = computed(() => previewKey.value === filterKey.value && previewCount.value > 0)
+const seasonMode = computed({
+  get: () => form.season === 0 ? '0' : form.season === -1 ? '-1' : 'specific',
+  set: (value: string) => { form.season = value === 'specific' ? Math.max(1, form.season) : Number(value) },
+})
+const filterSummary = computed(() => [
+  form.season > 0 ? `第 ${form.season} 季${form.allowUnknown ? '（含未标明）' : ''}` : form.season === -1 ? '仅季数未标明' : '不限季数',
+  form.include.trim() ? '已设包含词' : '',
+  form.exclude.trim() ? '已设排除词' : '',
+].filter(Boolean).join(' · '))
 let previewRequest = 0
 let previewController: AbortController | undefined
 let enabledAtOpen = true
@@ -226,6 +235,10 @@ async function save() {
     msg.value = '请填写归入的番剧名称，或选择番剧库中已有的番剧'
     return
   }
+  if (!Number.isInteger(form.season) || form.season < -1 || form.season > 999) {
+    msg.value = '请展开筛选规则，填写 1–999 之间的整数季号，或选择不限季数、仅季数未标明'
+    return
+  }
   const storage = form.storage.trim()
   if (storage && !isAbsolutePath(storage)) {
     msg.value = `保存位置必须是绝对路径，例如 ${pathExample.value}`
@@ -296,27 +309,17 @@ async function save() {
 <template>
   <BaseDialog :open="s.open" :title="editing ? '编辑订阅' : '添加订阅'" @close="close">
     <form @submit.prevent="save">
-      <p v-if="s.feed?.from_discover" class="field-hint">
-        {{ editing ? '此搜索源已订阅：保存将调整版本并立即同步，补入尚未收录的匹配资源。已有条目和文件保留。' : '只订阅下方规则匹配的版本，同时读取来源支持的历史页。请核对预览中的字幕组、语言和集数。' }}
+      <p v-if="s.feed?.from_discover" class="intro field-hint">
+        {{ editing ? '此 RSS 已订阅，保存将更新规则并同步，保留已有条目和文件。' : '已带入所选版本，核对下方匹配资源后即可订阅。' }}
       </p>
       <div class="field">
         <label for="f-name">订阅名称</label>
         <input id="f-name" v-model="form.name" type="text" placeholder="例如：动漫花园 · 完结动画" autofocus />
       </div>
-      <div class="field">
+      <div v-if="!s.feed?.from_discover" class="field">
         <label for="f-url">RSS 地址</label>
         <input id="f-url" v-model="form.url" type="url" placeholder="https://example.com/rss.xml" :disabled="editing" spellcheck="false" />
         <p v-if="editing" class="field-hint">编辑时不能修改地址；换源请新建订阅。</p>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="f-include">包含关键词（全部匹配，逗号分隔）</label>
-          <input id="f-include" v-model="form.include" type="text" placeholder="例如：1080p,简中" />
-        </div>
-        <div class="field">
-          <label for="f-exclude">排除关键词（任一匹配，逗号分隔）</label>
-          <input id="f-exclude" v-model="form.exclude" type="text" placeholder="例如：480p,广告" />
-        </div>
       </div>
       <div class="field">
         <label for="f-target">归入番剧</label>
@@ -324,34 +327,71 @@ async function save() {
         <datalist id="feed-anime-titles">
           <option v-for="anime in store.animes.value" :key="anime.id" :value="anime.title" />
         </datalist>
-        <p class="field-hint">选择已有番剧或填写统一名称，让不同标题的后续集数进入同一张番剧卡片；不会合并已有记录。</p>
-      </div>
-      <div class="field">
-        <label for="f-season">季数条件</label>
-        <input id="f-season" v-model.number="form.season" type="number" min="-1" max="999" step="1" />
-        <p class="field-hint">0：不限；-1：仅季数未标明；1–999：只匹配标题明确标明的该季。此条件不修改归档季号，标题季数冲突时不匹配指定季。</p>
-        <label v-if="form.season > 0" class="check"><input v-model="form.allowUnknown" type="checkbox" /> 已人工核对，同时接受季数未标明的资源</label>
-        <label v-if="s.feed?.requires_season_confirmation" class="check"><input v-model="seasonConfirmed" type="checkbox" /> 已核对原始资源，此版本确实是我要订阅的内容（不会自动指定归档季号）</label>
-      </div>
-      <div class="field">
-        <label for="f-storage">保存位置（番剧根目录）</label>
-        <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" :placeholder="`留空使用默认位置，例如 ${pathExample}`" />
-        <p class="field-hint">
-          归档时在此目录下按番剧名建立文件夹，文件按 <code>番剧名/Season 01/番剧名 - S01E01.mkv</code> 存放，不会把集数直接堆在根目录。
-          <template v-if="isWindowsOS">网络共享请确认当前用户可以写入，程序会直接使用该目录。</template>
-          <template v-else>该目录需已映射进容器，否则文件写进容器内部、NAS 上看不到。</template>
-        </p>
-        <p v-if="storagePreview" class="field-hint">
-          实际保存到：<code>{{ storagePreview }}/</code>
-          <span v-if="!saveBase">（默认位置，来自设置页「{{ defaultBaseSource }}」）</span>
-        </p>
-        <p v-else-if="saveBase" class="field-hint">填写「归入番剧」后，会在该目录下建立同名番剧文件夹。</p>
-        <p v-else class="field-hint">未读取到默认位置，请填写绝对路径，或先在设置页配置媒体库目录。</p>
+        <p class="field-hint">{{ s.feed?.from_discover ? '后续集数归入此番剧，可选择已有番剧；不会合并已有记录。' : '后续集数归入此番剧；留空自动识别，不合并已有记录。' }}</p>
       </div>
       <label class="check">
         <input v-model="form.auto" type="checkbox" />
         新条目自动发送下载
       </label>
+      <div class="options">
+        <details class="option-section">
+          <summary tabindex="0"><span>筛选规则<small>{{ filterSummary }}</small></span><ChevronDown aria-hidden="true" /></summary>
+          <div class="option-body">
+            <div class="field-row">
+              <div class="field">
+                <label for="f-include">包含关键词</label>
+                <input id="f-include" v-model="form.include" type="text" placeholder="例如：1080p,简中" />
+                <p class="field-hint">逗号分隔，需全部匹配。</p>
+              </div>
+              <div class="field">
+                <label for="f-exclude">排除关键词</label>
+                <input id="f-exclude" v-model="form.exclude" type="text" placeholder="例如：480p,广告" />
+                <p class="field-hint">逗号分隔，任一匹配即排除。</p>
+              </div>
+            </div>
+            <div class="field">
+              <label for="f-season">季数条件</label>
+              <div class="season-fields">
+                <select id="f-season" v-model="seasonMode">
+                  <option value="0">不限季数</option>
+                  <option value="-1">仅季数未标明</option>
+                  <option value="specific">指定季数</option>
+                </select>
+                <input v-if="seasonMode === 'specific'" v-model.number="form.season" aria-label="指定季号" type="number" min="1" max="999" step="1" />
+              </div>
+              <p class="field-hint">仅筛选资源，不修改归档季号；指定季数不接受其他季或冲突资源。</p>
+              <label v-if="form.season > 0" class="check"><input v-model="form.allowUnknown" type="checkbox" /> 已核对，同时接受季数未标明的资源</label>
+            </div>
+          </div>
+        </details>
+        <details class="option-section">
+          <summary tabindex="0"><span>来源与保存位置<small>{{ saveBase ? '自定义目录' : `默认${defaultBaseSource}` }}</small></span><ChevronDown aria-hidden="true" /></summary>
+          <div class="option-body">
+            <div v-if="s.feed?.from_discover" class="field">
+              <label for="f-url">RSS 地址</label>
+              <input id="f-url" v-model="form.url" type="url" placeholder="https://example.com/rss.xml" :disabled="editing" spellcheck="false" />
+              <p v-if="editing" class="field-hint">编辑时不能修改地址；换源请新建订阅。</p>
+            </div>
+            <div class="field">
+              <label for="f-storage">保存位置（番剧根目录）</label>
+              <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" :placeholder="`留空使用默认位置，例如 ${pathExample}`" />
+              <p class="field-hint">
+                按 <code>根目录/番剧名/Season 01/…</code> 归档，留空使用默认位置。
+                <template v-if="isWindowsOS">网络共享需当前用户有写入权限。</template>
+                <template v-else>自定义目录需映射进容器，否则 NAS 上看不到文件。</template>
+              </p>
+              <p v-if="storagePreview" class="field-hint">实际保存到：<code>{{ storagePreview }}/</code></p>
+              <p v-else-if="saveBase" class="field-hint">识别番剧后，在此目录下建立番剧文件夹。</p>
+              <p v-else-if="!defaultBase" class="field-hint">未读取到默认位置，请填写绝对路径，或先在设置页配置媒体库目录。</p>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div v-if="s.feed?.requires_season_confirmation" class="season-confirmation">
+        <p>此版本未标明季数，请核对原始标题。确认不会指定归档季号。</p>
+        <label class="check"><input v-model="seasonConfirmed" type="checkbox" /> 已核对，这是我要订阅的版本</label>
+      </div>
+      <h3 v-if="preview" class="preview-title">匹配预览</h3>
       <Transition name="slide-up">
         <pre v-if="preview" class="pre-box">{{ preview }}</pre>
       </Transition>
@@ -367,29 +407,32 @@ async function save() {
           <p class="avail-summary" :class="{ warn: btLinks.some((l) => availability[l]?.verdict === 'no_seeds') }">
             {{ availabilitySummary }}
           </p>
-          <ul class="avail-list">
-            <li v-for="link in btLinks" :key="link">
-              <span class="avail-badge" :class="verdictMeta[availability[link]?.verdict ?? 'unknown'].cls">
-                <CircleCheck v-if="availability[link]?.verdict === 'available'" />
-                <CircleAlert v-else-if="availability[link]?.verdict === 'no_seeds'" />
-                <CircleHelp v-else />
-                {{ verdictMeta[availability[link]?.verdict ?? 'unknown'].label }}
-                <em v-if="availability[link]?.verdict === 'available'">× {{ availability[link].seeds }}</em>
-              </span>
-              <span class="avail-name" :title="previewItems.find((i) => i.link === link)?.title">
-                {{ previewItems.find((i) => i.link === link)?.title }}
-              </span>
-            </li>
-          </ul>
-          <p class="field-hint">做种数来自资源自带 tracker 的实时汇报，仅供参考；无做种的资源保存后仍会保留任务，做种者出现时自动继续下载。</p>
+          <details class="availability-details">
+            <summary tabindex="0">查看逐条检测结果</summary>
+            <ul class="avail-list">
+              <li v-for="link in btLinks" :key="link">
+                <span class="avail-badge" :class="verdictMeta[availability[link]?.verdict ?? 'unknown'].cls">
+                  <CircleCheck v-if="availability[link]?.verdict === 'available'" />
+                  <CircleAlert v-else-if="availability[link]?.verdict === 'no_seeds'" />
+                  <CircleHelp v-else />
+                  {{ verdictMeta[availability[link]?.verdict ?? 'unknown'].label }}
+                  <em v-if="availability[link]?.verdict === 'available'">× {{ availability[link].seeds }}</em>
+                </span>
+                <span class="avail-name" :title="previewItems.find((i) => i.link === link)?.title">
+                  {{ previewItems.find((i) => i.link === link)?.title }}
+                </span>
+              </li>
+            </ul>
+            <p class="field-hint">做种数来自 tracker，仅供参考；无做种时保留任务，等待做种者上线。</p>
+          </details>
         </template>
       </div>
       <p v-if="previewKey && previewKey !== filterKey" class="field-hint">过滤规则已修改，请重新预览。</p>
-      <p class="form-msg" role="status">{{ msg }}</p>
+      <p v-if="msg" class="form-msg" role="status">{{ msg }}</p>
       <button type="submit" hidden />
     </form>
     <template #footer>
-      <BaseButton variant="ghost" :icon="Eye" :loading="previewing" @click="runPreview">预览匹配条目</BaseButton>
+      <BaseButton variant="ghost" :icon="Eye" :loading="previewing" @click="runPreview">预览</BaseButton>
       <span class="spacer" />
       <BaseButton @click="close">取消</BaseButton>
       <BaseButton variant="primary" :loading="saving" :disabled="!!s.feed?.from_discover && (!previewReady || previewing)" @click="save">{{ editing ? (s.feed?.from_discover ? '保存并同步' : '保存') : '保存并获取' }}</BaseButton>
@@ -398,9 +441,39 @@ async function save() {
 </template>
 
 <style scoped>
+.intro { margin-bottom: 16px; }
+.options { margin-bottom: 16px; border-block: 1px solid var(--line); }
+.option-section + .option-section { border-top: 1px solid var(--line); }
+.option-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.option-section > summary::-webkit-details-marker { display: none; }
+.option-section > summary span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
+.option-section small { color: var(--text-3); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+.option-section > summary svg { width: 15px; height: 15px; flex: none; color: var(--text-3); }
+.option-section[open] > summary svg { transform: rotate(180deg); }
+summary:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 2px; border-radius: var(--r-sm); }
+.option-body { padding: 4px 0; }
+.option-body .field-hint { overflow-wrap: anywhere; }
+.season-fields { display: flex; gap: 8px; }
+.season-fields select { flex: 1; min-width: 0; }
+.season-fields input { width: 90px; }
+.season-confirmation { padding: 12px; margin-bottom: 16px; border-radius: var(--r-sm); background: var(--amber-soft); color: var(--amber); font-size: 12px; line-height: 1.6; }
+.season-confirmation .check { margin: 8px 0 0; align-items: flex-start; }
+.season-confirmation input { flex: none; margin-top: 4px; }
+.preview-title { margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+.availability-details > summary { cursor: pointer; font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
 .pre-box {
   margin: 0 0 12px;
-  max-height: 240px;
+  max-height: 180px;
   overflow: auto;
 }
 

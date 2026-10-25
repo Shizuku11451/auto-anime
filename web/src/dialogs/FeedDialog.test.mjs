@@ -10,7 +10,7 @@ import * as vue from 'vue'
 // responses, including late responses from a request whose signal was aborted.
 const source = readFileSync(new URL('./FeedDialog.vue', import.meta.url), 'utf8')
 const setup = parse(source).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(setup + '\nexport { form, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase, seasonConfirmed, previewReady };', {
+const compiled = ts.transpileModule(setup + '\nexport { form, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase, seasonConfirmed, previewReady, seasonMode, filterSummary, msg };', {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const flush = () => new Promise((resolve) => setImmediate(resolve))
@@ -121,6 +121,53 @@ test('季数未标明必须人工确认，不允许仅凭成功预览保存', as
   await h.component.save()
   assert.equal(h.saved[0].body.season_filter, -1)
   assert.equal(h.saved[0].body.auto_download, false)
+})
+
+test('季数选项沿用数值接口，摘要随隐藏的筛选规则更新', async (t) => {
+  const h = dialog(t, false)
+  Object.assign(h.state.feed.feed, { season_filter: 3, include_words: '1080p', exclude_words: '合集' })
+  h.state.feed.open = true
+  await flush()
+  const { form, seasonMode, filterSummary } = h.component
+  assert.equal(seasonMode.value, 'specific')
+  assert.equal(form.season, 3)
+  assert.equal(filterSummary.value, '第 3 季 · 已设包含词 · 已设排除词')
+  form.allowUnknown = true
+  assert.match(filterSummary.value, /含未标明/)
+  seasonMode.value = '-1'
+  assert.equal(form.season, -1)
+  assert.match(filterSummary.value, /^仅季数未标明/)
+  seasonMode.value = '0'
+  assert.equal(form.season, 0)
+  seasonMode.value = 'specific'
+  assert.equal(form.season, 1)
+  form.season = ''
+  assert.equal(seasonMode.value, 'specific', '清空输入时仍显示指定季号输入框')
+})
+
+test('无效的指定季号不能从页脚保存', async (t) => {
+  const h = dialog(t, false)
+  h.state.feed.feed = { name: '测试动画', url: 'https://feed.example/rss' }
+  h.state.feed.open = true
+  await flush()
+  for (const invalid of ['', 1.5, 1000, -2]) {
+    h.component.form.season = invalid
+    await h.component.save()
+    assert.equal(h.saved.length, 0)
+    assert.match(h.component.msg.value, /请展开筛选规则/)
+  }
+})
+
+test('低频字段默认折叠，人工确认与预览仍在折叠区外', () => {
+  const template = parse(source).descriptor.template.content
+  const options = [...template.matchAll(/<details class="option-section">([\s\S]*?)<\/details>/g)]
+  assert.equal(options.length, 2)
+  assert.match(options[0][1], /筛选规则/)
+  assert.match(options[0][1], /id="f-include"/)
+  assert.match(options[0][1], /id="f-season"/)
+  assert.match(options[1][1], /id="f-storage"/)
+  assert.doesNotMatch(options.map(m => m[1]).join(''), /seasonConfirmed|class="pre-box"/)
+  assert.match(template, /v-if="!s\.feed\?\.from_discover" class="field">\s*<label for="f-url">/)
 })
 
 test('打开找番弹窗自动检测带参数的种子链接', async (t) => {
