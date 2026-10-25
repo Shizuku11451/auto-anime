@@ -87,25 +87,3 @@ func TestDefaultLibraryDirFollowsPlatform(t *testing.T) {
 		t.Fatalf("媒体库 %q 与数据目录 %q 应为同级", dir, defaultDataDir())
 	}
 }
-
-// 当前模式不是 builtin、但库里有旧的内置条目时只告警，不改写当前模式。
-func TestEmbeddedQBittorrentKeepsModeWithBuiltinItems(t *testing.T) {
-	testDatabase(t)
-	// 指向不存在的可执行文件，让「精简镜像/单文件版不带 qBittorrent」在
-	// 所有平台上都是确定结果，而不是取决于测试机 PATH 里有没有 qbittorrent-nox。
-	t.Setenv("QBITTORRENT_PATH", filepath.Join(t.TempDir(), "missing-qbit"))
-	oldMode := downloadMode
-	t.Cleanup(func() { downloadMode = oldMode })
-
-	// 当前模式不是 builtin、但库里有旧的内置条目：只告警，不改写当前模式。
-	if _, err := db.Exec("INSERT INTO items(title,link,downloader) VALUES('x','https://example.test/bt','builtin')"); err != nil {
-		t.Fatal(err)
-	}
-	downloadMode = "qbittorrent"
-	if err := startEmbeddedQBittorrent(); err != nil {
-		t.Fatalf("库里的内置条目不应导致启动失败: %v", err)
-	}
-	if downloadMode != "qbittorrent" {
-		t.Fatalf("非 builtin 模式不应被改写: %q", downloadMode)
-	}
-}

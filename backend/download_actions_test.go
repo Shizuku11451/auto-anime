@@ -394,35 +394,6 @@ func TestQbitControlDiscoversOnlyUnambiguousTask(t *testing.T) {
 	}
 }
 
-func TestBuiltinControlUsesPrivateConnection(t *testing.T) {
-	testDatabase(t)
-	fake := newControlQbit(t, false)
-	embeddedQbit.Lock()
-	oldProcess, oldStopping := embeddedQbit.process, embeddedQbit.stopping
-	embeddedQbit.process = &managedQBittorrent{config: qbitConnection{URL: fake.server.URL}, done: make(chan struct{})}
-	embeddedQbit.process.ready.Store(true)
-	embeddedQbit.stopping = false
-	embeddedQbit.Unlock()
-	t.Cleanup(func() {
-		embeddedQbit.Lock()
-		embeddedQbit.process, embeddedQbit.stopping = oldProcess, oldStopping
-		embeddedQbit.Unlock()
-	})
-	qbitURL = "http://127.0.0.1:1"
-	id := insertItem(t, "magnet:?xt=urn:btih:"+controlTestHash)
-	db.Exec("UPDATE items SET status='下载中',downloader='builtin',task_id=? WHERE id=?", controlTestHash, id)
-	if _, err := pauseItemDownload(id); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := queueItemDownload(id, true); err != nil {
-		t.Fatal(err)
-	}
-	runQueuedDownload(id)
-	if item := controlItem(t, id); item.Status != "下载中" || item.Downloader != "builtin" {
-		t.Fatal(item)
-	}
-}
-
 func TestAria2PauseFollowsAndPersistsPayloadGID(t *testing.T) {
 	testDatabase(t)
 	state := "active"

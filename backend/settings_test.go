@@ -142,6 +142,9 @@ func TestSettingsUpdateTakesEffectImmediately(t *testing.T) {
 	if rec := settingsPUT(t, `{"download_mode":"ftp"}`); rec.Code != 400 {
 		t.Fatalf("invalid mode accepted: %d", rec.Code)
 	}
+	if rec := settingsPUT(t, `{"download_mode":"builtin"}`); rec.Code != 400 {
+		t.Fatalf("removed builtin mode accepted: %d", rec.Code)
+	}
 	if rec := settingsPUT(t, `{"poll_minutes":1}`); rec.Code != 400 {
 		t.Fatalf("small poll accepted: %d", rec.Code)
 	}
@@ -150,6 +153,22 @@ func TestSettingsUpdateTakesEffectImmediately(t *testing.T) {
 	}
 	if downloadMode != "transmission" {
 		t.Fatalf("failed requests changed the mode: %s", downloadMode)
+	}
+}
+
+// 旧版内置 qBittorrent 已移除：数据库里遗留的 builtin 只在本进程回退为内置 BT
+// 引擎，不写回数据库，回退版本后原值仍在。
+func TestStoredBuiltinModeFallsBackToNative(t *testing.T) {
+	testDatabase(t)
+	oldMode := downloadMode
+	t.Cleanup(func() { downloadMode = oldMode })
+	applyStoredSettings(map[string]string{"download_mode": "builtin"})
+	if downloadMode != "native" {
+		t.Fatalf("stored builtin mode should run as native, got %q", downloadMode)
+	}
+	applyStoredSettings(map[string]string{"download_mode": "qbittorrent"})
+	if downloadMode != "qbittorrent" {
+		t.Fatalf("stored explicit mode should apply, got %q", downloadMode)
 	}
 }
 

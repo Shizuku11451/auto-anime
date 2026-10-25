@@ -78,11 +78,9 @@ jobs:
           go build -trimpath \
             -ldflags "-s -w $desktop_flags -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }} -X main.defaultUpdateSource=${{ github.repository }}" \
             -o "../dist/auto-anime-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" .
-      - name: Package Windows desktop with qBittorrent
+      - name: Package Windows desktop
         if: matrix.goos == 'windows'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full
           python3 tools/package_windows.py "dist/auto-anime-${{ steps.meta.outputs.version }}-windows-amd64.exe"
       - name: Upload artifact
         uses: actions/upload-artifact@v4

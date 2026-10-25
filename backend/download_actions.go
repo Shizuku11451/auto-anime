@@ -231,8 +231,8 @@ func controlDownloaderTask(t taskRef, pause bool) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return nativeDownloads.control(ctx, t, pause)
-	case "qbittorrent", "builtin":
-		client, err := qbitLoginFor(t.Downloader)
+	case "qbittorrent":
+		client, err := qbitLogin()
 		if err != nil {
 			return "", err
 		}
@@ -247,7 +247,7 @@ func controlDownloaderTask(t taskRef, pause bool) (string, error) {
 			return "", err
 		}
 		if len(found) == 0 {
-			if client.awaitingTask(t) {
+			if qbitAwaitingSubmission(t) {
 				return "", fmt.Errorf("下载器仍在接收任务，请稍后重试")
 			}
 			return "", fmt.Errorf("任务在 qBittorrent 中不存在")

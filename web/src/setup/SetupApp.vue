@@ -23,12 +23,12 @@ const isWindowsOS = computed(() => isWindows(platformOS.value))
 const currentHint = computed(() => {
   if (current.value.key === 'download') {
     return isWindowsOS.value
-      ? 'Windows 默认使用内置 BT 下载器，也可选择随包 qBittorrent、已有下载器或本地直链。'
+      ? 'Windows 默认使用内置 BT 下载器，也可连接已有下载器或选择本地直链。'
       : 'Docker 默认使用内置 BT 下载器，也可连接已有下载器或选择本地直链。'
   }
   return current.value.hint
 })
-const ALL_MODES = ['native', 'builtin', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
+const ALL_MODES = ['native', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const availableModes = computed(() => {
   const modes: string[] = [...ALL_MODES]
   if (form.mode && !modes.includes(form.mode)) modes.push(form.mode)
@@ -455,9 +455,6 @@ function enterPanel() {
               </div>
               <p v-if="form.mode === 'native'" key="native" class="field-hint direct-hint">
                 程序内置 BT 引擎，无需安装 qBittorrent；磁力与种子由本程序下载，任务和续传数据保存在数据目录的 bt 子目录，重启后继续。容器部署需已映射 BT 端口段（默认 6881-6890）。
-              </p>
-              <p v-else-if="form.mode === 'builtin'" key="builtin" class="field-hint direct-hint">
-                {{ isWindowsOS ? '旧版内置 qBittorrent 回退，需要程序目录中的 qbittorrent\\ 或设置 QBITTORRENT_PATH。' : '旧版内置 qBittorrent 回退，需要容器内存在 qbittorrent-nox 并设置 QBITTORRENT_PATH；当前镜像不再随包提供。' }}任务与续传数据保存在数据目录，重启后继续下载。
               </p>
               <p v-else key="direct" class="field-hint direct-hint">
                 本地直链会直接下载 HTTP/HTTPS 资源；磁力链接与种子在没有下载器时会停在「等待下载器」，之后可在设置页补充。

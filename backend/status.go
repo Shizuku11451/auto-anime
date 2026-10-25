@@ -22,7 +22,7 @@ func healthStatus(w http.ResponseWriter, r *http.Request) {
 	if !statusMethod(w, r) {
 		return
 	}
-	if !embeddedQbitHealthy() || !nativeHealthy() {
+	if !nativeHealthy() {
 		http.Error(w, "内置下载器未就绪", http.StatusServiceUnavailable)
 		return
 	}

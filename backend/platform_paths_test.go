@@ -97,19 +97,6 @@ func TestSanitizeStorageDirFollowsPlatform(t *testing.T) {
 	}
 }
 
-// 内置下载器的源文件在私有根的 downloads\ 下，源文件清理必须按同一位置校验边界。
-func TestBuiltinSourceRootMatchesDownloaderDirectory(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("QBITTORRENT_DATA_DIR", root)
-	want := filepath.Join(root, "downloads")
-	if got := embeddedQbitDownloadDir(); got != want {
-		t.Fatalf("embeddedQbitDownloadDir = %q, want %q", got, want)
-	}
-	if got := sourceRootFor("builtin"); got != want {
-		t.Fatalf("sourceRootFor(builtin) = %q, want %q", got, want)
-	}
-}
-
 // 从 Linux/容器数据库搬到 Windows 的历史保存位置要在启动时提示，且不能静默改写数据。
 func TestWarnStoredPathsForPlatformKeepsData(t *testing.T) {
 	if runtime.GOOS != "windows" {

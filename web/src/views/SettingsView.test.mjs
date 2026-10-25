@@ -55,12 +55,12 @@ function setup() {
   return { state, data, writes, location, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
 }
 
-test('内置 BT 下载器在所有平台都可选，库里存的列表外旧值也不丢', async () => {
+test('内置 BT 下载器在所有平台都可选，已移除的内置 qBittorrent 不再列出，库里存的列表外旧值也不丢', async () => {
   const h = setup()
   await h.state.load()
   // 容器镜像默认 DOWNLOAD_MODE=native，Linux 上同样要能选到 native。
   assert.equal(h.state.availableModes.value.includes('native'), true)
-  assert.equal(h.state.availableModes.value.includes('builtin'), true)
+  assert.equal(h.state.availableModes.value.includes('builtin'), false)
   h.data.os = 'windows'
   h.data.download_mode = 'native'
   await h.state.load()

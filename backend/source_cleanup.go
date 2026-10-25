@@ -30,10 +30,6 @@ func cleanupConnection(downloader string) string {
 	case "native":
 		root, _ := nativeBTDataRoot()
 		fields = []string{root, nativeSourceRoot(), env("NATIVE_BT_PORT", ""), env("NATIVE_DHT_PORT", "")}
-	case "builtin":
-		// 内置下载器把源文件写在私有根目录的 downloads\ 下，不跟随 DOWNLOAD_DIR；
-		// 这里记录实际位置，映射变化时让待清理任务保留源文件。
-		fields = []string{embeddedQbitDownloadDir()}
 	case "qbittorrent":
 		fields = []string{cfg.qbitURL, cfg.qbitUser, cfg.qbitPassword, cfg.qbitSavePath, cfg.qbitLocalDir}
 	case "aria2":
@@ -50,8 +46,6 @@ func sourceRootFor(downloader string) string {
 	switch downloader {
 	case "native":
 		return nativeSourceRoot()
-	case "builtin":
-		return embeddedQbitDownloadDir()
 	case "qbittorrent":
 		if cfg.qbitLocalDir != "" {
 			return cfg.qbitLocalDir
@@ -278,7 +272,7 @@ var aria2CleanupGID = regexp.MustCompile(`^[0-9a-fA-F]{16}$`)
 
 func stopSourceTask(c sourceCleanup) error {
 	switch c.Downloader {
-	case "native", "builtin", "qbittorrent":
+	case "native", "qbittorrent":
 		_, err := controlDownloaderTask(c.taskRef, true)
 		return err
 	case "transmission":

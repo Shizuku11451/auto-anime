@@ -63,7 +63,14 @@ func applyStoredSettings(stored map[string]string) {
 		}
 	}
 	if v, ok := stored["download_mode"]; ok && v != "" {
-		downloadMode = v
+		if v == "builtin" {
+			// 旧版内置 qBittorrent 已移除：只在本进程内改用内置 BT 引擎，不改写数据库
+			// 里的旧值，方便用户回退版本；活跃任务由启动恢复统一退役。
+			downloadMode = "native"
+			log.Println("已保存的下载方式是已移除的内置 qBittorrent（builtin），本次运行改用内置 BT 下载器")
+		} else {
+			downloadMode = v
+		}
 	}
 	if v, ok := stored["aria2_url"]; ok {
 		aria2URL = strings.TrimRight(v, "/")
@@ -192,19 +199,6 @@ func verifyWebCredentials(user, password string) bool {
 // Commit the entire configuration and session revocation before publishing it.
 // A validation or SQL failure must leave both persisted and live settings intact.
 func persistSettings(values map[string]string, revokeSessions bool) error {
-	var legacyTasks []string
-	if _, hasMode := values["download_mode"]; hasMode {
-		var err error
-		legacyTasks, err = legacyEmbeddedAria2Tasks(values)
-		if err != nil {
-			return err
-		}
-	}
-	if len(legacyTasks) > 0 {
-		// Wait for any in-progress archive before retiring its downloader task.
-		animeCleanupMu.Lock()
-		defer animeCleanupMu.Unlock()
-	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -224,9 +218,6 @@ func persistSettings(values map[string]string, revokeSessions bool) error {
 		if _, err := tx.Exec("DELETE FROM web_sessions"); err != nil {
 			return err
 		}
-	}
-	if err := retireLegacyAria2Tasks(tx, legacyTasks); err != nil {
-		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -300,7 +291,7 @@ func validateSettings(in *settingsInput) error {
 	}
 	if in.DownloadMode != nil {
 		switch *in.DownloadMode {
-		case "native", "builtin", "direct", "aria2", "qbittorrent", "transmission":
+		case "native", "direct", "aria2", "qbittorrent", "transmission":
 		default:
 			return fmt.Errorf("下载方式无效")
 		}

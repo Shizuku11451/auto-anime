@@ -24,24 +24,6 @@ func TestDesktopModeSelection(t *testing.T) {
 	}
 }
 
-func TestBundledDownloaderPath(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "中文 空格")
-	if got := bundledQbitExecutable(root); got != "" {
-		t.Fatal(got)
-	}
-	dir := filepath.Join(root, "qbittorrent")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	exe := filepath.Join(dir, "qbittorrent.exe")
-	if err := os.WriteFile(exe, []byte("test"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if got := bundledQbitExecutable(root); got != exe {
-		t.Fatal(got)
-	}
-}
-
 func TestWindowsApplicationLock(t *testing.T) {
 	database := filepath.Join(t.TempDir(), "中文", "state.db")
 	release, err := acquireApplicationLock(database)

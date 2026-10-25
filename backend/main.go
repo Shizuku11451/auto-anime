@@ -561,10 +561,6 @@ func performDownload(ctx context.Context, id int) {
 		submitNativeDownload(id, link)
 		return
 	}
-	if cfg.downloadMode == "builtin" && (u.Scheme == "magnet" || torrentLink(link)) {
-		submitQBittorrentMode(id, link, "builtin")
-		return
-	}
 	if cfg.downloadMode == "qbittorrent" && cfg.qbitURL != "" {
 		submitQBittorrent(id, link)
 		return
@@ -614,10 +610,6 @@ func performDownload(ctx context.Context, id int) {
 			submitNativeDownload(id, link)
 			return
 		}
-		if cfg.downloadMode == "builtin" {
-			submitQBittorrentMode(id, link, "builtin")
-			return
-		}
 		waitForDownloader(id, "资源是种子文件，需要配置 BT 下载器")
 		return
 	}
@@ -625,10 +617,6 @@ func performDownload(ctx context.Context, id int) {
 }
 
 func submitQBittorrent(id int, link string) {
-	submitQBittorrentMode(id, link, "qbittorrent")
-}
-
-func submitQBittorrentMode(id int, link, downloaderName string) {
 	tag := qbitTagFor(id)
 	hash := magnetInfoHash(link)
 	if hash == "" && torrentLink(link) {
@@ -636,7 +624,7 @@ func submitQBittorrentMode(id int, link, downloaderName string) {
 			hash = torrentInfoHash(data)
 		}
 	}
-	client, err := qbitLoginFor(downloaderName)
+	client, err := qbitLogin()
 	if err != nil {
 		failDownload(id, "qBittorrent 连接失败："+err.Error())
 		return
@@ -645,7 +633,7 @@ func submitQBittorrentMode(id int, link, downloaderName string) {
 		failDownload(id, "qBittorrent 提交失败："+e.Error())
 		return
 	}
-	setSubmitted(id, downloaderName, hash, "已发送到 qBittorrent")
+	setSubmitted(id, "qbittorrent", hash, "已发送到 qBittorrent")
 }
 
 // submitNativeDownload 把磁力或种子交给进程内 BT 引擎。任务标识使用小写
@@ -1505,11 +1493,6 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 		log.Printf("内置 BT 下载器暂不可用：%v", err)
 	}
 	defer stopNativeDownloader()
-	if err := startEmbeddedQBittorrent(); err != nil {
-		return err
-	}
-	defer stopEmbeddedQBittorrent()
-	go embeddedQbit.supervise(ctx, time.Second, launchEmbeddedQBittorrent)
 	startUpdateChecker()
 	if authEnabled() {
 		log.Println("Web 登录已启用")

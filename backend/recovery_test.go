@@ -97,6 +97,64 @@ func TestRecoveryKeepsTrackedDownloaderTasks(t *testing.T) {
 	}
 }
 
+// 旧版内置 qBittorrent 已随本版本移除：启动恢复必须把它的活跃与暂停任务退役成
+// 可重试的失败状态，并撤销永远无法完成的源文件清理；外部 qBittorrent 任务不受影响。
+func TestRecoveryRetiresRemovedBuiltinTasks(t *testing.T) {
+	testDatabase(t)
+	for _, item := range []struct {
+		id         int
+		status     string
+		downloader string
+		task       string
+	}{
+		{1, "下载中", "builtin", "hash-1"},
+		{2, "已暂停", "builtin", "hash-2"},
+		{3, "等待继续", "builtin", "hash-3"},
+		{4, "已保存", "builtin", "hash-4"},
+		{5, "下载中", "qbittorrent", "hash-5"},
+	} {
+		if _, err := db.Exec("INSERT INTO items(id,title,link,status,downloader,task_id) VALUES(?,'动画',?,?,?,?)", item.id, fmt.Sprintf("magnet:?xt=urn:btih:%040d", item.id), item.status, item.downloader, item.task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO source_cleanup(item_id,downloader,task_id,submitted_at,archive_path,files,source_root) VALUES(4,'builtin','hash-4',1,'/media/a.mp4','[]','/root')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recoverDownloads(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct {
+		id     int
+		status string
+		failed bool
+	}{
+		{1, "下载失败", true},
+		{2, "下载失败", true},
+		{3, "下载失败", true},
+		{4, "已保存", false},
+		{5, "下载中", false},
+	} {
+		var status, taskError string
+		if err := db.QueryRow("SELECT status,COALESCE(task_error,'') FROM items WHERE id=?", want.id).Scan(&status, &taskError); err != nil {
+			t.Fatal(err)
+		}
+		if status != want.status || want.failed != (taskError != "") {
+			t.Fatalf("item %d after recovery: %s %q", want.id, status, taskError)
+		}
+	}
+	var pending int
+	if err := db.QueryRow("SELECT COUNT(*) FROM source_cleanup WHERE downloader='builtin'").Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Fatalf("builtin source cleanup rows left: %d", pending)
+	}
+	refs, err := activeTaskRefs()
+	if err != nil || len(refs) != 1 || refs[0].Downloader != "qbittorrent" {
+		t.Fatalf("poller refs after builtin retirement: %+v %v", refs, err)
+	}
+}
+
 func TestMissingDownloaderDoesNotFallBackToDirect(t *testing.T) {
 	testDatabase(t)
 	var calls atomic.Int32

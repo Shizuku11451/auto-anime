@@ -89,7 +89,7 @@ func startTaskPoller() {
 func activeTaskRefs() ([]taskRef, error) {
 	rows, err := db.Query(`SELECT id,COALESCE(downloader,''),COALESCE(task_id,''),COALESCE(task_submitted_at,0) FROM items
 		WHERE status IN (` + activeTaskStatusSQL + `)
-		AND (COALESCE(task_id,'')<>'' OR COALESCE(downloader,'') IN ('qbittorrent','builtin'))`)
+		AND (COALESCE(task_id,'')<>'' OR COALESCE(downloader,'')='qbittorrent')`)
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +115,8 @@ func pollDownloaderTasks() {
 		log.Println("查询下载任务失败:", err)
 		return
 	}
-	qbits := map[string]*qbitClient{}
-	qbitBroken := map[string]bool{}
+	var qbit *qbitClient
+	qbitBroken := false
 	var transmission *transmissionClient
 	transmissionBroken := false
 	for _, ref := range refs {
@@ -139,20 +139,20 @@ func pollDownloaderTasks() {
 				state, err = aria2Poll(t.TaskID)
 			case "native":
 				state, err = nativeDownloads.poll(context.Background(), t)
-			case "qbittorrent", "builtin":
-				if qbitBroken[t.Downloader] {
+			case "qbittorrent":
+				if qbitBroken {
 					return
 				}
-				if qbits[t.Downloader] == nil {
-					qbits[t.Downloader], err = qbitLoginFor(t.Downloader)
+				if qbit == nil {
+					qbit, err = qbitLogin()
 					if err != nil {
-						qbitBroken[t.Downloader] = true
+						qbitBroken = true
 						recordTaskQueryError(t, err)
 						log.Println("qBittorrent 登录失败:", err)
 						return
 					}
 				}
-				state, err = qbitPoll(qbits[t.Downloader], t)
+				state, err = qbitPoll(qbit, t)
 			case "transmission":
 				if transmissionBroken {
 					return
@@ -201,7 +201,7 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 	defer animeCleanupMu.RUnlock()
 	var active int
 	// qBittorrent discovers and persists an initially empty hash during polling.
-	if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE id=? AND COALESCE(downloader,'')=? AND (COALESCE(task_id,'')=? OR (? IN ('qbittorrent','builtin') AND ?='')) AND status IN ("+activeTaskStatusSQL+")", t.ID, t.Downloader, t.TaskID, t.Downloader, t.TaskID).Scan(&active); err != nil || active == 0 {
+	if err := db.QueryRow("SELECT COUNT(*) FROM items WHERE id=? AND COALESCE(downloader,'')=? AND (COALESCE(task_id,'')=? OR (?='qbittorrent' AND ?='')) AND status IN ("+activeTaskStatusSQL+")", t.ID, t.Downloader, t.TaskID, t.Downloader, t.TaskID).Scan(&active); err != nil || active == 0 {
 		return
 	}
 	if s.TaskID != "" && s.TaskID != t.TaskID && t.Downloader == "aria2" {
@@ -642,12 +642,6 @@ func removeDownloaderTask(downloader, taskID string) {
 		if err := nativeDownloads.remove(ctx, taskID); err != nil {
 			log.Printf("取消内置 BT 任务失败: %v", err)
 		}
-	case "builtin":
-		if client, err := qbitLoginFor("builtin"); err == nil {
-			if err := client.remove(taskID); err != nil {
-				log.Printf("取消内置 qBittorrent 任务失败: %v", err)
-			}
-		}
 	case "aria2":
 		if err := aria2RPC("aria2.remove", []any{taskID}, nil); err != nil {
 			_ = aria2RPC("aria2.removeDownloadResult", []any{taskID}, nil)
@@ -871,29 +865,13 @@ type qbitConnection struct {
 }
 
 type qbitClient struct {
-	http     *http.Client
-	config   qbitConnection
-	embedded *managedQBittorrent
+	http   *http.Client
+	config qbitConnection
 }
 
 func qbitLogin() (*qbitClient, error) {
 	cfg := runtimeConfig()
 	return loginQBittorrent(qbitConnection{cfg.qbitURL, cfg.qbitUser, cfg.qbitPassword, cfg.qbitSavePath, cfg.qbitLocalDir}, 30*time.Second)
-}
-
-func qbitLoginFor(downloader string) (*qbitClient, error) {
-	if downloader != "builtin" {
-		return qbitLogin()
-	}
-	p, err := embeddedQbit.connection(launchEmbeddedQBittorrent)
-	if err != nil {
-		return nil, err
-	}
-	client, err := loginQBittorrent(p.config, 30*time.Second)
-	if err == nil {
-		client.embedded = p
-	}
-	return client, err
 }
 
 func loginQBittorrent(config qbitConnection, timeout time.Duration) (*qbitClient, error) {
@@ -1020,18 +998,12 @@ func (c *qbitClient) infoContext(ctx context.Context, query url.Values) ([]qbitT
 		return nil, err
 	}
 	defer res.Body.Close()
-	if p := c.embedded; p != nil && (!p.alive() || !p.ready.Load()) {
-		return nil, fmt.Errorf("内置 qBittorrent 正在恢复，等待下一轮查询")
-	}
 	if res.StatusCode >= 400 {
 		return nil, fmt.Errorf("qBittorrent 查询任务 HTTP %d", res.StatusCode)
 	}
 	var torrents []qbitTorrent
 	if err := json.NewDecoder(io.LimitReader(res.Body, 5<<20)).Decode(&torrents); err != nil {
 		return nil, err
-	}
-	if p := c.embedded; p != nil && (!p.alive() || !p.ready.Load()) {
-		return nil, fmt.Errorf("内置 qBittorrent 正在恢复，等待下一轮查询")
 	}
 	return torrents, nil
 }
@@ -1066,7 +1038,7 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 			return taskState{}, err
 		}
 		if len(found) == 0 {
-			if c.awaitingTask(t) {
+			if qbitAwaitingSubmission(t) {
 				return taskState{Pending: true}, nil
 			}
 			return taskState{Fail: "任务在 qBittorrent 中不存在"}, nil
@@ -1083,7 +1055,7 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 			return taskState{}, err
 		}
 		if len(found) == 0 {
-			if t.SubmittedAt == 0 || c.awaitingTask(t) {
+			if t.SubmittedAt == 0 || qbitAwaitingSubmission(t) {
 				return taskState{Pending: true}, nil
 			}
 			return taskState{Fail: "qBittorrent 未能接收资源，请检查下载器中的错误后重试"}, nil
@@ -1127,10 +1099,6 @@ func qbitPoll(c *qbitClient, t taskRef) (taskState, error) {
 func qbitAwaitingSubmission(t taskRef) bool {
 	age := time.Now().Unix() - t.SubmittedAt
 	return t.SubmittedAt > 0 && age >= 0 && age < 90
-}
-
-func (c *qbitClient) awaitingTask(t taskRef) bool {
-	return qbitAwaitingSubmission(t) || (c.embedded != nil && time.Since(c.embedded.readyAt) < embeddedQbitRestoreGrace)
 }
 
 func qbitFinishedState(state string) bool {

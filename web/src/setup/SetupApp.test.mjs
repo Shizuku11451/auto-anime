@@ -15,7 +15,7 @@ function setup() {
   const writes = []
   const redirects = []
   const confirmations = []
-  let handler = async () => response({ required: true, download_mode: 'builtin', library_dir: '/media', download_dir: '/data/downloads', keep_source_files: true })
+  let handler = async () => response({ required: true, download_mode: 'native', library_dir: '/media', download_dir: '/data/downloads', keep_source_files: true })
   let save = async () => response({ ok: true })
   let login = async () => response({ ok: true })
   let storage = async () => response({ path: '/media', mount_status: 'mapped', writable: true, message: '媒体目录已映射，可以写入。' })
@@ -38,7 +38,7 @@ function setup() {
     '@/components/ui/BaseButton.vue': stub,
     '@/components/ui/ConfirmHost.vue': stub,
     '@/stores/confirm': { confirmDialog: async (...args) => { confirmations.push(args); return confirm() } },
-    '@/api/types': { MODE_LABEL: { builtin: '内置 qBittorrent', direct: '本地直链' } },
+    '@/api/types': { MODE_LABEL: { native: '内置 BT 下载器', direct: '本地直链' } },
     '@/utils/platform': platform,
   }
   const context = { exports: {}, URL, AbortController, setTimeout, clearTimeout, location: { replace: value => redirects.push(value) },
@@ -56,7 +56,7 @@ function setup() {
 function response(body, ok = true) { return { ok, json: async () => body, text: async () => '模拟失败' } }
 function account(h) { Object.assign(h.state.form, { user: '测试用户', pass: 'test-password', pass2: 'test-password' }) }
 
-test('首次向导在容器上接受并显示内置 BT 下载器', async () => {
+test('首次向导在容器上接受并显示内置 BT 下载器，不再列出已移除的内置 qBittorrent', async () => {
   const h = setup()
   h.status(async () => response({
     required: true,
@@ -69,7 +69,7 @@ test('首次向导在容器上接受并显示内置 BT 下载器', async () => {
   await h.state.loadStatus()
   assert.equal(h.state.form.mode, 'native')
   assert.equal(h.state.availableModes.value.includes('native'), true)
-  assert.equal(h.state.availableModes.value.includes('builtin'), true)
+  assert.equal(h.state.availableModes.value.includes('builtin'), false)
 })
 
 test('未读取或读取失败不能推进和保存，重试沿用实际下载方式与媒体目录', async () => {
@@ -83,9 +83,9 @@ test('未读取或读取失败不能推进和保存，重试沿用实际下载�
   await h.state.loadStatus()
   assert.ok(h.state.statusError.value)
   assert.equal(h.state.statusLoaded.value, false)
-  h.status(async () => response({ required: true, download_mode: 'builtin', library_dir: '/media', download_dir: '/data/downloads' }))
+  h.status(async () => response({ required: true, download_mode: 'direct', library_dir: '/media', download_dir: '/data/downloads' }))
   await h.state.loadStatus()
-  assert.equal(h.state.form.mode, 'builtin')
+  assert.equal(h.state.form.mode, 'direct')
   assert.equal(h.state.archiveRoot.value, '/media')
   h.state.form.library_dir = ''
   assert.equal(h.state.archiveRoot.value, '/data/downloads')
@@ -96,7 +96,7 @@ test('重试和卸载隔离旧状态响应，已初始化不会显示安装表�
   let resolveOld
   h.status(() => new Promise(resolve => { resolveOld = resolve }))
   const old = h.state.loadStatus()
-  h.status(async () => response({ required: true, download_mode: 'builtin', library_dir: '/media' }))
+  h.status(async () => response({ required: true, download_mode: 'direct', library_dir: '/media' }))
   await h.state.loadStatus()
   resolveOld(response({ required: true, download_mode: 'direct', library_dir: '/old' }))
   await old
@@ -108,7 +108,7 @@ test('重试和卸载隔离旧状态响应，已初始化不会显示安装表�
   await closing
   assert.equal(h.state.form.library_dir, '/media')
   const initialized = setup()
-  initialized.status(async () => response({ required: false, download_mode: 'builtin' }))
+  initialized.status(async () => response({ required: false, download_mode: 'direct' }))
   await initialized.state.loadStatus()
   assert.deepEqual(initialized.redirects, ['/'])
   assert.equal(initialized.state.statusLoaded.value, false)
@@ -125,7 +125,7 @@ test('外部下载器缺少有效地址不能进入下一步或完成，目录�
   assert.ok(h.state.msg.value.includes('地址'))
   await h.state.finish()
   assert.equal(h.writes.length, 0)
-  h.state.form.mode = 'builtin'
+  h.state.form.mode = 'native'
   await h.state.finish()
   assert.equal(h.writes[0].library_dir, '/media')
   assert.equal(h.writes[0].proxy_url, undefined)
@@ -139,7 +139,7 @@ test('外部下载器缺少有效地址不能进入下一步或完成，目录�
 
 test('沿用部署同步周期与已有代理，不读取或清空代理凭据', async () => {
   const h = setup()
-  h.status(async () => response({ required: true, download_mode: 'builtin', library_dir: '/media', poll_minutes: 15, proxy_enabled: true }))
+  h.status(async () => response({ required: true, download_mode: 'native', library_dir: '/media', poll_minutes: 15, proxy_enabled: true }))
   await h.state.loadStatus()
   account(h)
   assert.equal(h.state.proxyLabel.value, '沿用部署代理')
@@ -150,7 +150,7 @@ test('沿用部署同步周期与已有代理，不读取或清空代理凭据',
 
 test('部署可关闭原文件保留，向导回填并按用户选择提交', async () => {
   const h = setup()
-  h.status(async () => response({ required: true, download_mode: 'builtin', library_dir: '/media', keep_source_files: false }))
+  h.status(async () => response({ required: true, download_mode: 'native', library_dir: '/media', keep_source_files: false }))
   await h.state.loadStatus()
   account(h)
   assert.equal(h.state.form.keep_source_files, false)
@@ -191,7 +191,7 @@ test('自动登录失败保留已安装结果，保存失败保留输入供重�
   assert.equal(failed.state.msg.value, '模拟失败')
 })
 
-test('无账户的内置模式也需要明确确认，确认和保存期间防止重复操作', async () => {
+test('无账户的内置 BT 模式也需要明确确认，确认和保存期间防止重复操作', async () => {
   const h = setup()
   await h.state.loadStatus()
   let resolveConfirm
