@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useResizeObserver } from '@vueuse/core'
 import { useRouter } from 'vue-router'
 import { Clapperboard, SearchX, Plus, ListChecks, Merge, Trash2, ServerOff, SlidersHorizontal, LayoutGrid, Rows3, CalendarDays } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -28,6 +29,14 @@ const layout = ref<'compact' | 'poster'>('compact')
 const hasFilters = computed(() => !!filter.value || scope.value !== 'all' || activeWeekday.value !== -1)
 const resultTitle = computed(() => activeWeekday.value === -1 ? '全部番剧' : activeWeekday.value === 0 ? '更新日待补充' : `${weekdays[activeWeekday.value]}追番`)
 const activeWeekday = computed(() => date.value ? weekdayOfDate(date.value) ?? -1 : weekday.value)
+const weekdayList = ref<HTMLElement | null>(null)
+const weekdayIndicator = ref<{ transform: string; width: string; height: string }>()
+function updateWeekdayIndicator() {
+  const button = weekdayList.value?.querySelector<HTMLElement>('button[aria-pressed="true"]')
+  if (!button) return
+  weekdayIndicator.value = { transform: `translateX(${button.offsetLeft}px)`, width: `${button.offsetWidth}px`, height: `${button.offsetHeight}px` }
+}
+useResizeObserver(weekdayList, updateWeekdayIndicator)
 function chooseDay(day: number) { date.value = ''; weekday.value = day }
 function showToday() { date.value = localDate(); weekday.value = -1 }
 function clearFilters() { filter.value = ''; scope.value = 'all'; chooseDay(-1) }
@@ -45,6 +54,7 @@ const matching = computed(() => {
   return all
 })
 const dayCounts = computed(() => weekdays.map((_, day) => matching.value.filter(a => effectiveWeekday(a) === day).length))
+watch([activeWeekday, dayCounts, store.loaded, weekdayList], updateWeekdayIndicator, { flush: 'post' })
 const list = computed(() => matching.value.filter(a => activeWeekday.value === -1 || effectiveWeekday(a) === activeWeekday.value))
 const allSelected = computed(() => list.value.length > 0 && list.value.every(a => selected.value.includes(a.id)))
 function selectVisible() {
@@ -64,16 +74,23 @@ function selectVisible() {
     </PageHeader>
 
     <section class="schedule-panel" aria-label="每周追番安排">
-      <div class="schedule-heading"><span><CalendarDays aria-hidden="true" />每周追番</span><button type="button" class="today-button" @click="showToday">今天</button></div>
-      <div class="weekday-list" role="group" aria-label="按更新日筛选">
+      <div class="schedule-heading"><CalendarDays aria-hidden="true" />每周追番</div>
+      <div ref="weekdayList" class="weekday-list" role="group" aria-label="按更新日筛选">
+        <span v-show="weekdayIndicator" class="weekday-indicator" :style="weekdayIndicator" aria-hidden="true" />
         <button type="button" :aria-pressed="activeWeekday === -1" @click="chooseDay(-1)">全部<span>{{ store.loaded.value ? matching.length : '—' }}</span></button>
         <button v-for="day in [1, 2, 3, 4, 5, 6, 7, 0]" :key="day" type="button" :aria-pressed="activeWeekday === day" @click="chooseDay(day)">{{ weekdays[day] }}<span>{{ store.loaded.value ? dayCounts[day] : '—' }}</span></button>
       </div>
+      <button type="button" class="today-button" @click="showToday">今天</button>
     </section>
 
     <div class="library-toolbar">
+      <div class="results-heading">
+        <h2>{{ resultTitle }}</h2><span role="status">{{ store.loaded.value ? `${list.length} 部` : '加载中…' }}</span><span v-if="date" class="date-context">{{ date }}</span>
+        <button v-if="hasFilters" type="button" class="reset-button" @click="clearFilters">清除筛选</button>
+      </div>
       <SearchInput v-model="filter" placeholder="搜索番剧名称" width="240px" />
       <BaseButton size="sm" :icon="SlidersHorizontal" :variant="moreFilters || scope !== 'all' || date ? 'soft' : 'ghost'" :aria-expanded="moreFilters" aria-controls="library-filters" @click="moreFilters = !moreFilters">筛选与日期</BaseButton>
+      <select v-model="sort" class="sort-select" aria-label="排序"><option value="recent">最近收录</option><option value="title">名称排序</option><option value="resources">资源数量</option></select>
       <div class="view-switch" role="group" aria-label="番剧展示方式">
         <button type="button" :aria-pressed="layout === 'compact'" aria-label="信息卡片" title="信息卡片" @click="layout = 'compact'"><Rows3 aria-hidden="true" /></button>
         <button type="button" :aria-pressed="layout === 'poster'" aria-label="海报墙" title="海报墙" @click="layout = 'poster'"><LayoutGrid aria-hidden="true" /></button>
@@ -85,11 +102,6 @@ function selectVisible() {
         <label for="library-date">选择日期 <input id="library-date" v-model="date" type="date" @change="weekday = -1" /></label>
       </div>
       <p>自动采用 Bangumi 放送星期，可在「编辑番剧」中手动调整；日期仅对应每周安排，不代表实际到片或仍在连载。</p>
-    </div>
-    <div class="results-heading">
-      <div><h2>{{ resultTitle }}</h2><span role="status">{{ store.loaded.value ? `${list.length} 部` : '加载中…' }}</span><span v-if="date" class="date-context">{{ date }}</span></div>
-      <button v-if="hasFilters" type="button" class="reset-button" @click="clearFilters">清除筛选</button>
-      <select v-model="sort" aria-label="排序"><option value="recent">最近收录</option><option value="title">名称排序</option><option value="resources">资源数量</option></select>
     </div>
     <div v-if="selecting" class="batch-toolbar">
       <label class="select-all"><input type="checkbox" :checked="allSelected" :indeterminate="!allSelected && list.some(a => selected.includes(a.id))" @change="selectVisible" />全选当前结果</label>
@@ -108,7 +120,7 @@ function selectVisible() {
       </div>
     </div>
 
-    <EmptyState v-else-if="store.loadError.value && !store.animes.value.length" :icon="ServerOff" title="番剧库加载失败" hint="请检查服务连接后重新加载" tone="error">
+    <EmptyState v-else-if="store.loadError.value && !store.animes.value.length" :icon="ServerOff" title="番剧库加载失败" hint="请检查服务连接后重新加载" tone="error" compact>
       <BaseButton @click="store.refresh()">重新加载</BaseButton>
     </EmptyState>
     <EmptyState
@@ -116,6 +128,7 @@ function selectVisible() {
       :icon="Clapperboard"
       title="番剧库还是空的"
       hint="添加 RSS 订阅并同步后，识别出的番剧会自动出现在这里"
+      compact
     >
       <BaseButton variant="primary" @click="router.push('/feeds')">去添加订阅</BaseButton>
       <BaseButton @click="router.push('/discover')">先去找番</BaseButton>
@@ -143,20 +156,22 @@ function selectVisible() {
 
 <style scoped>
 .library-page :deep(.page-head) { margin-bottom: 22px; padding-bottom: 0; border: 0; }
-.schedule-panel { padding: 14px 16px 12px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
-.schedule-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 12px; color: var(--text-2); }
-.schedule-heading > span { display: inline-flex; align-items: center; gap: 6px; }
+.schedule-panel { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.schedule-heading { display: flex; align-items: center; gap: 6px; flex: none; font-size: 12px; color: var(--text-2); }
 .schedule-heading svg { width: 14px; height: 14px; }
 .today-button, .reset-button { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; padding: 6px; border-radius: var(--r-xs); }
-.weekday-list { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 3px; }
-.weekday-list button { flex: 1 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 10px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.today-button { flex: none; white-space: nowrap; min-height: 36px; }
+.weekday-list { position: relative; display: flex; flex: 1; min-width: 0; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding: 3px; }
+.weekday-indicator { position: absolute; top: 3px; left: 0; border: 1px solid var(--accent-border); border-radius: var(--r-sm); background: var(--accent-soft); pointer-events: none; transition: transform var(--t-med) var(--ease-out), width var(--t-med) var(--ease-out); }
+.weekday-list button { position: relative; flex: 1 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 10px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; transition: color var(--t-med) var(--ease-out); }
 .weekday-list button span { font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; }
-.weekday-list button:hover { background: var(--surface-2); }
-.weekday-list button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: 650; }
+.weekday-list button:hover:not([aria-pressed="true"]) { background: var(--surface-2); }
+.weekday-list button[aria-pressed="true"] { color: var(--accent); font-weight: 650; }
 .weekday-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .library-toolbar, .batch-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 13px; }
-.library-toolbar :deep(.search) { flex: 1; max-width: 340px; min-width: 100px; }
-.view-switch { margin-left: auto; display: flex; padding: 3px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-sm); }
+.library-toolbar :deep(.search) { flex: 1; max-width: 280px; min-width: 160px; }
+.sort-select { margin-left: auto; width: 116px; font-size: 12px; }
+.view-switch { display: flex; padding: 3px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-sm); }
 .view-switch button { display: grid; place-items: center; width: 34px; height: 30px; border: 0; background: transparent; color: var(--text-3); border-radius: var(--r-xs); cursor: pointer; }
 .view-switch button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .view-switch svg { width: 16px; height: 16px; }
@@ -165,11 +180,9 @@ function selectVisible() {
 .filter-fields label, .select-all { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .filter-fields input, .filter-fields select { width: 160px; min-width: 0; }
 .extra-filters p { margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: var(--text-3); }
-.results-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 14px; }
-.results-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.results-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
 .results-heading h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .results-heading span { color: var(--text-3); font-size: 12px; }
-.results-heading select { margin-left: auto; width: 116px; padding-block: 6px; font-size: 12px; background-color: transparent; border-color: transparent; }
 .batch-toolbar { padding: 10px 12px; border: 1px solid var(--accent-border); border-radius: var(--r-sm); background: var(--surface); position: sticky; top: 12px; z-index: 5; }
 .grid {
   position: relative;
@@ -184,10 +197,12 @@ function selectVisible() {
 @media (max-width: 640px) {
   .library-page :deep(.page-head) { gap: 12px; margin-bottom: 16px; }
   .library-page :deep(.page-desc) { margin-top: 5px; }
-  .schedule-panel { padding: 10px; margin-bottom: 12px; }
-  .schedule-heading { margin-bottom: 4px; }
+  .schedule-panel { flex-wrap: wrap; gap: 4px 10px; padding: 8px; margin-bottom: 12px; }
+  .weekday-list { order: 1; flex-basis: 100%; }
+  .today-button { margin-left: auto; }
   .weekday-list button { padding: 9px 10px; }
   .library-toolbar { gap: 8px; margin-bottom: 10px; }
+  .results-heading { flex-basis: 100%; }
   .library-toolbar :deep(.search) { max-width: none; flex-basis: 100%; }
   .batch-toolbar { top: 76px; }
   .date-context { flex-basis: 100%; }
