@@ -142,7 +142,7 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	budget := newFeedReadBudget()
 	items := []discoverItem{}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	warnings := []string{}
 	queries := []string{}
 	pages, successes := 0, 0
@@ -181,16 +181,25 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 		if result.Warning != "" {
 			warnings = append(warnings, "查询 "+strconv.Itoa(i+1)+"："+result.Warning)
 		}
-		for _, item := range discoverItemsFromEntries(result.Entries) {
+		queryItems := discoverItemsFromEntries(result.Entries)
+		for j := range queryItems {
+			queryItems[j].FeedURL, queryItems[j].Query = feedURL, query
+		}
+		// 同一 RSS 的证据必须在跨查询去重之前使用。
+		inferDiscoverSeasons(queryItems)
+		for _, item := range queryItems {
 			key := item.Torrent
 			if key == "" {
 				key = item.Link
 			}
-			if seen[key] {
+			if previous, ok := seen[key]; ok {
+				if items[previous].Season == 0 && items[previous].InferredSeason == 0 && item.InferredSeason > 0 {
+					// 采用有佐证的实际 RSS，同时保留其来源，不能只移植推测值。
+					items[previous] = item
+				}
 				continue
 			}
-			seen[key] = true
-			item.FeedURL, item.Query = feedURL, query
+			seen[key] = len(items)
 			items = append(items, item)
 		}
 	}
@@ -198,7 +207,6 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "搜索失败："+strings.Join(warnings, "；"), http.StatusBadGateway)
 		return
 	}
-	inferDiscoverSeasons(items)
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOut(w, map[string]any{
 		"source": source.ID, "source_name": source.Name,

@@ -156,19 +156,34 @@ func TestSettingsUpdateTakesEffectImmediately(t *testing.T) {
 	}
 }
 
-// 旧版内置 qBittorrent 已移除：数据库里遗留的 builtin 只在本进程回退为内置 BT
-// 引擎，不写回数据库，回退版本后原值仍在。
-func TestStoredBuiltinModeFallsBackToNative(t *testing.T) {
-	testDatabase(t)
-	oldMode := downloadMode
-	t.Cleanup(func() { downloadMode = oldMode })
-	applyStoredSettings(map[string]string{"download_mode": "builtin"})
-	if downloadMode != "native" {
-		t.Fatalf("stored builtin mode should run as native, got %q", downloadMode)
-	}
-	applyStoredSettings(map[string]string{"download_mode": "qbittorrent"})
-	if downloadMode != "qbittorrent" {
-		t.Fatalf("stored explicit mode should apply, got %q", downloadMode)
+func TestLegacyDownloadModeConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, envMode, storedMode, want string
+	}{
+		{"environment builtin", "builtin", "", "native"},
+		{"stored builtin", "direct", "builtin", "native"},
+		{"stored mode overrides environment", "builtin", "direct", "direct"},
+		{"supported environment", "direct", "", "direct"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testDatabase(t)
+			downloadMode = tc.envMode
+			if tc.storedMode != "" {
+				if _, err := db.Exec("INSERT INTO settings(key,value) VALUES('download_mode',?)", tc.storedMode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			loadSettings()
+			if got := runtimeConfig().downloadMode; got != tc.want {
+				t.Fatalf("mode=%q want=%q", got, tc.want)
+			}
+			if err := validateDownloadTarget(); err != nil {
+				t.Fatal(err)
+			}
+			if got := getSetting("download_mode"); got != tc.storedMode {
+				t.Fatalf("stored mode rewritten: %q want=%q", got, tc.storedMode)
+			}
+		})
 	}
 }
 

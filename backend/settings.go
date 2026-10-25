@@ -63,14 +63,12 @@ func applyStoredSettings(stored map[string]string) {
 		}
 	}
 	if v, ok := stored["download_mode"]; ok && v != "" {
-		if v == "builtin" {
-			// 旧版内置 qBittorrent 已移除：只在本进程内改用内置 BT 引擎，不改写数据库
-			// 里的旧值，方便用户回退版本；活跃任务由启动恢复统一退役。
-			downloadMode = "native"
-			log.Println("已保存的下载方式是已移除的内置 qBittorrent（builtin），本次运行改用内置 BT 下载器")
-		} else {
-			downloadMode = v
-		}
+		downloadMode = v
+	}
+	if downloadMode == "builtin" {
+		// 环境变量和数据库旧值仅在本进程回退；活跃任务由启动恢复统一退役。
+		downloadMode = "native"
+		log.Println("配置的下载方式是已移除的内置 qBittorrent（builtin），本次运行改用内置 BT 下载器")
 	}
 	if v, ok := stored["aria2_url"]; ok {
 		aria2URL = strings.TrimRight(v, "/")

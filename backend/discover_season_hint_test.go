@@ -78,3 +78,47 @@ func TestDiscoverSeasonHintsPreserveEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestExpandedDiscoverSeasonHintsBeforeDeduplication(t *testing.T) {
+	for _, earlyUnknown := range []bool{false, true} {
+		t.Run(fmt.Sprintf("earlyUnknown=%t", earlyUnknown), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				query := r.URL.Query().Get("term")
+				fmt.Fprint(w, `<rss><channel>`)
+				if query == "测试动画 S2" || query == "测试动画 S02" || query == "测试动画" {
+					for i := 1; i <= 2; i++ {
+						fmt.Fprintf(w, `<item><title>[Known] 测试动画 S02E0%d [1080p]</title><link>/known/%d</link></item>`, i, i)
+					}
+				}
+				if query == "测试动画" || (earlyUnknown && query == "测试动画 第二季") {
+					for i := 1; i <= 2; i++ {
+						fmt.Fprintf(w, `<item><title>[Unknown] 测试动画 [0%d][1080p]</title><link>/unknown/%d</link></item>`, i, i)
+					}
+				}
+				fmt.Fprint(w, `</channel></rss>`)
+			}))
+			defer server.Close()
+			overrideDiscoverSource(t, server.URL+"/?term={keyword}")
+			for _, keyword := range []string{"测试动画", "测试动画 第二季"} {
+				rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+url.QueryEscape(keyword))
+				var out struct{ Items []discoverItem }
+				if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || len(out.Items) != 4 {
+					t.Fatalf("search: %s err=%v", rec.Body.String(), err)
+				}
+				unknown := 0
+				for _, item := range out.Items {
+					if item.Group != "Unknown" {
+						continue
+					}
+					unknown++
+					if item.Season != 0 || item.InferredSeason != 2 || item.Query != "测试动画" || item.FeedURL != server.URL+"/?term="+url.QueryEscape("测试动画") {
+						t.Fatalf("keyword=%q lost same-RSS evidence/provenance: %+v", keyword, item)
+					}
+				}
+				if unknown != 2 {
+					t.Fatalf("unknown versions=%d want=2", unknown)
+				}
+			}
+		})
+	}
+}

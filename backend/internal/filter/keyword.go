@@ -17,6 +17,12 @@ var keywordConverter = func() *opencc.OpenCC {
 }()
 
 func normalizeKeywordText(text string) string {
+	text = strings.Map(func(r rune) rune {
+		if (r >= '０' && r <= '９') || (r >= 'Ａ' && r <= 'Ｚ') || (r >= 'ａ' && r <= 'ｚ') {
+			return r - 0xfee0
+		}
+		return r
+	}, text)
 	text = strings.ToLower(text)
 	if strings.IndexFunc(text, func(r rune) bool { return unicode.Is(unicode.Han, r) }) < 0 {
 		return text

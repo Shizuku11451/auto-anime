@@ -29,6 +29,13 @@ func TestKeywordFilterChineseVariants(t *testing.T) {
 		{"arbitrary Chinese outside screenshot", "進擊的巨人 [驚奇字幕組]", "进击的巨人,惊奇字幕组", "", true},
 		{"phrase context keeps literal include", "乾坤", "乾", "", true},
 		{"phrase context keeps literal exclude", "乾坤", "", "乾", false},
+		{"fullwidth release", "[Group] ＡＩの遺電子 Ｓ０２Ｅ０３ [１０８０ｐ]", "AIの遺電子,[Group],1080P", "", true},
+		{"fullwidth rule", "[Group] AIの遺電子 [1080p]", "ＡＩの遺電子,１０８０Ｐ", "", true},
+		{"fullwidth exclude", "动画 ＡＤ", "动画", "ad", false},
+		{"fullwidth exclude rule", "动画 Ad", "动画", "ＡＤ", false},
+		{"fullwidth group boundary", "[AnotherＧｒｏｕｐ] ＡＩの遺電子 [１０８０ｐ]", "AIの遺電子,[Group],1080P", "", false},
+		{"fullwidth different quality", "[Group] ＡＩの遺電子 [７２０ｐ]", "AIの遺電子,[Group],1080P", "", false},
+		{"fullwidth missing word", "[Group] ＡＩの遺電子 [１０８０ｐ]", "AIの遺電子,不存在", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := Allowed(tc.title, tc.include, tc.exclude); got != tc.want {

@@ -102,6 +102,57 @@ func TestSubscriptionPreviewAppliesFiltersBeforeLimit(t *testing.T) {
 	}
 }
 
+func TestFullwidthReleasePreviewAndSync(t *testing.T) {
+	testDatabase(t)
+	const rawTitle = "[Group] ＡＩの遺電子 Ｓ０２Ｅ０３ [１０８０ｐ]"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<rss><channel>`)
+		for i, title := range []string{
+			rawTitle,
+			"[OtherGroup] ＡＩの遺電子 Ｓ０２Ｅ０３ [１０８０ｐ]",
+			"[Group] ＡＩの遺電子 Ｓ０２Ｅ０３ [７２０ｐ]",
+			"[Group] ＡＩの遺電子 Ｓ０１Ｅ０３ [１０８０ｐ]",
+		} {
+			fmt.Fprintf(w, `<item><title>%s</title><link>/item/%d</link></item>`, title, i)
+		}
+		fmt.Fprint(w, `</channel></rss>`)
+	}))
+	defer server.Close()
+	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
+	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=AI")
+	var found struct{ Items []discoverItem }
+	if err := json.Unmarshal(rec.Body.Bytes(), &found); err != nil || rec.Code != 200 || len(found.Items) != 4 {
+		t.Fatalf("discover: %s err=%v", rec.Body.String(), err)
+	}
+	item := found.Items[0]
+	words := item.AnimeTitle + ",[" + item.Group + "]," + item.Quality
+	if words != "AIの遺電子,[Group],1080P" || item.Season != 2 {
+		t.Fatalf("unexpected parsed release: %+v words=%q", item, words)
+	}
+	payload, _ := json.Marshal(PreviewInput{URL: item.FeedURL, Include: words, SeasonFilter: 2})
+	result := httptest.NewRecorder()
+	preview(result, httptest.NewRequest("POST", "/api/preview", strings.NewReader(string(payload))))
+	var out struct{ Count int }
+	if err := json.Unmarshal(result.Body.Bytes(), &out); err != nil || result.Code != 200 || out.Count != 1 {
+		t.Fatalf("preview: %s err=%v", result.Body.String(), err)
+	}
+	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,include_words,season_filter) VALUES(1,'全角标题',?,?,2)`, item.FeedURL, words); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []int{1, 0} {
+		if added, err := syncFeedContext(context.Background(), 1); err != nil || added != want {
+			t.Fatalf("sync added=%d want=%d err=%v", added, want, err)
+		}
+	}
+	var storedTitle, storedWords string
+	if err := db.QueryRow("SELECT title FROM items WHERE link=?", item.Link).Scan(&storedTitle); err != nil || storedTitle != rawTitle {
+		t.Fatalf("raw title changed: %q err=%v", storedTitle, err)
+	}
+	if err := db.QueryRow("SELECT include_words FROM feeds WHERE id=1").Scan(&storedWords); err != nil || storedWords != words {
+		t.Fatalf("stored rules changed: %q err=%v", storedWords, err)
+	}
+}
+
 func TestTargetedSubscriptionKeepsOneSeries(t *testing.T) {
 	testDatabase(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
