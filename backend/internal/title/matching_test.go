@@ -142,6 +142,15 @@ func TestResourceSeasonEvidence(t *testing.T) {
 		{"[Group] That Time I Got Reincarnated [01][1080p]", 0},
 		{"四季青春 [01]", 0}, {"四季青春 第三季 [01]", 3},
 		{"Example S01E02", 1}, {"Example S01E02 / Example S02E02", -1},
+		{"[组] 测试动画 Ｓ０２Ｅ０３ [1080p]", 2},
+		{"[组] 测试动画 第２季 [03]", 2},
+		{"[组] 测试动画 Season-02 [03]", 2},
+		{"[组] 测试动画 Season.02 [03]", 2},
+		{"[组] 测试动画 S 02 [03]", 2},
+		{"[组] 测试动画 Second Season [03]", 2},
+		{"[组] 测试动画 Ｓ０１ / Example S 02 [03]", -1},
+		{"[组] 测试动画 Part 2 [03]", 0},
+		{"[组] 与你相恋到生命尽头 [07][1080p]", 0},
 	} {
 		if got := ResourceSeason(tc.title); got != tc.season {
 			t.Fatalf("%s: %d want %d", tc.title, got, tc.season)

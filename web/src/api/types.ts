@@ -301,6 +301,7 @@ export interface DiscoverSource {
 
 export interface DiscoverItem {
   season?: number
+  inferred_season?: number
   feed_url?: string
   query?: string
   title: string

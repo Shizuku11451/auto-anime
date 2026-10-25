@@ -70,6 +70,15 @@ test('输入框和来源修改后，订阅仍对应展示结果；新结果到�
   assert.equal(opened.season_filter, -1)
   assert.equal(opened.auto_download, false)
   assert.equal(opened.requires_season_confirmation, true)
+  const inferred = { ...expanded, season: 0, inferred_season: 1 }
+  state.result.items.push(inferred)
+  assert.equal(remounted.exports.filtered.value.length, 2)
+  context.exports.subscribe(inferred)
+  assert.equal(opened.season_filter, -1)
+  assert.equal(opened.allow_unknown_season, false)
+  assert.equal(opened.auto_download, false)
+  assert.equal(opened.requires_season_confirmation, true)
+  assert.ok(opened.name.includes('推测第 1 季'))
   const previous = opened
   context.exports.subscribe({ ...expanded, season: -1 })
   assert.equal(opened, previous)

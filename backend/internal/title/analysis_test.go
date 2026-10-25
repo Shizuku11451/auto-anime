@@ -12,6 +12,12 @@ func TestAnalyzeTitleSplitsNameSeasonEpisode(t *testing.T) {
 		group   string
 		quality string
 	}{
+		{raw: "[Group] Example Ｓ０２Ｅ０３ [1080p]", title: "Example", season: 2, episode: "03", group: "Group", quality: "1080P"},
+		{raw: "[Group] Example Season-02 [03][1080p]", title: "Example", season: 2, episode: "03", group: "Group", quality: "1080P"},
+		{raw: "[Group] Example S 02 [03][1080p]", title: "Example", season: 2, episode: "03", group: "Group", quality: "1080P"},
+		{raw: "[Group] Example Second Season [03][1080p]", title: "Example", season: 2, episode: "03", group: "Group", quality: "1080P"},
+		{raw: "[Group] Example 3rdSeason [03][1080p]", title: "Example", season: 3, episode: "03", group: "Group", quality: "1080P"},
+		{raw: "[Group_Name] Example_S02_03_1080p", title: "Example", season: 2, episode: "03", group: "Group_Name", quality: "1080P"},
 		{
 			raw:     "[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 10 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
 			title:   "无职转生",

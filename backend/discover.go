@@ -105,17 +105,18 @@ func discoverSourcesAPI(w http.ResponseWriter, r *http.Request) {
 // ---- GET /api/discover/search?source=&keyword= ----
 
 type discoverItem struct {
-	Title      string `json:"title"`
-	AnimeTitle string `json:"anime_title"`
-	Group      string `json:"fansub_group"`
-	Episode    string `json:"episode"`
-	Quality    string `json:"quality"`
-	Link       string `json:"link"`
-	Torrent    string `json:"torrent"`
-	Published  string `json:"published"`
-	Season     int    `json:"season"`
-	FeedURL    string `json:"feed_url,omitempty"`
-	Query      string `json:"query,omitempty"`
+	Title          string `json:"title"`
+	AnimeTitle     string `json:"anime_title"`
+	Group          string `json:"fansub_group"`
+	Episode        string `json:"episode"`
+	Quality        string `json:"quality"`
+	Link           string `json:"link"`
+	Torrent        string `json:"torrent"`
+	Published      string `json:"published"`
+	Season         int    `json:"season"`
+	InferredSeason int    `json:"inferred_season,omitempty"`
+	FeedURL        string `json:"feed_url,omitempty"`
+	Query          string `json:"query,omitempty"`
 }
 
 func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +198,7 @@ func discoverSearchAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "搜索失败："+strings.Join(warnings, "；"), http.StatusBadGateway)
 		return
 	}
+	inferDiscoverSeasons(items)
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOut(w, map[string]any{
 		"source": source.ID, "source_name": source.Name,

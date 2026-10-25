@@ -1,12 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { discoveredSubscriptionWords, episodeSummary, filterReleases, groupReleases, releaseEpisodes, releaseField, seasonLabel, subscriptionTitle, subscriptionWords } from './discover.ts'
+import { discoveredSubscriptionWords, episodeSummary, filterReleases, groupReleases, releaseEpisodes, releaseField, releaseSeason, releaseSeasonLabel, seasonLabel, subscriptionTitle, subscriptionWords } from './discover.ts'
 
 const item = (episode, group = '目标组', quality = '1080P', language = '简中') => ({
   title: `[${group}] 夏日动画 / Summer [${episode}] [${quality}][${language}]`,
   anime_title: `夏日动画 / Summer [${quality}][${language}]`,
   fansub_group: group, quality, episode,
   link: `https://example.test/${episode}`, torrent: '', published: '',
+})
+
+test('季数推测单独展示，不覆盖原始证据或合并到明确季号版本', () => {
+  const unknown = { ...item('01'), season: 0, inferred_season: 2 }
+  assert.equal(releaseSeason(unknown), 2)
+  assert.equal(releaseSeasonLabel(unknown), '推测第 2 季')
+  assert.equal(releaseSeasonLabel({ ...unknown, season: 1 }), '第 1 季')
+  assert.equal(releaseSeason({ ...unknown, season: -1 }), -1)
+  assert.equal(groupReleases([unknown, { ...unknown, season: 2, inferred_season: 0 }, { ...unknown, inferred_season: 0 }]).length, 3)
 })
 
 test('季数与实际 RSS 分开分组，不将不同季或不同查询拼成一个可订阅版本', () => {

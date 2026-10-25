@@ -39,6 +39,14 @@ export function seasonLabel(season = 0): string {
   return season < 0 ? '季数冲突' : season === 0 ? '季数未标明' : `第 ${season} 季`
 }
 
+export function releaseSeason(item: DiscoverItem): number {
+  return item.season || item.inferred_season || 0
+}
+
+export function releaseSeasonLabel(item: DiscoverItem): string {
+  return !item.season && item.inferred_season ? `推测第 ${item.inferred_season} 季` : seasonLabel(item.season)
+}
+
 export function episodeSummary(episodes: number[]): string {
   const ranges: string[] = []
   const format = (episode: number) => String(episode).padStart(2, '0')
@@ -57,7 +65,7 @@ export function groupReleases(items: DiscoverItem[]) {
     const title = subscriptionTitle(item)
     const language = releaseLanguage(item)
     // Each card must be reproducible by one real RSS, not a query union.
-    const key = JSON.stringify([...([title, item.fansub_group, item.quality, language].map((s) => s.toLowerCase())), item.season ?? 0, item.feed_url ?? ''])
+    const key = JSON.stringify([...([title, item.fansub_group, item.quality, language].map((s) => s.toLowerCase())), item.season ?? 0, item.inferred_season ?? 0, item.feed_url ?? ''])
     const existing = groups.get(key)
     if (existing) existing.items.push(item)
     else groups.set(key, { key, title, language, item, items: [item] })

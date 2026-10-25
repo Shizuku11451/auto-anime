@@ -10,7 +10,7 @@ import { useDialogs } from '@/stores/dialogs'
 import { toast } from '@/stores/toast'
 import type { DiscoverItem } from '@/api/types'
 import { useAppStore } from '@/stores/app'
-import { discoveredSubscriptionWords, filterReleases, groupReleases, releaseField, seasonLabel, subscriptionTitle, type ReleaseField, type ReleaseFilters, type ReleaseSort } from '@/utils/discover'
+import { discoveredSubscriptionWords, filterReleases, groupReleases, releaseField, releaseSeason, releaseSeasonLabel, seasonLabel, subscriptionTitle, type ReleaseField, type ReleaseFilters, type ReleaseSort } from '@/utils/discover'
 
 const { state, loadSources, search, cancelSearch, retry } = useDiscover()
 const dialogs = useDialogs()
@@ -20,11 +20,11 @@ const existingFeed = computed(() => store.feeds.value.find((f) => f.url === stat
 const filters = reactive<ReleaseFilters>({ group: '', quality: '', language: '' })
 const sort = ref<ReleaseSort>('source')
 const season = ref('')
-const seasons = computed(() => [...new Set(releases.value.map(r => r.item.season ?? 0))].sort((a, b) => a - b))
+const seasons = computed(() => [...new Set(releases.value.map(r => releaseSeason(r.item)))].sort((a, b) => a - b))
 const filterFields: { key: ReleaseField; label: string }[] = [
   { key: 'group', label: '字幕组' }, { key: 'quality', label: '清晰度' }, { key: 'language', label: '字幕语言' },
 ]
-const filtered = computed(() => filterReleases(releases.value, filters, sort.value).filter(r => !season.value || String(r.item.season ?? 0) === season.value))
+const filtered = computed(() => filterReleases(releases.value, filters, sort.value).filter(r => !season.value || String(releaseSeason(r.item)) === season.value))
 const hasFilters = computed(() => !!season.value || Object.values(filters).some(Boolean))
 const activeSourceName = computed(() => state.sources.find((s) => s.id === state.attempt?.source)?.name || '所选来源')
 const showResults = computed(() => !!state.result && !state.searching && !state.error)
@@ -109,7 +109,7 @@ function subscribe(item: DiscoverItem) {
   const existing = store.feeds.value.find(f => f.url === url)
   dialogs.openFeed({
     ...existing,
-    name: [subscriptionTitle(item), item.season ? seasonLabel(item.season) : '', item.fansub_group, item.quality].filter(Boolean).join(' · '),
+    name: [subscriptionTitle(item), releaseSeason(item) ? releaseSeasonLabel(item) : '', item.fansub_group, item.quality].filter(Boolean).join(' · '),
     url,
     include_words: discoveredSubscriptionWords(item, r.keyword, !!r.requested_season),
     season_filter: item.season || -1,
@@ -199,7 +199,7 @@ function subscribe(item: DiscoverItem) {
         {{ state.result.warning || (state.result.history ? '集数来自此来源已发现的资源，不代表全季已发布。' : '此来源仅提供当前 RSS 列表；查找早期集数可换源，或加上字幕组缩小搜索范围。') }}
       </p>
       <p v-if="state.result.requested_season" class="read-scope" role="status">
-        已识别：{{ seasonLabel(state.result.requested_season) }}；同源查询：{{ state.result.queries?.join('、') }}。未标明季数的资源需切换筛选并人工核对，不自动认作目标季。订阅使用各版本的实际 RSS，原词 RSS 不包含合并结果。
+        已识别：{{ seasonLabel(state.result.requested_season) }}；同源查询：{{ state.result.queries?.join('、') }}。季数筛选包含明确标记与推测结果；推测仍需人工确认，无佐证的资源可切换「季数未标明」查看，不自动认作目标季。订阅使用各版本的实际 RSS，原词 RSS 不包含合并结果。
       </p>
       <p v-if="existingFeed" class="subscription-notice">
         此 RSS 已订阅为「{{ existingFeed.name }}」。选择版本后可预览并调整原订阅，已有条目与文件保留。

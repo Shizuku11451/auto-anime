@@ -59,6 +59,9 @@ func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
 		"[Group] 测试动画_S02_02_1080p",
 		"[Group] 测试动画Ⅱ [03][1080p]",
 		"[Group] 测试动画 第一季 / Example III [04][1080p]",
+		"[Group] 测试动画 Ｓ０２Ｅ０５ [1080p]",
+		"[Group] 测试动画 Season-02 [06][1080p]",
+		"[Group] 测试动画 Second Season [07][1080p]",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<rss><channel>`)
@@ -72,7 +75,7 @@ func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
 		season  int
 		unknown bool
 		count   int
-	}{{2, false, 3}, {1, true, 0}, {-1, false, 0}} {
+	}{{2, false, 6}, {1, true, 0}, {-1, false, 0}} {
 		payload, _ := json.Marshal(PreviewInput{URL: server.URL, SeasonFilter: tc.season, AllowUnknownSeason: tc.unknown})
 		rec := httptest.NewRecorder()
 		preview(rec, httptest.NewRequest("POST", "/api/preview", strings.NewReader(string(payload))))
@@ -90,7 +93,7 @@ func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
 	if _, err := db.Exec(`UPDATE feeds SET season_filter=2,allow_unknown_season=0 WHERE id=1`); err != nil {
 		t.Fatal(err)
 	}
-	for _, count := range []int{3, 0} {
+	for _, count := range []int{6, 0} {
 		if n, err := syncFeedContext(context.Background(), 1); err != nil || n != count {
 			t.Fatalf("second season sync: %d want %d err=%v", n, count, err)
 		}

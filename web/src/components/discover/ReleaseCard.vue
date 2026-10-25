@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { ArrowRight, ExternalLink } from '@lucide/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { formatTime } from '@/utils/format'
-import { episodeSummary, seasonLabel, type Release } from '@/utils/discover'
+import { episodeSummary, releaseSeasonLabel, type Release } from '@/utils/discover'
 import type { DiscoverItem } from '@/api/types'
 
 const props = defineProps<{ release: Release; editing: boolean }>()
@@ -20,7 +20,7 @@ const isWebLink = (link: string) => /^https?:\/\//i.test(link)
       <div class="release-info">
         <h3>{{ release.title }}</h3>
         <div class="version-tags">
-          <span>{{ seasonLabel(release.item.season) }}</span>
+          <span>{{ releaseSeasonLabel(release.item) }}</span>
           <span class="group-tag">{{ release.item.fansub_group || '字幕组未识别' }}</span>
           <span v-if="release.item.quality">{{ release.item.quality }}</span>
           <span v-if="release.language">{{ release.language }}</span>
@@ -38,7 +38,8 @@ const isWebLink = (link: string) => /^https?:\/\//i.test(link)
     <p v-if="release.episodes.length" class="episodes">集数：{{ episodeSummary(release.episodes) }}</p>
     <p v-else class="notice">尚未识别出单集编号，请展开核对原始标题。</p>
     <p v-if="!release.item.fansub_group" class="notice">字幕组未识别，默认关闭自动下载；订阅前请核对过滤规则。</p>
-    <p v-if="!release.item.season" class="notice">季数未标明，默认关闭自动下载，请人工核对。</p>
+    <p v-if="!release.item.season && release.item.inferred_season" class="notice">同一 RSS 内同名资源有至少两集与明确季号版本重合，推测为第 {{ release.item.inferred_season }} 季；本版本标题未注明季数，仍需人工确认，默认关闭自动下载。订阅仍按「仅季数未标明」过滤，不自动指定归档季号。</p>
+    <p v-else-if="!release.item.season" class="notice">资源标题未注明季数，且暂无足够佐证；默认关闭自动下载，请人工核对。</p>
     <p v-if="(release.item.season ?? 0) < 0" class="notice">标题中的季数互相冲突，不能自动订阅。</p>
     <p v-if="release.item.query" class="notice">实际 RSS 查询：{{ release.item.query }}；本卡片仅包含该 RSS 的资源。</p>
     <details class="resource-details" @toggle="expanded = ($event.target as HTMLDetailsElement).open">

@@ -88,6 +88,7 @@ var seasonPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`第\s*([0-9一二三四五六七八九十]{1,3})\s*[季期部]`),
 	regexp.MustCompile(`(?i)season\s*([0-9]{1,2})(?:[^0-9]|$)`),
 	ordinalSeasonPattern,
+	metaOrdinalSeason,
 	// 独立的 S3 才算季标记；后面跟着 E01 的交给 episodeTagPattern。
 	regexp.MustCompile(`(?i)(?:^|[\s._\-])s([0-9]{1,2})(?:[^0-9eE]|$)`),
 	regexp.MustCompile(`([0-9]{1,2})\s*[季期]`),
@@ -204,6 +205,7 @@ func analyzeTitle(raw string, stripGroup bool) Info {
 			clean = strings.TrimSpace(clean[len(m[0]):])
 		}
 	}
+	clean = normalizeSeasonMarkers(clean)
 	if m := qualityPattern.FindString(clean); m != "" {
 		info.Quality = strings.ToUpper(m)
 	}
