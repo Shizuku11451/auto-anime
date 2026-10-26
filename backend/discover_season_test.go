@@ -30,7 +30,7 @@ func TestDiscoverSeasonExpansionAndProvenance(t *testing.T) {
 	}))
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+url.QueryEscape("测试动画 第一季"))
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("测试动画 第一季"))
 	var out struct {
 		Items           []discoverItem
 		RequestedSeason int `json:"requested_season"`
@@ -46,7 +46,7 @@ func TestDiscoverSeasonExpansionAndProvenance(t *testing.T) {
 		}
 	}
 	requests.Store(0)
-	rec = discoverGet(t, "/api/discover/search?source=acgrip&literal=1&keyword="+url.QueryEscape("测试动画 第一季"))
+	rec = discoverGet(t, "/api/discover/search?source=custom&literal=1&keyword="+url.QueryEscape("测试动画 第一季"))
 	if rec.Code != 200 || requests.Load() != 1 {
 		t.Fatal("literal search expanded")
 	}
@@ -116,7 +116,7 @@ func TestDiscoverPartialFailureAndSharedBudget(t *testing.T) {
 	}))
 	defer server.Close()
 	pagedTestSource(t, server.URL+"/?term={keyword}", 1)
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+url.QueryEscape("测试动画 第一季"))
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("测试动画 第一季"))
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "503") || !strings.Contains(rec.Body.String(), `"count":1`) {
 		t.Fatalf("partial: %s", rec.Body.String())
 	}
@@ -142,7 +142,7 @@ func TestDiscoverExpansionCancellation(t *testing.T) {
 	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req := httptest.NewRequest("GET", "/api/discover/search?source=acgrip&keyword="+url.QueryEscape("测试动画 第一季"), nil).WithContext(ctx)
+	req := httptest.NewRequest("GET", "/api/discover/search?source=custom&keyword="+url.QueryEscape("测试动画 第一季"), nil).WithContext(ctx)
 	done := make(chan struct{})
 	go func() {
 		discoverSearchAPI(httptest.NewRecorder(), req)

@@ -26,8 +26,8 @@ func noFeedPageDelay(t *testing.T) {
 func pagedTestSource(t *testing.T, template string, pageSize int) {
 	t.Helper()
 	overrideDiscoverSource(t, template)
-	discoverBuiltinSources[0].PageParam = "page"
-	discoverBuiltinSources[0].PageSize = pageSize
+	feedKnownSources[0].PageParam = "page"
+	feedKnownSources[0].PageSize = pageSize
 	noFeedPageDelay(t)
 }
 
@@ -61,18 +61,18 @@ func TestSearchPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
 	}))
 	defer server.Close()
 	pagedTestSource(t, server.URL+"/search.xml?term={keyword}", 30)
-	feedURL := discoverSearchURL(discoverBuiltinSources[0].Template, "夏日动画")
+	feedURL := discoverSearchURL(feedKnownSources[0].Template, "夏日动画")
 	words := "夏日动画,[目标组],1080p,简繁"
 	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,include_words,target_title) VALUES(1,?,?,?,?)`, "夏日动画", feedURL, words, "夏日动画"); err != nil {
 		t.Fatal(err)
 	}
 	// A subscription created by the previous single-page implementation.
-	discoverBuiltinSources[0].PageParam = ""
+	feedKnownSources[0].PageParam = ""
 	if n, err := syncFeedContext(context.Background(), 1); n != 4 || err != nil {
 		t.Fatalf("initial window: %d %v", n, err)
 	}
-	discoverBuiltinSources[0].PageParam = "page"
-	search := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+url.QueryEscape("夏日动画"))
+	feedKnownSources[0].PageParam = "page"
+	search := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("夏日动画"))
 	var found struct {
 		Count, Pages     int
 		History, Limited bool
@@ -185,7 +185,7 @@ func TestFeedDoesNotGuessPaginationForUnknownSources(t *testing.T) {
 	}))
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/rss?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=anime")
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword=anime")
 	var result struct {
 		Count, Pages     int
 		History, Limited bool
@@ -221,7 +221,7 @@ func TestHistoryReadFailureKeepsItemsAndRetries(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,target_title) VALUES(1,'动画',?,'动画')`, feedURL); err != nil {
 		t.Fatal(err)
 	}
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=anime")
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword=anime")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"limited":true`) || !strings.Contains(rec.Body.String(), "503") {
 		t.Fatalf("partial search hidden: %d %s", rec.Code, rec.Body.String())
 	}
@@ -319,9 +319,11 @@ func TestVerifiedSourcesAndRecentWindowLimits(t *testing.T) {
 		"acgrip": {"acg.rip", 0}, "mikan": {"mikanani.me", 100}, "dmhy": {"share.dmhy.org", 500},
 	}
 	for id, want := range expected {
-		source, ok := discoverSourceByID(id)
-		if !ok {
-			t.Fatalf("missing source %s", id)
+		var source discoverSource
+		for _, known := range feedKnownSources {
+			if known.ID == id {
+				source = known
+			}
 		}
 		address, err := url.Parse(discoverSearchURL(source.Template, "夏日动画 字幕组"))
 		if err != nil || address.Host != want.host || source.ResultLimit != want.limit || feedSource(address).ID != id {
@@ -340,7 +342,7 @@ func TestVerifiedSourcesAndRecentWindowLimits(t *testing.T) {
 	}))
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/rss?term={keyword}")
-	discoverBuiltinSources[0].ResultLimit = 100
+	feedKnownSources[0].ResultLimit = 100
 	result, err := fetchRSS(context.Background(), server.URL+"/rss?term=anime")
 	if err != nil || len(result.Entries) != 100 || result.Pages != 1 || result.History || !result.Limited || result.Incomplete || !strings.Contains(result.Warning, "最近 100 条") {
 		t.Fatalf("source limit must be visible without dropping results: %+v %v", result, err)

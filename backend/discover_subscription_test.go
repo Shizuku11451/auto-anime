@@ -31,7 +31,7 @@ func TestTraditionalReleasePreviewAndSyncAtReadLimit(t *testing.T) {
 	}))
 	defer server.Close()
 	pagedTestSource(t, server.URL+"/search.xml?term={keyword}", 30)
-	feedURL := discoverSearchURL(discoverBuiltinSources[0].Template, "无职转生")
+	feedURL := discoverSearchURL(feedKnownSources[0].Template, "无职转生")
 	// The generated rule keeps the simplified search term and traditional name.
 	words := "无职转生,無職轉生,～到了異世界就拿出真本事～,[綠茶字幕組],1080P,繁日"
 	for _, tc := range []struct {
@@ -119,7 +119,7 @@ func TestFullwidthReleasePreviewAndSync(t *testing.T) {
 	}))
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=AI")
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword=AI")
 	var found struct{ Items []discoverItem }
 	if err := json.Unmarshal(rec.Body.Bytes(), &found); err != nil || rec.Code != 200 || len(found.Items) != 4 {
 		t.Fatalf("discover: %s err=%v", rec.Body.String(), err)

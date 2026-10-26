@@ -243,3 +243,42 @@ test('目录检测支持重试，旧响应不覆盖修改后的路径或卸载�
   await closing
   assert.equal(h.state.storageResult.value, null)
 })
+
+test('搜索源为独立可选步骤，无效模板不能推进或保存，有效模板随初始化提交', async () => {
+  const h = setup()
+  await h.state.loadStatus()
+  account(h)
+  h.state.go(1); h.state.go(1); h.state.go(1)
+  assert.equal(h.state.current.value.key, 'source')
+  for (const template of ['https://example.test/rss', 'file:///tmp/{keyword}', 'not-a-url/{keyword}']) {
+    h.state.form.discover_search_template = template
+    h.state.go(1)
+    assert.equal(h.state.current.value.key, 'source')
+    assert.ok(h.state.msg.value)
+    await h.state.finish()
+    assert.equal(h.writes.length, 0)
+  }
+  h.state.form.discover_search_template = '  https://example.test/rss?q={关键词}  '
+  h.state.go(1)
+  assert.equal(h.state.current.value.key, 'network')
+  await h.state.finish()
+  assert.equal(h.writes[0].discover_search_template, 'https://example.test/rss?q={关键词}')
+  assert.equal(h.state.searchConfigured.value, true)
+})
+
+test('留空允许完成，使用默认配置不保存已填搜索源且完成页不声称已配置', async () => {
+  const empty = setup()
+  await empty.state.loadStatus()
+  account(empty)
+  await empty.state.finish()
+  assert.equal(empty.writes[0].discover_search_template, '')
+  assert.equal(empty.state.completed.value, true)
+  assert.equal(empty.state.searchConfigured.value, false)
+  const skipped = setup()
+  await skipped.state.loadStatus()
+  skipped.state.form.discover_search_template = 'https://example.test/rss?q={keyword}'
+  await skipped.state.skip()
+  assert.deepEqual(Object.keys(skipped.writes[0]), [])
+  assert.equal(skipped.state.completed.value, true)
+  assert.equal(skipped.state.searchConfigured.value, false)
+})

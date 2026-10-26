@@ -113,3 +113,27 @@ test('来源刷新隔离迟到响应，失败保留已有来源并退出加载�
   assert.equal(store.state.sourcesError, '来源暂不可用')
   assert.equal(store.state.sourcesLoading, false)
 })
+
+test('清空来源取消旧请求并清除旧结果；未配置时不搜索，配置后可继续使用', async () => {
+  const { store, requests } = fixture()
+  store.state.result = { keyword: '旧结果' }
+  const old = store.search()
+  const empty = store.loadSources()
+  requests[1].resolve({ sources: [] }); await empty
+  assert.equal(requests[0].options.signal.aborted, true)
+  assert.equal(store.state.source, '')
+  assert.equal(store.state.result, null)
+  assert.equal(store.state.attempt, null)
+  assert.equal(store.state.cancelled, false)
+  await store.search()
+  assert.equal(requests.length, 2)
+  requests[0].resolve({ keyword: '迟到结果' }); await old
+  assert.equal(store.state.result, null)
+  const configured = store.loadSources()
+  requests[2].resolve({ sources: [{ id: 'custom' }] }); await configured
+  assert.equal(store.state.source, 'custom')
+  const search = store.search()
+  assert.ok(requests[3].url.includes('source=custom'))
+  requests[3].resolve({ keyword: '夏日' }); await search
+  assert.equal(store.state.result.keyword, '夏日')
+})

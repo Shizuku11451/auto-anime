@@ -58,6 +58,41 @@ func TestSetupRequiredAndWizardFlow(t *testing.T) {
 	}
 }
 
+func TestSetupSearchSourceValidationAndPersistence(t *testing.T) {
+	testDatabase(t)
+	setWebAuth(t, "", "")
+	oldDone, oldTemplate := setupDone, discoverSearchTemplate
+	setupDone, discoverSearchTemplate = false, ""
+	t.Cleanup(func() { setupDone, discoverSearchTemplate = oldDone, oldTemplate })
+	for _, template := range []string{"https://example.test/rss", "file:///tmp/{keyword}"} {
+		body, _ := json.Marshal(map[string]any{"poll_minutes": 15, "discover_search_template": template})
+		rec := httptest.NewRecorder()
+		setupHandler(rec, httptest.NewRequest("POST", "/api/setup", strings.NewReader(string(body))))
+		if rec.Code != 400 || !setupRequired() || len(storedSettings()) != 0 || discoverSearchTemplate != "" {
+			t.Fatalf("invalid source partially initialized instance: %d %s settings=%v", rec.Code, rec.Body.String(), storedSettings())
+		}
+	}
+	template := "https://example.test/rss?q={keyword}&token=private-test-value"
+	body, _ := json.Marshal(map[string]string{"discover_search_template": template})
+	rec := httptest.NewRecorder()
+	setupHandler(rec, httptest.NewRequest("POST", "/api/setup", strings.NewReader(string(body))))
+	if rec.Code != 200 || setupRequired() || discoverSearchTemplate != template {
+		t.Fatalf("source not saved with setup: %d %s", rec.Code, rec.Body.String())
+	}
+	discoverSearchTemplate = ""
+	loadSettings()
+	if discoverSearchTemplate != template || len(discoverSourceList()) != 1 {
+		t.Fatal("configured source did not survive reload")
+	}
+	for _, handler := range []http.HandlerFunc{setupStatusHandler, discoverSourcesAPI} {
+		rec = httptest.NewRecorder()
+		handler(rec, httptest.NewRequest("GET", "/", nil))
+		if strings.Contains(rec.Body.String(), "private-test-value") || strings.Contains(rec.Body.String(), "example.test") {
+			t.Fatalf("source credentials leaked: %s", rec.Body.String())
+		}
+	}
+}
+
 func TestLibraryDirSetting(t *testing.T) {
 	testDatabase(t)
 	setWebAuth(t, "", "")

@@ -170,10 +170,11 @@ function subscribe(item: DiscoverItem) {
     </p>
 
     <EmptyState v-if="state.sourcesLoading && noSources" :icon="Compass" title="正在加载搜索源" hint="加载完成后即可搜索番剧" loading />
-    <EmptyState v-else-if="noSources" :icon="TriangleAlert" title="没有可用搜索源"
-      :hint="state.sourcesError || '请到设置页配置自定义 RSS 搜索模板'" tone="error">
-      <BaseButton :loading="state.sourcesLoading" @click="loadSources">重新加载搜索源</BaseButton>
+    <EmptyState v-else-if="noSources" :icon="state.sourcesError ? TriangleAlert : Compass" :title="state.sourcesError ? '搜索源加载失败' : '尚未配置搜索源'"
+      :hint="state.sourcesError || '应用不内置资源来源。请在设置页填写你有权使用的 RSS 搜索模板，或直接手动添加 RSS。'" :tone="state.sourcesError ? 'error' : 'default'">
+      <BaseButton v-if="state.sourcesError" :loading="state.sourcesLoading" @click="loadSources">重新加载搜索源</BaseButton>
       <RouterLink class="settings-link" to="/settings">前往设置</RouterLink>
+      <BaseButton @click="dialogs.openFeed()">手动添加 RSS</BaseButton>
     </EmptyState>
     <EmptyState v-else-if="state.searching" :icon="Compass" :title="`正在${activeSourceName}搜索「${state.attempt?.keyword}」`"
       hint="正在读取资源与可用的历史页。你可以取消，或直接切换上方搜索源。" loading>

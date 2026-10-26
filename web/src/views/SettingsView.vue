@@ -494,7 +494,7 @@ async function save() {
           </div>
         </div>
         <div class="field">
-          <label for="st-discover">找番自定义搜索源（RSS 地址模板，含 {keyword} 占位符；留空只用内置源）</label>
+          <label for="st-discover">找番搜索源（RSS 地址模板，含 {keyword} 占位符；留空不启用资源搜索）</label>
           <input
             id="st-discover"
             v-model="form.discover_search_template"
@@ -502,6 +502,7 @@ async function save() {
             spellcheck="false"
             placeholder="例如 https://example.com/search/rss?term={keyword}"
           />
+          <p class="field-hint">应用不内置或推荐资源来源。请自行确认来源的使用条款与内容授权；保存仅校验格式，不检测连通性。留空仍可手动添加 RSS，已有订阅不受影响。</p>
         </div>
       </section>
     </fieldset>

@@ -314,7 +314,7 @@ async function save() {
       </p>
       <div class="field">
         <label for="f-name">订阅名称</label>
-        <input id="f-name" v-model="form.name" type="text" placeholder="例如：动漫花园 · 完结动画" autofocus />
+        <input id="f-name" v-model="form.name" type="text" placeholder="例如：我的追番订阅" autofocus />
       </div>
       <div v-if="!s.feed?.from_discover" class="field">
         <label for="f-url">RSS 地址</label>

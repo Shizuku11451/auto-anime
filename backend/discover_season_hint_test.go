@@ -67,7 +67,7 @@ func TestDiscoverSeasonHintsPreserveEvidence(t *testing.T) {
 	}))
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+url.QueryEscape("与你相恋"))
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("与你相恋"))
 	var out struct{ Items []discoverItem }
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || len(out.Items) != 4 {
 		t.Fatalf("search: %s err=%v", rec.Body.String(), err)
@@ -100,7 +100,7 @@ func TestExpandedDiscoverSeasonHintsBeforeDeduplication(t *testing.T) {
 			defer server.Close()
 			overrideDiscoverSource(t, server.URL+"/?term={keyword}")
 			for _, keyword := range []string{"测试动画", "测试动画 第二季"} {
-				rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+url.QueryEscape(keyword))
+				rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape(keyword))
 				var out struct{ Items []discoverItem }
 				if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || len(out.Items) != 4 {
 					t.Fatalf("search: %s err=%v", rec.Body.String(), err)

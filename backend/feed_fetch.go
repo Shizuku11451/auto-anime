@@ -165,11 +165,18 @@ func discoverItemsFromEntries(entries []feedEntry) []discoverItem {
 	return items
 }
 
+// 仅用于已有 RSS 的分页兼容，不注册为找番搜索源。
+var feedKnownSources = []discoverSource{
+	{ID: "acgrip", Template: "https://acg.rip/.xml?term={keyword}", PageParam: "page", PageSize: 30},
+	{ID: "mikan", Template: "https://mikanani.me/RSS/Search?searchstr={keyword}", ResultLimit: 100},
+	{ID: "dmhy", Template: "https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}", ResultLimit: 500},
+}
+
 // 仅匹配已核验的搜索 RSS（包括固定查询参数）；不能对任意订阅猜测 page 参数。
 // 使用注册表匹配，也使旧订阅无需改地址就能读取历史页。
 func feedSource(address *url.URL) discoverSource {
 	const marker = "autoanimekeywordplaceholder"
-	for _, source := range discoverSourceList() {
+	for _, source := range feedKnownSources {
 		template, err := url.Parse(discoverSearchURL(source.Template, marker))
 		if err != nil || !strings.EqualFold(address.Host, template.Host) || !strings.EqualFold(address.Path, template.Path) {
 			continue
@@ -363,7 +370,7 @@ func fetchRSSBudget(ctx context.Context, feedURL string, budget *feedReadBudget,
 		if next == nil {
 			if source.ResultLimit > 0 && len(page.Entries) >= source.ResultLimit {
 				result.Limited = true
-				result.Warning = fmt.Sprintf("此来源只返回最近 %d 条搜索结果，可能遗漏早期集数；请加上字幕组缩小搜索范围，或改用支持历史翻页的 ACG.RIP。", source.ResultLimit)
+				result.Warning = fmt.Sprintf("此来源只返回最近 %d 条搜索结果，可能遗漏早期集数；请加上字幕组缩小搜索范围，或自行配置支持历史翻页的来源。", source.ResultLimit)
 			}
 			break
 		}

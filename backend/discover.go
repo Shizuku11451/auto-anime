@@ -12,7 +12,7 @@ import (
 	titleparse "auto-anime/internal/title"
 )
 
-// 找番：在内置或自定义的资源站搜索关键词，直接拿到可订阅的 RSS 地址。
+// 找番：在用户配置的搜索源搜索关键词，直接拿到可订阅的 RSS 地址。
 // 搜索结果本身就是一个 RSS（按关键词过滤的资源列表），把它添加为订阅后
 // 复用现有的同步、过滤和下载流程。搜索属于公网内容访问，走 httpClient
 // 的统一传输配置（PROXY_URL 生效），并对响应大小设上限，防止异常站点
@@ -42,14 +42,6 @@ type discoverSource struct {
 	ResultLimit int    `json:"-"`
 }
 
-// 2026-09-10 核验公开 RSS：正常关键词返回相关条目，不存在的关键词返回空结果。
-// 分页能力与源站的单次返回上限分别记录，不能把最新列表当成全部历史。
-var discoverBuiltinSources = []discoverSource{
-	{ID: "acgrip", Name: "ACG.RIP", Hint: "公开搜索 RSS，支持自动翻页查找早期集数", Template: "https://acg.rip/.xml?term={keyword}", PageParam: "page", PageSize: 30},
-	{ID: "mikan", Name: "蜜柑计划", Hint: "公开搜索 RSS，最多返回最近 100 条；可加上字幕组缩小搜索范围", Template: "https://mikanani.me/RSS/Search?searchstr={keyword}", ResultLimit: 100},
-	{ID: "dmhy", Name: "动漫花园", Hint: "公开关键词 RSS，最多返回最近 500 条", Template: "https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}", ResultLimit: 500},
-}
-
 // validateDiscoverTemplate ensures a custom search template is an http(s) RSS
 // address with a keyword placeholder, so a saved template can never point at
 // file:// or miss the keyword entirely.
@@ -70,7 +62,7 @@ func validateDiscoverTemplate(raw string) (string, error) {
 
 func discoverSourceList() []discoverSource {
 	cfg := runtimeConfig()
-	sources := append([]discoverSource{}, discoverBuiltinSources...)
+	sources := []discoverSource{}
 	if t, err := validateDiscoverTemplate(cfg.discoverSearchTemplate); err == nil && t != "" {
 		sources = append(sources, discoverSource{ID: "custom", Name: "自定义搜索源", Hint: "设置页配置的 RSS 搜索模板", Template: t, Custom: true})
 	}

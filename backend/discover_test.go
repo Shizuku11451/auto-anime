@@ -10,14 +10,13 @@ import (
 	"testing"
 )
 
-// overrideDiscoverSource replaces the builtin source registry with one entry
-// pointing at a local template; the registry is shared global state so tests
-// must restore it.
+// Use a local configured source and preserve the shared configuration.
 func overrideDiscoverSource(t *testing.T, template string) {
 	t.Helper()
-	old := discoverBuiltinSources
-	discoverBuiltinSources = []discoverSource{{ID: "acgrip", Name: "ACG.RIP", Template: template}}
-	t.Cleanup(func() { discoverBuiltinSources = old })
+	oldTemplate, oldSources := discoverSearchTemplate, feedKnownSources
+	discoverSearchTemplate = template
+	feedKnownSources = []discoverSource{{ID: "custom", Template: template}}
+	t.Cleanup(func() { discoverSearchTemplate, feedKnownSources = oldTemplate, oldSources })
 }
 
 func overrideDiscoverMaxBytes(t *testing.T, limit int) {
@@ -38,7 +37,6 @@ func TestDiscoverSourceList(t *testing.T) {
 	oldTemplate := discoverSearchTemplate
 	t.Cleanup(func() { discoverSearchTemplate = oldTemplate })
 	discoverSearchTemplate = ""
-	builtinCount := len(discoverBuiltinSources)
 
 	rec := httptest.NewRecorder()
 	discoverSourcesAPI(rec, httptest.NewRequest("GET", "/api/discover/sources", nil))
@@ -51,8 +49,13 @@ func TestDiscoverSourceList(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Sources) != builtinCount || out.Sources[0].ID != "acgrip" || out.Sources[0].Custom {
-		t.Fatalf("builtin sources: %+v", out.Sources)
+	if out.Sources == nil || len(out.Sources) != 0 {
+		t.Fatalf("default sources must be an empty array: %s", rec.Body.String())
+	}
+	for _, id := range []string{"acgrip", "mikan", "dmhy"} {
+		if rec := discoverGet(t, "/api/discover/search?source="+id+"&keyword=test"); rec.Code != 400 {
+			t.Fatalf("removed source %s accepted: %d", id, rec.Code)
+		}
 	}
 
 	// 配置了合法模板后出现自定义源；非法模板被忽略，不进入列表。
@@ -61,14 +64,14 @@ func TestDiscoverSourceList(t *testing.T) {
 	rec = httptest.NewRecorder()
 	discoverSourcesAPI(rec, httptest.NewRequest("GET", "/api/discover/sources", nil))
 	json.Unmarshal(rec.Body.Bytes(), &out)
-	if len(out.Sources) != builtinCount+1 || out.Sources[builtinCount].ID != "custom" || !out.Sources[builtinCount].Custom {
+	if len(out.Sources) != 1 || out.Sources[0].ID != "custom" || !out.Sources[0].Custom {
 		t.Fatalf("sources with custom template: %+v", out.Sources)
 	}
 	discoverSearchTemplate = "https://example.test/rss?kw=missing"
 	rec = httptest.NewRecorder()
 	discoverSourcesAPI(rec, httptest.NewRequest("GET", "/api/discover/sources", nil))
 	json.Unmarshal(rec.Body.Bytes(), &out)
-	if len(out.Sources) != builtinCount {
+	if len(out.Sources) != 0 {
 		t.Fatalf("invalid template must not appear: %+v", out.Sources)
 	}
 }
@@ -106,7 +109,7 @@ func TestDiscoverSearchParsesResults(t *testing.T) {
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/search.xml?term={keyword}")
 
-	rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="+"葬送的芙莉莲")
+	rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+"葬送的芙莉莲")
 	if rec.Code != 200 {
 		t.Fatalf("search: %d %s", rec.Code, rec.Body.String())
 	}
@@ -124,7 +127,7 @@ func TestDiscoverSearchParsesResults(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Source != "acgrip" || out.Keyword != "葬送的芙莉莲" {
+	if out.Source != "custom" || out.Keyword != "葬送的芙莉莲" {
 		t.Fatalf("meta: %+v", out)
 	}
 	if out.FeedURL != server.URL+"/search.xml?term="+"%E8%91%AC%E9%80%81%E7%9A%84%E8%8A%99%E8%8E%89%E8%8E%B2" {
@@ -150,14 +153,14 @@ func TestDiscoverSearchParsesResults(t *testing.T) {
 
 func TestDiscoverSearchInputValidation(t *testing.T) {
 	overrideDiscoverSource(t, "https://example.test/?kw={keyword}")
-	if rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword="); rec.Code != 400 {
+	if rec := discoverGet(t, "/api/discover/search?source=custom&keyword="); rec.Code != 400 {
 		t.Fatalf("empty keyword: %d", rec.Code)
 	}
 	if rec := discoverGet(t, "/api/discover/search?source=ghost&keyword=x"); rec.Code != 400 {
 		t.Fatalf("unknown source: %d", rec.Code)
 	}
 	rec := httptest.NewRecorder()
-	discoverSearchAPI(rec, httptest.NewRequest("POST", "/api/discover/search?source=acgrip&keyword=x", nil))
+	discoverSearchAPI(rec, httptest.NewRequest("POST", "/api/discover/search?source=custom&keyword=x", nil))
 	if rec.Code != 405 {
 		t.Fatalf("post: %d", rec.Code)
 	}
@@ -170,7 +173,7 @@ func TestDiscoverSearchUpstreamFailures(t *testing.T) {
 		}))
 		defer server.Close()
 		overrideDiscoverSource(t, server.URL+"/?kw={keyword}")
-		rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=x")
+		rec := discoverGet(t, "/api/discover/search?source=custom&keyword=x")
 		if rec.Code != 502 || !strings.Contains(rec.Body.String(), "500") {
 			t.Fatalf("http error surfaced: %d %s", rec.Code, rec.Body.String())
 		}
@@ -181,7 +184,7 @@ func TestDiscoverSearchUpstreamFailures(t *testing.T) {
 		}))
 		defer server.Close()
 		overrideDiscoverSource(t, server.URL+"/?kw={keyword}")
-		rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=x")
+		rec := discoverGet(t, "/api/discover/search?source=custom&keyword=x")
 		if rec.Code != 502 || !strings.Contains(rec.Body.String(), "RSS") {
 			t.Fatalf("html response rejected: %d %s", rec.Code, rec.Body.String())
 		}
@@ -193,7 +196,7 @@ func TestDiscoverSearchUpstreamFailures(t *testing.T) {
 		defer server.Close()
 		overrideDiscoverSource(t, server.URL+"/?kw={keyword}")
 		overrideDiscoverMaxBytes(t, 64)
-		rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=x")
+		rec := discoverGet(t, "/api/discover/search?source=custom&keyword=x")
 		if rec.Code != 502 || !strings.Contains(rec.Body.String(), "超过") {
 			t.Fatalf("size limit enforced: %d %s", rec.Code, rec.Body.String())
 		}
@@ -203,7 +206,7 @@ func TestDiscoverSearchUpstreamFailures(t *testing.T) {
 		base := server.URL
 		server.Close()
 		overrideDiscoverSource(t, base+"/?kw={keyword}")
-		rec := discoverGet(t, "/api/discover/search?source=acgrip&keyword=x")
+		rec := discoverGet(t, "/api/discover/search?source=custom&keyword=x")
 		if rec.Code != 502 || !strings.Contains(rec.Body.String(), "连接失败") {
 			t.Fatalf("connection failure surfaced: %d %s", rec.Code, rec.Body.String())
 		}
@@ -241,11 +244,11 @@ func TestDiscoverCustomTemplateSetting(t *testing.T) {
 		Sources []discoverSource `json:"sources"`
 	}
 	json.Unmarshal(discoverSourcesRecorder(t).Body.Bytes(), &out)
-	if len(out.Sources) != len(discoverBuiltinSources)+1 || out.Sources[len(discoverBuiltinSources)].ID != "custom" {
+	if len(out.Sources) != 1 || out.Sources[0].ID != "custom" {
 		t.Fatalf("custom source missing: %+v", out.Sources)
 	}
 
-	// 清空模板回到仅内置源；重启后 loadSettings 恢复同样的状态。
+	// 清空模板后不提供搜索源；重启后 loadSettings 恢复同样的状态。
 	if rec := settingsPUT(t, `{"discover_search_template":""}`); rec.Code != 200 {
 		t.Fatalf("clear template: %d %s", rec.Code, rec.Body.String())
 	}

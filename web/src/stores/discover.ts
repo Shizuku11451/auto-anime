@@ -48,6 +48,10 @@ async function loadSources() {
     state.sourcesError = ''
     if (!state.sources.some((s) => s.id === state.source)) {
       cancelSearch()
+      state.result = null
+      state.error = ''
+      state.attempt = null
+      state.cancelled = false
       state.source = state.sources[0]?.id ?? ''
     }
   } catch (e) {
