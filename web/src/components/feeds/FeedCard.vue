@@ -17,7 +17,8 @@ const excludes = computed(() => splitKeywords(props.feed.exclude_words))
   <article class="feed-card" :class="{ paused }">
     <header class="head">
       <h3 class="name" :title="feed.name">{{ feed.name }}</h3>
-      <span v-if="paused" class="tag amber">已暂停</span>
+      <span v-if="paused && feed.completion_note" class="tag green">已集齐</span>
+      <span v-else-if="paused" class="tag amber">已暂停</span>
       <span v-else-if="feed.last_error" class="tag red">同步失败</span>
       <span v-else class="tag green">正常</span>
     </header>
@@ -35,7 +36,8 @@ const excludes = computed(() => splitKeywords(props.feed.exclude_words))
       <span v-for="k in excludes" :key="'e' + k" class="tag" :title="'排除关键词：' + k"><span class="truncate">排 {{ k }}</span></span>
     </div>
 
-    <p v-if="paused" class="state">已暂停，不参与定时同步</p>
+    <p v-if="paused && feed.completion_note" class="state completed" :title="feed.completion_note"><span>{{ feed.completion_note }}</span></p>
+    <p v-else-if="paused" class="state">已暂停，不参与定时同步</p>
     <p v-else-if="feed.last_error" class="state err" :title="feed.last_error">
       <CircleAlert aria-hidden="true" />
       <span>{{ feed.last_error }}</span>
@@ -133,6 +135,10 @@ const excludes = computed(() => splitKeywords(props.feed.exclude_words))
 }
 .state.err {
   color: var(--red);
+}
+.state.completed span {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .state.err svg {
   color: var(--red);

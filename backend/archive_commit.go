@@ -95,6 +95,7 @@ func commitSavedArchive(id int, path string) error {
 	if err = tx.Commit(); err != nil {
 		return err
 	}
+	wakeTaskPoller()
 	notify("download_saved", id, "已保存")
 	return nil
 }

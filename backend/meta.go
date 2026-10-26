@@ -70,6 +70,7 @@ type bangumiSubject struct {
 	Infobox        json.RawMessage `json:"infobox"`
 	DetailsFetched bool            `json:"-"`
 	ID             int             `json:"id"`
+	Episodes       int             `json:"eps"`
 	Name           string          `json:"name"`
 	NameCN         string          `json:"name_cn"`
 	Summary        string          `json:"summary"`
@@ -125,7 +126,8 @@ func enqueueMissingMeta() {
 	rows, err := db.Query(`SELECT DISTINCT items.anime_title,
 		COALESCE(anime_meta.source,''),COALESCE(anime_meta.updated_at,''),
 		COALESCE(anime_meta.match_key,''),COALESCE(animes.search_name,''),
-		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(anime_meta.subject_id,0),COALESCE(anime_meta.broadcast_subject_id,0),COALESCE(anime_meta.broadcast_checked_at,'')
+		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(anime_meta.subject_id,0),COALESCE(anime_meta.broadcast_subject_id,0),COALESCE(anime_meta.broadcast_checked_at,''),COALESCE(anime_meta.episode_subject_id,0),
+		EXISTS(SELECT 1 FROM items i JOIN feeds f ON f.id=i.feed_id WHERE i.anime_title=items.anime_title AND f.enabled=1)
 		FROM (SELECT anime_title FROM items UNION SELECT title AS anime_title FROM animes) AS items
 		LEFT JOIN anime_meta ON anime_meta.anime_title = items.anime_title
 		LEFT JOIN animes ON animes.title = items.anime_title
@@ -138,11 +140,12 @@ func enqueueMissingMeta() {
 	for rows.Next() {
 		var t, source, updated, key, searchName, summary string
 		var rating float64
-		var subjectID, cachedID int64
+		var subjectID, cachedID, episodeID int64
 		var checked string
-		if rows.Scan(&t, &source, &updated, &key, &searchName, &rating, &summary, &subjectID, &cachedID, &checked) == nil && strings.TrimSpace(t) != "" &&
-			(!metaCacheFresh(source, updated, key, metaLookupKey(t, searchName), rating, summary) ||
-				((source == "bangumi" || source == "manual") && subjectID > 0 && (cachedID != subjectID || !broadcastCacheFresh(checked)))) {
+		var subscribed bool
+		if rows.Scan(&t, &source, &updated, &key, &searchName, &rating, &summary, &subjectID, &cachedID, &checked, &episodeID, &subscribed) == nil && strings.TrimSpace(t) != "" &&
+			(subscribed || !metaCacheFresh(source, updated, key, metaLookupKey(t, searchName), rating, summary) ||
+				((source == "bangumi" || source == "manual") && subjectID > 0 && (cachedID != subjectID || episodeID != subjectID || !broadcastCacheFresh(checked)))) {
 			titles = append(titles, t)
 		}
 	}
@@ -281,6 +284,9 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source, matchK
 		WHERE excluded.source='manual' OR COALESCE(anime_meta.source,'')!='manual'`,
 		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices, matchKey, subjectBroadcastWeekday(subject), checkedID, checked)
 	if err == nil && changed {
+		if err = cacheSubjectEpisodes(animeTitle, subject); err != nil {
+			return err
+		}
 		// 先按旧名字刷新封面，再用官方名规范化番剧名与目录（见 anime_naming.go）。
 		refreshSeriesPoster(animeTitle)
 		standardizeAnimeTitle(animeTitle)

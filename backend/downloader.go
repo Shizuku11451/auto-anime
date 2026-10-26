@@ -106,6 +106,7 @@ func activeTaskRefs() ([]taskRef, error) {
 }
 
 func pollDownloaderTasks() {
+	defer processCompletedFeeds()
 	if err := recoverArchiveCommits(); err != nil {
 		log.Printf("恢复归档提交失败: %v", err)
 	}

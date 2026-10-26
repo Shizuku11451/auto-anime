@@ -84,6 +84,7 @@ func lookupMetaWithSchedule(title string) {
 		}
 	}
 	refreshBroadcastWeekday(title)
+	refreshFeedEpisodeTotals(title)
 }
 
 func refreshBroadcastWeekday(title string) {
@@ -94,16 +95,16 @@ func refreshBroadcastWeekday(title string) {
 	if err != nil || expected.ID == 0 {
 		return
 	}
-	var subjectID, cachedID int64
+	var subjectID, cachedID, episodeID int64
 	var source, checked string
-	if err := db.QueryRow(`SELECT COALESCE(subject_id,0),COALESCE(source,''),COALESCE(broadcast_subject_id,0),COALESCE(broadcast_checked_at,'') FROM anime_meta WHERE anime_title=?`, title).
-		Scan(&subjectID, &source, &cachedID, &checked); err != nil {
+	if err := db.QueryRow(`SELECT COALESCE(subject_id,0),COALESCE(source,''),COALESCE(broadcast_subject_id,0),COALESCE(broadcast_checked_at,''),COALESCE(episode_subject_id,0) FROM anime_meta WHERE anime_title=?`, title).
+		Scan(&subjectID, &source, &cachedID, &checked, &episodeID); err != nil {
 		return
 	}
 	if subjectID <= 0 || (source != "bangumi" && source != "manual") || (expected.BangumiID > 0 && expected.BangumiID != subjectID) {
 		return
 	}
-	if cachedID == subjectID && broadcastCacheFresh(checked) {
+	if cachedID == subjectID && episodeID == subjectID && broadcastCacheFresh(checked) {
 		return
 	}
 	subject, err := fetchBangumiSubject(subjectID)
@@ -115,8 +116,9 @@ func refreshBroadcastWeekday(title string) {
 		return
 	}
 	// 元数据绑定、重识别、改名或手动编辑期间的迟到响应不能覆盖当前记录。
-	_, err = writeMetaResult(title, &expected, `UPDATE anime_meta SET broadcast_weekday=?,broadcast_subject_id=?,broadcast_checked_at=?
-		WHERE anime_title=? AND subject_id=? AND source=?`, subjectBroadcastWeekday(subject), subjectID, time.Now().UTC().Format(time.RFC3339), title, subjectID, source)
+	total, season := subjectEpisodes(subject)
+	_, err = writeMetaResult(title, &expected, `UPDATE anime_meta SET broadcast_weekday=?,broadcast_subject_id=?,broadcast_checked_at=?,episode_total=?,episode_season=?,episode_subject_id=?
+		WHERE anime_title=? AND subject_id=? AND source=?`, subjectBroadcastWeekday(subject), subjectID, time.Now().UTC().Format(time.RFC3339), total, season, subjectID, title, subjectID, source)
 	if err != nil {
 		log.Printf("更新日保存失败 %q: %v", title, err)
 	}

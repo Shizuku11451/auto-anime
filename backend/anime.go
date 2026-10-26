@@ -665,6 +665,10 @@ func animeMetadataBind(w http.ResponseWriter, r *http.Request, id int64) {
 			http.Error(w, "保存失败", 500)
 			return
 		}
+		if err := cacheSubjectEpisodes(a.Title, subject); err != nil {
+			http.Error(w, "保存集数失败", 500)
+			return
+		}
 	} else {
 		if _, err := db.Exec("UPDATE animes SET bangumi_id=0,updated_at=? WHERE id=?", time.Now().UTC().Format(time.RFC3339), id); err != nil {
 			http.Error(w, "保存失败", 500)

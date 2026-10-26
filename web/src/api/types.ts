@@ -30,6 +30,7 @@ export interface StorageCheckInput {
 }
 
 export interface Feed {
+  completion_note: string
   episode_offset: number | null
   season_filter: number
   allow_unknown_season: boolean

@@ -63,6 +63,7 @@ var webPassword = env("WEB_PASSWORD", "")
 var httpClient = newClient(60 * time.Second)
 
 type Feed struct {
+	CompletionNote     string `json:"completion_note"`
 	EpisodeOffset      *int   `json:"episode_offset"`
 	ID                 int    `json:"id"`
 	Name               string `json:"name"`
@@ -301,6 +302,9 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS feed_episode_totals(anime_id INTEGER NOT NULL,season INTEGER NOT NULL,lookup_key TEXT NOT NULL,subject_id INTEGER NOT NULL,total INTEGER NOT NULL,checked_at TEXT NOT NULL,PRIMARY KEY(anime_id,season))`); err != nil {
+		log.Fatal(err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS completed_tasks(item_id INTEGER PRIMARY KEY,downloader TEXT NOT NULL,task_id TEXT NOT NULL,submitted_at INTEGER NOT NULL,connection TEXT NOT NULL)`); err != nil {
 		log.Fatal(err)
 	}
@@ -314,7 +318,10 @@ func initDB() {
 	if e != nil {
 		log.Fatalf("初始化数据库失败 %s: %v", dbFile, e)
 	}
-	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''", "storage_dir TEXT DEFAULT ''", "season_filter INTEGER DEFAULT 0", "allow_unknown_season INTEGER DEFAULT 0", "episode_offset INTEGER DEFAULT 0"} {
+	if _, err := db.Exec(`CREATE TRIGGER IF NOT EXISTS delete_feed_episode_totals AFTER DELETE ON animes BEGIN DELETE FROM feed_episode_totals WHERE anime_id=OLD.id; END`); err != nil {
+		log.Fatal(err)
+	}
+	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''", "storage_dir TEXT DEFAULT ''", "season_filter INTEGER DEFAULT 0", "allow_unknown_season INTEGER DEFAULT 0", "episode_offset INTEGER DEFAULT 0", "completion_note TEXT NOT NULL DEFAULT ''"} {
 		name := strings.Fields(col)[0]
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('feeds') WHERE name=?", name).Scan(&count)
@@ -352,6 +359,9 @@ func initDB() {
 		{"broadcast_weekday", "broadcast_weekday INTEGER NOT NULL DEFAULT 0"},
 		{"broadcast_subject_id", "broadcast_subject_id INTEGER NOT NULL DEFAULT 0"},
 		{"broadcast_checked_at", "broadcast_checked_at TEXT NOT NULL DEFAULT ''"},
+		{"episode_total", "episode_total INTEGER NOT NULL DEFAULT 0"},
+		{"episode_season", "episode_season INTEGER NOT NULL DEFAULT 0"},
+		{"episode_subject_id", "episode_subject_id INTEGER NOT NULL DEFAULT 0"},
 	} {
 		var exists int
 		if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('anime_meta') WHERE name=?", spec.name).Scan(&exists); err == nil && exists == 0 {
@@ -375,6 +385,14 @@ func initDB() {
 type feedItem struct{ Title, Link, Pub, Description, PageURL string }
 
 func syncFeedContext(ctx context.Context, id int) (int, error) {
+	processCompletedFeeds()
+	var stopped bool
+	if err := db.QueryRow("SELECT enabled=0 AND completion_note<>'' FROM feeds WHERE id=?", id).Scan(&stopped); err != nil {
+		return 0, err
+	}
+	if stopped {
+		return 0, nil
+	}
 	animeCleanupMu.RLock()
 	defer animeCleanupMu.RUnlock()
 	var f Feed
@@ -416,6 +434,12 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 	for _, it := range feedItemsFromEntries(fetched.Entries) {
 		if err := ctx.Err(); err != nil {
 			return n, err
+		}
+		if err := db.QueryRow("SELECT enabled=0 AND completion_note<>'' FROM feeds WHERE id=?", id).Scan(&stopped); err != nil {
+			return n, err
+		}
+		if stopped {
+			return n, nil // A late RSS response must not restart a completed subscription.
 		}
 		if it.Title == "" || it.Link == "" || !filter.Allows(it.Title) || !titleparse.AllowsSeason(it.Title, f.SeasonFilter, f.AllowUnknownSeason) {
 			continue
@@ -839,7 +863,7 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 
 func feeds(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, err := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0),episode_offset FROM feeds ORDER BY id DESC")
+		rows, err := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0),episode_offset,completion_note FROM feeds ORDER BY id DESC")
 		if err != nil {
 			http.Error(w, "读取订阅失败", 500)
 			return
@@ -850,7 +874,7 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 			var f Feed
 			var a int
 			var enabled int
-			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason, &f.EpisodeOffset)
+			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason, &f.EpisodeOffset, &f.CompletionNote)
 			f.Auto = a == 1
 			f.Enabled = enabled == 1
 			out = append(out, f)
@@ -1114,7 +1138,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			feedStorage = ""
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title,storage_dir,season_filter,allow_unknown_season,episode_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title,storage_dir=excluded.storage_dir,season_filter=excluded.season_filter,allow_unknown_season=excluded.allow_unknown_season,episode_offset=excluded.episode_offset`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength), feedStorage, f.SeasonFilter, boolInt(f.AllowUnknownSeason), f.EpisodeOffset)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title,storage_dir,season_filter,allow_unknown_season,episode_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title,storage_dir=excluded.storage_dir,season_filter=excluded.season_filter,allow_unknown_season=excluded.allow_unknown_season,episode_offset=excluded.episode_offset,completion_note=''`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength), feedStorage, f.SeasonFilter, boolInt(f.AllowUnknownSeason), f.EpisodeOffset)
 		if err != nil {
 			tx.Rollback()
 			http.Error(w, "恢复失败", 500)
@@ -1329,7 +1353,7 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 	if in.StorageDir != nil {
 		storageValue = storage
 	}
-	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title),storage_dir=COALESCE(?,storage_dir),season_filter=COALESCE(?,season_filter),allow_unknown_season=COALESCE(?,allow_unknown_season),episode_offset=COALESCE(?,episode_offset) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, targetValue, storageValue, seasonValue, unknownValue, in.EpisodeOffset, id)
+	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title),storage_dir=COALESCE(?,storage_dir),season_filter=COALESCE(?,season_filter),allow_unknown_season=COALESCE(?,allow_unknown_season),episode_offset=COALESCE(?,episode_offset),completion_note=CASE WHEN ?=1 THEN '' ELSE completion_note END WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, targetValue, storageValue, seasonValue, unknownValue, in.EpisodeOffset, enabled, id)
 	if err != nil {
 		http.Error(w, "保存失败", 500)
 		return
