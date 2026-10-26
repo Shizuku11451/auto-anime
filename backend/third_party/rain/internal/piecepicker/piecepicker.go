@@ -2,7 +2,6 @@ package piecepicker
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/cenkalti/rain/internal/peer"
 	"github.com/cenkalti/rain/internal/piece"
@@ -34,8 +33,6 @@ Do not forget to re-check these when making changes.
 type PiecePicker struct {
 	webseedSources       []*webseedsource.WebseedSource
 	pieces               []myPiece
-	piecesByAvailability []*myPiece
-	piecesByStalled      []*myPiece
 	maxDuplicateDownload int
 	maxWebseedPieces     int
 	available            uint32
@@ -78,20 +75,12 @@ func New(pieces []piece.Piece, maxDuplicateDownload int, webseedSources []*webse
 	for i := range pieces {
 		ps[i] = myPiece{Piece: &pieces[i]}
 	}
-	sps := make([]*myPiece, len(ps))
-	sps2 := make([]*myPiece, len(ps))
-	for i := range sps {
-		sps[i] = &ps[i]
-		sps2[i] = &ps[i]
-	}
 	maxWebseedPieces := len(pieces) / 20 // Download 5% of pieces in a single HTTP request (see BEP19)
 	if maxWebseedPieces == 0 {
 		maxWebseedPieces = 1
 	}
 	return &PiecePicker{
 		pieces:               ps,
-		piecesByAvailability: sps,
-		piecesByStalled:      sps2,
 		maxDuplicateDownload: maxDuplicateDownload,
 		maxWebseedPieces:     maxWebseedPieces,
 		webseedSources:       webseedSources,
@@ -276,23 +265,23 @@ func (p *PiecePicker) pickAllowedFast(pe *peer.Peer) *myPiece {
 }
 
 func (p *PiecePicker) pickRarest(pe *peer.Peer) *myPiece {
-	// Sort by rarity
-	sort.Slice(p.piecesByAvailability, func(i, j int) bool {
-		return len(p.piecesByAvailability[i].Having.Items) < len(p.piecesByAvailability[j].Having.Items)
-	})
 	var picked *myPiece
 	var hasUnrequested bool
-	// Select unrequested piece
-	for _, mp := range p.piecesByAvailability {
-		if mp.Done || mp.Writing {
+	for i := range p.pieces {
+		mp := &p.pieces[i]
+		if picked != nil && mp.Having.Len() >= picked.Having.Len() {
 			continue
 		}
-		if mp.Requested.Len() == 0 && mp.Having.Has(pe) {
-			picked = mp
-			break
+		if mp.Done || mp.Writing || mp.Requested.Len() != 0 {
+			continue
 		}
-		if mp.Requested.Len() == 0 {
-			hasUnrequested = true
+		hasUnrequested = true
+		if mp.Having.Has(pe) {
+			picked = mp
+			// One available peer is the lowest possible rarity for this peer.
+			if mp.Having.Len() == 1 {
+				break
+			}
 		}
 	}
 	if picked == nil && !hasUnrequested {
@@ -302,38 +291,38 @@ func (p *PiecePicker) pickRarest(pe *peer.Peer) *myPiece {
 }
 
 func (p *PiecePicker) pickEndgame(pe *peer.Peer) *myPiece {
-	// Sort by request count
-	sort.Slice(p.piecesByAvailability, func(i, j int) bool {
-		return p.piecesByAvailability[i].RunningDownloads() < p.piecesByAvailability[j].RunningDownloads()
-	})
-	// Select unrequested piece
-	for _, mp := range p.piecesByAvailability {
-		if mp.Done || mp.Writing {
+	var picked *myPiece
+	for i := range p.pieces {
+		mp := &p.pieces[i]
+		if mp.Done || mp.Writing || mp.Requested.Len() >= p.maxDuplicateDownload {
 			continue
 		}
-		if mp.Requested.Len() < p.maxDuplicateDownload && mp.Having.Has(pe) {
-			return mp
+		if (picked == nil || mp.RunningDownloads() < picked.RunningDownloads()) && mp.Having.Has(pe) {
+			picked = mp
+			if mp.RunningDownloads() == 0 {
+				break
+			}
 		}
 	}
-	return nil
+	return picked
 }
 
 func (p *PiecePicker) pickStalled(pe *peer.Peer) *myPiece {
-	// Sort by request count
-	sort.Slice(p.piecesByStalled, func(i, j int) bool {
-		return p.piecesByStalled[i].StalledDownloads() < p.piecesByStalled[j].StalledDownloads()
-	})
-	// Select unrequested piece
-	for _, mp := range p.piecesByStalled {
-		if mp.Done || mp.Writing {
+	var picked *myPiece
+	for i := range p.pieces {
+		mp := &p.pieces[i]
+		if mp.Done || mp.Writing || mp.Requested.Len() >= p.maxDuplicateDownload {
 			continue
 		}
 		if mp.RunningDownloads() > 0 {
 			continue
 		}
-		if mp.Requested.Len() < p.maxDuplicateDownload && mp.Having.Has(pe) {
-			return mp
+		if (picked == nil || mp.StalledDownloads() < picked.StalledDownloads()) && mp.Having.Has(pe) {
+			picked = mp
+			if mp.StalledDownloads() == 0 {
+				break
+			}
 		}
 	}
-	return nil
+	return picked
 }

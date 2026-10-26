@@ -19,8 +19,15 @@ Local changes:
   the torrent, including successful allocations cancelled just before delivery.
 - Detach unloaded torrents from DHT indexes/requests without mutating slices
   still held by concurrent DHT readers.
+- Select rarest, endgame, and stalled pieces with a single minimum scan instead
+  of sorting all pieces for every selection. Preserve eligibility and duplicate
+  limits, and remove the two redundant sorted pointer indexes. Equal-priority
+  pieces may be selected in a different order.
 
 Regression coverage lives in `../../native_downloader_test.go` and
 `../../native_downloader_lifecycle_test.go`, plus the local allocator cancellation
-test. Update and review these patches
+and piece-picker tests. From `backend/`, run the picker tests and benchmarks with
+`go test github.com/cenkalti/rain/internal/piecepicker -count=1 -bench=BenchmarkPicker -benchmem`;
+the application's `go test ./...` does not traverse the nested Rain module.
+Update and review these patches
 explicitly when upgrading Rain. Do not edit the Go module cache.

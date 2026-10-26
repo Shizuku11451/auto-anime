@@ -119,7 +119,7 @@ func TestNativeRealPeerDownloadPauseResume(t *testing.T) {
 	t.Setenv("NATIVE_DHT_PORT", fmt.Sprint(freeUDPPort(t)))
 
 	name := "native-test.bin"
-	data := bytes.Repeat([]byte("0123456789abcdef"), 4096) // 64 KiB
+	data := bytes.Repeat([]byte("0123456789abcdef"), 262144) // 4 MiB / 256 pieces
 	torrentData := buildNativeTestTorrent(name, data)
 	hash := torrentInfoHash(torrentData)
 	if !nativeInfoHashPattern.MatchString(hash) {
