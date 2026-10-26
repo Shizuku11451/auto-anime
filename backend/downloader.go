@@ -110,6 +110,7 @@ func pollDownloaderTasks() {
 		log.Printf("恢复归档提交失败: %v", err)
 	}
 	processSourceCleanup()
+	processCompletedTasks()
 	refs, err := activeTaskRefs()
 	if err != nil {
 		log.Println("查询下载任务失败:", err)
@@ -975,13 +976,17 @@ func (c *qbitClient) removeContext(ctx context.Context, hash string) error {
 }
 
 type qbitTorrent struct {
-	DownloadSpeed int64   `json:"dlspeed"`
-	Hash          string  `json:"hash"`
-	Name          string  `json:"name"`
-	SavePath      string  `json:"save_path"`
-	Progress      float64 `json:"progress"`
-	State         string  `json:"state"`
-	Tags          string  `json:"tags"`
+	Ratio            float64  `json:"ratio"`
+	RatioLimit       *float64 `json:"ratio_limit"`
+	SeedingTime      int64    `json:"seeding_time"`
+	SeedingTimeLimit *int64   `json:"seeding_time_limit"`
+	DownloadSpeed    int64    `json:"dlspeed"`
+	Hash             string   `json:"hash"`
+	Name             string   `json:"name"`
+	SavePath         string   `json:"save_path"`
+	Progress         float64  `json:"progress"`
+	State            string   `json:"state"`
+	Tags             string   `json:"tags"`
 }
 
 func (c *qbitClient) info(query url.Values) ([]qbitTorrent, error) {

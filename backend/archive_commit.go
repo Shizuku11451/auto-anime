@@ -80,6 +80,18 @@ func commitSavedArchive(id int, path string) error {
 	if _, err = tx.Exec("DELETE FROM archive_commits WHERE item_id=?", id); err != nil {
 		return err
 	}
+	if runtimeConfig().keepSourceFiles {
+		var t taskRef
+		if err = tx.QueryRow("SELECT id,COALESCE(downloader,''),COALESCE(task_id,''),COALESCE(task_submitted_at,0) FROM items WHERE id=?", id).Scan(&t.ID, &t.Downloader, &t.TaskID, &t.SubmittedAt); err != nil {
+			return err
+		}
+		if t.TaskID != "" && (t.Downloader == "native" || t.Downloader == "aria2" || t.Downloader == "qbittorrent" || t.Downloader == "transmission") {
+			if _, err = tx.Exec(`INSERT INTO completed_tasks(item_id,downloader,task_id,submitted_at,connection) VALUES(?,?,?,?,?)
+				ON CONFLICT(item_id) DO NOTHING`, id, t.Downloader, t.TaskID, t.SubmittedAt, cleanupConnection(t.Downloader)); err != nil {
+				return err
+			}
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}

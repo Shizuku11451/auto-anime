@@ -299,6 +299,9 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS completed_tasks(item_id INTEGER PRIMARY KEY,downloader TEXT NOT NULL,task_id TEXT NOT NULL,submitted_at INTEGER NOT NULL,connection TEXT NOT NULL)`); err != nil {
+		log.Fatal(err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS source_cleanup(item_id INTEGER PRIMARY KEY,downloader TEXT NOT NULL,task_id TEXT NOT NULL,submitted_at INTEGER NOT NULL,archive_path TEXT NOT NULL,files TEXT NOT NULL,source_root TEXT NOT NULL,stopped INTEGER NOT NULL DEFAULT 0)`); err != nil {
 		log.Fatal(err)
 	}
