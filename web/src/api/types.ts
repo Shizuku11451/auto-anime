@@ -30,6 +30,7 @@ export interface StorageCheckInput {
 }
 
 export interface Feed {
+  episode_offset: number | null
   season_filter: number
   allow_unknown_season: boolean
   target_title: string
@@ -340,6 +341,7 @@ export interface MetaCandidate {
 }
 
 export interface PreviewResult extends FeedReadInfo {
+  episode_offset: number | null
   total: number
   count: number
   items: { title: string; link: string; published: string; description: string }[]

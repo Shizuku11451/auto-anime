@@ -10,7 +10,7 @@ import * as vue from 'vue'
 // responses, including late responses from a request whose signal was aborted.
 const source = readFileSync(new URL('./FeedDialog.vue', import.meta.url), 'utf8')
 const setup = parse(source).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(setup + '\nexport { form, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase, seasonConfirmed, previewReady, seasonMode, filterSummary, msg };', {
+const compiled = ts.transpileModule(setup + '\nexport { form, offsetManual, save, runPreview, runAvailability, close, btLinks, availability, availabilityRunning, availabilityDone, availabilitySummary, preview, storagePreview, defaultBase, seasonConfirmed, previewReady, seasonMode, filterSummary, msg };', {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const flush = () => new Promise((resolve) => setImmediate(resolve))
@@ -36,11 +36,12 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null, pla
   const errors = []
   let items = []
   let previewError
+  let offset = null
   const api = async (url, options) => {
     if (url === '/api/preview') {
       previews.push(options.json)
       if (previewError) throw previewError
-      return { items, count: items.length, total: items.length, pages: 1, history: false }
+      return { items, count: items.length, total: items.length, pages: 1, history: false, episode_offset: offset }
     }
     assert.equal(url, '/api/discover/availability')
     return new Promise((resolve, reject) => requests.push({ ...options, resolve, reject }))
@@ -80,6 +81,7 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null, pla
   return {
     state, component, requests, previews, errors, saved, status: statusRef,
     setItems: (value) => { items = value },
+    setOffset: (value) => { offset = value },
     failPreview: () => { previewError = new Error('RSS unavailable') },
     async preview(value, include = '') {
       items = value
@@ -90,6 +92,38 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null, pla
     },
   }
 }
+
+test('新订阅显示推断偏移，手动纠正随保存发送且无效偏移被拒绝', async (t) => {
+  const h = dialog(t, false)
+  h.state.feed.feed = { name: '推子', url: 'https://feed.example/rss' }
+  h.state.feed.open = true
+  await flush()
+  h.setOffset(-11)
+  await h.preview([item('https://example.test/12.mp4', '我推的孩子 第二季 [12]')])
+  assert.equal(h.component.form.offset, -11)
+  assert.match(h.component.preview.value, /推断集数偏移：-11/)
+  h.component.form.offset = 0.5
+  await h.component.save()
+  assert.equal(h.saved.length, 0)
+  h.component.form.offset = 0
+  h.component.offsetManual.value = true
+  h.component.form.include = '1080p'
+  await vue.nextTick()
+  await h.component.runPreview()
+  assert.equal(h.component.form.offset, 0, '手动纠正不被规则变化或重新预览覆盖')
+  await h.component.save()
+  assert.equal(h.saved[0].body.episode_offset, 0)
+})
+
+test('编辑订阅的人工偏移不被新预览替换', async (t) => {
+  const h = dialog(t, false)
+  h.state.feed.feed = { id: 1, name: 'test', url: 'https://feed.example/rss', episode_offset: 5 }
+  h.state.feed.open = true
+  await flush()
+  h.setOffset(-11)
+  await h.preview([item('https://example.test/12.mp4')])
+  assert.equal(h.component.form.offset, 5)
+})
 
 test('季数条件进入预览和保存，修改条件后旧预览不能授权保存', async (t) => {
   const h = dialog(t, false)

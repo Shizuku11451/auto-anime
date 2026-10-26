@@ -19,7 +19,7 @@ const isWindowsOS = computed(() => isWindows(platformOS.value))
 const s = state.feed
 
 const editing = computed(() => !!(s.feed && s.feed.id))
-const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '', storage: '', season: 0, allowUnknown: false })
+const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '', storage: '', season: 0, allowUnknown: false, offset: '' as number | string })
 const preview = ref('')
 const previewing = ref(false)
 const saving = ref(false)
@@ -27,6 +27,7 @@ const msg = ref('')
 const previewKey = ref('')
 const previewCount = ref(0)
 const seasonConfirmed = ref(false)
+const offsetManual = ref(false)
 const filterKey = computed(() => JSON.stringify([form.url.trim(), form.include.trim(), form.exclude.trim(), form.season, form.allowUnknown]))
 const previewReady = computed(() => previewKey.value === filterKey.value && previewCount.value > 0)
 const seasonMode = computed({
@@ -108,6 +109,7 @@ function resetAvailability() {
 }
 
 watch(filterKey, resetAvailability)
+watch(filterKey, () => { if (!editing.value && !offsetManual.value) form.offset = '' })
 
 watch(
   () => s.open,
@@ -126,6 +128,8 @@ watch(
     form.storage = f?.storage_dir ?? ''
     form.season = f?.season_filter ?? 0
     form.allowUnknown = f?.allow_unknown_season ?? false
+    form.offset = f?.episode_offset ?? ''
+    offsetManual.value = false
     seasonConfirmed.value = false
     enabledAtOpen = f ? f.enabled !== false : true
     preview.value = ''
@@ -165,6 +169,7 @@ async function runPreview() {
     previewKey.value = key
     previewCount.value = data.count
     if (key === filterKey.value) previewItems.value = data.items
+    if (!editing.value && !offsetManual.value && key === filterKey.value) form.offset = data.episode_offset ?? ''
     preview.value = data.count
       ? `共读取 ${data.pages} 页、${data.total} 条，过滤后匹配 ${data.count} 条（已入库的资源不会重复添加）：\n` +
         data.items
@@ -175,6 +180,9 @@ async function runPreview() {
     preview.value += '\n\n' + (data.warning || (data.history
       ? '保存后同步同样的历史页；以上为当前来源已发现的资源，不代表全季已发布。'
       : '此来源仅提供当前 RSS 列表，未找到的早期集数可换源或缩小搜索范围。'))
+    preview.value += data.episode_offset == null
+      ? '\n无法统一推断集数偏移；请核对资源编号。'
+      : `\n推断集数偏移：${data.episode_offset > 0 ? '+' : ''}${data.episode_offset}（资源集数 + 偏移 = 归档集数）。请确认 RSS 包含起始集，滚动列表可能缺少早期资源。`
     if (s.feed?.from_discover && btLinks.value.length) void runAvailability()
   } catch (e) {
     if (request !== previewRequest) return
@@ -249,6 +257,7 @@ async function save() {
     return
   }
   const body = {
+    episode_offset: form.offset === '' ? null : Number(form.offset),
     name: form.name.trim(),
     url: form.url.trim(),
     include_words: form.include.trim(),
@@ -259,6 +268,10 @@ async function save() {
     storage_dir: storage,
     season_filter: form.season,
     allow_unknown_season: form.allowUnknown,
+  }
+  if (body.episode_offset !== null && (!Number.isInteger(body.episode_offset) || Math.abs(body.episode_offset) > 9999)) {
+    msg.value = '集数偏移必须是 -9999 到 9999 之间的整数'
+    return
   }
   if (!body.name) {
     msg.value = '请填写订阅名称'
@@ -361,6 +374,11 @@ async function save() {
               </div>
               <p class="field-hint">仅筛选资源，不修改归档季号；指定季数不接受其他季或冲突资源。</p>
               <label v-if="form.season > 0" class="check"><input v-model="form.allowUnknown" type="checkbox" /> 已核对，同时接受季数未标明的资源</label>
+            </div>
+            <div class="field">
+              <label for="f-offset">集数偏移</label>
+              <input id="f-offset" v-model.number="form.offset" type="number" min="-9999" max="9999" step="1" :placeholder="editing ? '留空保留当前偏移' : '留空在首次同步时自动推断'" @input="offsetManual = true" />
+              <p class="field-hint">归档集数 = 资源集数 + 偏移，例如 0 起始填 1，12 起始填 -11。按当前匹配资源的最小集数推断，请确认包含起始集；仅影响后续新增条目，不重编号已有文件。</p>
             </div>
           </div>
         </details>

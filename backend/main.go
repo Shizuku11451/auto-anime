@@ -63,6 +63,7 @@ var webPassword = env("WEB_PASSWORD", "")
 var httpClient = newClient(60 * time.Second)
 
 type Feed struct {
+	EpisodeOffset      *int   `json:"episode_offset"`
 	ID                 int    `json:"id"`
 	Name               string `json:"name"`
 	URL                string `json:"url"`
@@ -78,6 +79,7 @@ type Feed struct {
 	AllowUnknownSeason bool   `json:"allow_unknown_season"`
 }
 type FeedInput struct {
+	EpisodeOffset      *int    `json:"episode_offset"`
 	Name               string  `json:"name"`
 	URL                string  `json:"url"`
 	Include            string  `json:"include_words"`
@@ -312,7 +314,7 @@ func initDB() {
 	if e != nil {
 		log.Fatalf("初始化数据库失败 %s: %v", dbFile, e)
 	}
-	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''", "storage_dir TEXT DEFAULT ''", "season_filter INTEGER DEFAULT 0", "allow_unknown_season INTEGER DEFAULT 0"} {
+	for _, col := range []string{"enabled INTEGER DEFAULT 1", "last_sync TEXT DEFAULT ''", "last_error TEXT DEFAULT ''", "target_title TEXT DEFAULT ''", "storage_dir TEXT DEFAULT ''", "season_filter INTEGER DEFAULT 0", "allow_unknown_season INTEGER DEFAULT 0", "episode_offset INTEGER DEFAULT 0"} {
 		name := strings.Fields(col)[0]
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('feeds') WHERE name=?", name).Scan(&count)
@@ -377,7 +379,7 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 	defer animeCleanupMu.RUnlock()
 	var f Feed
 	var a int
-	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0) FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason)
+	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0),episode_offset FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason, &f.EpisodeOffset)
 	if e != nil {
 		return 0, e
 	}
@@ -390,6 +392,27 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 	n := 0
 	var writeErr error
 	filter := keywordfilter.New(f.Include, f.Exclude)
+	if f.EpisodeOffset == nil {
+		if fetched.Incomplete {
+			e := fmt.Errorf("历史资源未读取完整，暂不推断集数偏移：%s", fetched.Warning)
+			db.Exec("UPDATE feeds SET last_error=? WHERE id=?", e.Error(), id)
+			return 0, e
+		}
+		matched := filteredFeedItems(fetched.Entries, f.Include, f.Exclude, f.SeasonFilter, f.AllowUnknownSeason)
+		offset := inferEpisodeOffset(matched)
+		if len(matched) == 0 {
+			return 0, nil // An empty feed has not supplied a numbering baseline yet.
+		}
+		if offset == nil {
+			offset = new(int)
+		}
+		if _, err := db.Exec("UPDATE feeds SET episode_offset=? WHERE id=? AND episode_offset IS NULL", *offset, id); err != nil {
+			return 0, err
+		}
+		if err := db.QueryRow("SELECT episode_offset FROM feeds WHERE id=?", id).Scan(&f.EpisodeOffset); err != nil {
+			return 0, err
+		}
+	}
 	for _, it := range feedItemsFromEntries(fetched.Entries) {
 		if err := ctx.Err(); err != nil {
 			return n, err
@@ -415,6 +438,7 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 			}
 		}
 		info := titleparse.Extract(it.Title)
+		info.Episode = offsetEpisode(info.Episode, *f.EpisodeOffset)
 		// 多来源归并：某部番剧的规则命中原始标题时，条目归入该番剧，
 		// 不再按本地识别标题另立门户。
 		animeID := int64(0)
@@ -815,7 +839,7 @@ func animeStorageAPI(w http.ResponseWriter, r *http.Request) {
 
 func feeds(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, err := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0) FROM feeds ORDER BY id DESC")
+		rows, err := db.Query("SELECT id,name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0),episode_offset FROM feeds ORDER BY id DESC")
 		if err != nil {
 			http.Error(w, "读取订阅失败", 500)
 			return
@@ -826,7 +850,7 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 			var f Feed
 			var a int
 			var enabled int
-			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason)
+			rows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason, &f.EpisodeOffset)
 			f.Auto = a == 1
 			f.Enabled = enabled == 1
 			out = append(out, f)
@@ -866,6 +890,10 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "季数条件无效", 400)
 		return
 	}
+	if !validEpisodeOffset(in.EpisodeOffset) {
+		http.Error(w, "集数偏移必须在 -9999 到 9999 之间", 400)
+		return
+	}
 	allowUnknown := in.AllowUnknownSeason != nil && *in.AllowUnknownSeason
 	// 新建订阅没有旧值，选择的位置直接生效。
 	storage, err := feedStorageDir(in.StorageDir)
@@ -873,7 +901,7 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at,target_title,storage_dir,season_filter,allow_unknown_season) VALUES(?,?,?,?,?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339), target, storage, season, boolInt(allowUnknown))
+	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at,target_title,storage_dir,season_filter,allow_unknown_season,episode_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339), target, storage, season, boolInt(allowUnknown), in.EpisodeOffset)
 	if e != nil {
 		http.Error(w, "RSS 地址已经存在", 409)
 		return
@@ -928,12 +956,10 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	}
 	items := feedItemsFromEntries(fetched.Entries)
 	total := len(items)
-	filtered := make([]feedItem, 0, len(items))
-	filter := keywordfilter.New(in.Include, in.Exclude)
-	for _, item := range items {
-		if item.Title != "" && item.Link != "" && filter.Allows(item.Title) && titleparse.AllowsSeason(item.Title, in.SeasonFilter, in.AllowUnknownSeason) {
-			filtered = append(filtered, item)
-		}
+	filtered := filteredFeedItems(fetched.Entries, in.Include, in.Exclude, in.SeasonFilter, in.AllowUnknownSeason)
+	offset := inferEpisodeOffset(filtered)
+	if fetched.Incomplete {
+		offset = nil
 	}
 	count := len(filtered)
 	items = filtered
@@ -951,7 +977,7 @@ func preview(w http.ResponseWriter, r *http.Request) {
 		out = append(out, previewItem{item.Title, item.Link, item.Pub, item.Description})
 	}
 	jsonOut(w, map[string]any{"items": out, "count": count, "total": total,
-		"pages": fetched.Pages, "history": fetched.History, "limited": fetched.Limited, "warning": fetched.Warning})
+		"pages": fetched.Pages, "history": fetched.History, "limited": fetched.Limited, "warning": fetched.Warning, "episode_offset": offset})
 }
 
 func backup(w http.ResponseWriter, r *http.Request) {
@@ -959,14 +985,14 @@ func backup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	data := backupData{Version: 3, ExportedAt: time.Now().UTC().Format(time.RFC3339), Feeds: []Feed{}, Items: []map[string]any{}}
+	data := backupData{Version: 4, ExportedAt: time.Now().UTC().Format(time.RFC3339), Feeds: []Feed{}, Items: []map[string]any{}}
 	tx, err := db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
 	}
 	defer tx.Rollback()
-	feedRows, err := tx.QueryContext(r.Context(), "SELECT id,name,url,COALESCE(include_words,''),COALESCE(exclude_words,''),COALESCE(auto_download,0),COALESCE(enabled,1),COALESCE(last_sync,''),COALESCE(last_error,''),COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0) FROM feeds ORDER BY id")
+	feedRows, err := tx.QueryContext(r.Context(), "SELECT id,name,url,COALESCE(include_words,''),COALESCE(exclude_words,''),COALESCE(auto_download,0),COALESCE(enabled,1),COALESCE(last_sync,''),COALESCE(last_error,''),COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0),episode_offset FROM feeds ORDER BY id")
 	if err != nil {
 		http.Error(w, "备份失败", 500)
 		return
@@ -974,7 +1000,7 @@ func backup(w http.ResponseWriter, r *http.Request) {
 	for feedRows.Next() {
 		var f Feed
 		var auto, enabled int
-		if err = feedRows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &auto, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason); err != nil {
+		if err = feedRows.Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &auto, &enabled, &f.LastSync, &f.LastError, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason, &f.EpisodeOffset); err != nil {
 			feedRows.Close()
 			http.Error(w, "备份失败", 500)
 			return
@@ -1050,7 +1076,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 	}
 	var input restoreRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 5<<20))
-	if decoder.Decode(&input) != nil || input.Feeds == nil || (input.Version != nil && *input.Version != 1 && *input.Version != 2 && *input.Version != 3) {
+	if decoder.Decode(&input) != nil || input.Feeds == nil || (input.Version != nil && *input.Version != 1 && *input.Version != 2 && *input.Version != 3 && *input.Version != 4) {
 		http.Error(w, "备份文件无效", 400)
 		return
 	}
@@ -1060,9 +1086,12 @@ func restore(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range input.Feeds {
 		f := &input.Feeds[i]
+		if f.EpisodeOffset == nil && (input.Version == nil || *input.Version < 4) {
+			f.EpisodeOffset = new(int) // Legacy backups must not renumber their future episodes.
+		}
 		f.Name, f.URL = strings.TrimSpace(f.Name), strings.TrimSpace(f.URL)
 		u, err := url.Parse(f.URL)
-		if f.Name == "" || err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || !titleparse.ValidSeasonFilter(f.SeasonFilter) {
+		if f.Name == "" || err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || !titleparse.ValidSeasonFilter(f.SeasonFilter) || !validEpisodeOffset(f.EpisodeOffset) {
 			http.Error(w, "备份包含无效订阅", 400)
 			return
 		}
@@ -1085,7 +1114,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			feedStorage = ""
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title,storage_dir,season_filter,allow_unknown_season) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title,storage_dir=excluded.storage_dir,season_filter=excluded.season_filter,allow_unknown_season=excluded.allow_unknown_season`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength), feedStorage, f.SeasonFilter, boolInt(f.AllowUnknownSeason))
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,enabled,last_sync,last_error,created_at,target_title,storage_dir,season_filter,allow_unknown_season,episode_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET name=excluded.name,include_words=excluded.include_words,exclude_words=excluded.exclude_words,auto_download=excluded.auto_download,enabled=excluded.enabled,target_title=excluded.target_title,storage_dir=excluded.storage_dir,season_filter=excluded.season_filter,allow_unknown_season=excluded.allow_unknown_season,episode_offset=excluded.episode_offset`, f.Name, f.URL, f.Include, f.Exclude, boolInt(f.Auto), boolInt(f.Enabled), "", "", time.Now().Format(time.RFC3339), sanitizeText(f.TargetTitle, titleMaxLength), feedStorage, f.SeasonFilter, boolInt(f.AllowUnknownSeason), f.EpisodeOffset)
 		if err != nil {
 			tx.Rollback()
 			http.Error(w, "恢复失败", 500)
@@ -1205,7 +1234,7 @@ func importOPML(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(item.XMLURL, "http://") && !strings.HasPrefix(item.XMLURL, "https://") {
 			continue
 		}
-		result, err := tx.Exec("INSERT INTO feeds(name,url,created_at) VALUES(?,?,?) ON CONFLICT(url) DO NOTHING", name, item.XMLURL, time.Now().Format(time.RFC3339))
+		result, err := tx.Exec("INSERT INTO feeds(name,url,created_at,episode_offset) VALUES(?,?,?,NULL) ON CONFLICT(url) DO NOTHING", name, item.XMLURL, time.Now().Format(time.RFC3339))
 		if err != nil {
 			tx.Rollback()
 			http.Error(w, "导入失败", 500)
@@ -1260,6 +1289,10 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "订阅参数无效", 400)
 		return
 	}
+	if !validEpisodeOffset(in.EpisodeOffset) {
+		http.Error(w, "集数偏移必须在 -9999 到 9999 之间", 400)
+		return
+	}
 	var seasonValue, unknownValue any
 	if in.SeasonFilter != nil {
 		if !titleparse.ValidSeasonFilter(*in.SeasonFilter) {
@@ -1296,7 +1329,7 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 	if in.StorageDir != nil {
 		storageValue = storage
 	}
-	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title),storage_dir=COALESCE(?,storage_dir),season_filter=COALESCE(?,season_filter),allow_unknown_season=COALESCE(?,allow_unknown_season) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, targetValue, storageValue, seasonValue, unknownValue, id)
+	result, err := db.Exec("UPDATE feeds SET name=?,include_words=?,exclude_words=?,auto_download=?,enabled=COALESCE(?,enabled),target_title=COALESCE(?,target_title),storage_dir=COALESCE(?,storage_dir),season_filter=COALESCE(?,season_filter),allow_unknown_season=COALESCE(?,allow_unknown_season),episode_offset=COALESCE(?,episode_offset) WHERE id=?", strings.TrimSpace(in.Name), in.Include, in.Exclude, boolInt(in.Auto), enabled, targetValue, storageValue, seasonValue, unknownValue, in.EpisodeOffset, id)
 	if err != nil {
 		http.Error(w, "保存失败", 500)
 		return
