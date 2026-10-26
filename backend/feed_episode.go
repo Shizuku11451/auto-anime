@@ -28,14 +28,17 @@ func inferEpisodeOffset(items []feedItem) *int {
 	series, season := "", 0
 	for _, item := range items {
 		info := titleparse.Extract(item.Title)
-		n, err := strconv.Atoi(info.Episode)
-		if err != nil || n < 0 || n > 9999 || info.Title == "" {
+		if info.Title == "" {
 			continue
 		}
 		if series != "" && (series != info.Title || season != info.Season) {
 			return nil
 		}
 		series, season = info.Title, info.Season
+		n, err := strconv.Atoi(info.Episode)
+		if err != nil || n < 0 || n > 9999 {
+			continue
+		}
 		minimum = min(minimum, n)
 	}
 	if minimum == 10000 {

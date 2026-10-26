@@ -152,7 +152,7 @@ func TestMikanSubjectLinkPrecedesTextSearch(t *testing.T) {
 		Scan(&id, &source, &key, &binding); err != nil {
 		t.Fatal(err)
 	}
-	if id != 4242 || source != "bangumi" || binding != 0 || key != "mikan-link:"+metaLookupKey("测试动画", "") {
+	if id != 4242 || source != "bangumi" || binding != 0 || key != "mikan-link:"+metaLookupKey(animeTitleByID(t, seedID), "") {
 		t.Fatalf("wrong exact match: id=%d source=%q key=%q binding=%d", id, source, key, binding)
 	}
 	// 第二次查询用规范化后的番剧名：缓存命中就不该再发请求。

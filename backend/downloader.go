@@ -106,12 +106,12 @@ func activeTaskRefs() ([]taskRef, error) {
 }
 
 func pollDownloaderTasks() {
+	defer processCompletedTasks()
 	defer processCompletedFeeds()
 	if err := recoverArchiveCommits(); err != nil {
 		log.Printf("恢复归档提交失败: %v", err)
 	}
 	processSourceCleanup()
-	processCompletedTasks()
 	refs, err := activeTaskRefs()
 	if err != nil {
 		log.Println("查询下载任务失败:", err)
@@ -591,6 +591,10 @@ var downloaderClient = &http.Client{Timeout: 15 * time.Second, Transport: &http.
 var torrentClient = newClient(60 * time.Second)
 
 func aria2RPC(method string, params []any, out any) error {
+	return aria2RPCContext(context.Background(), method, params, out)
+}
+
+func aria2RPCContext(ctx context.Context, method string, params []any, out any) error {
 	cfg := runtimeConfig()
 	if cfg.aria2Token != "" {
 		params = append([]any{"token:" + cfg.aria2Token}, params...)
@@ -599,7 +603,12 @@ func aria2RPC(method string, params []any, out any) error {
 	if err != nil {
 		return err
 	}
-	res, err := downloaderClient.Post(cfg.aria2URL, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.aria2URL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := downloaderClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1147,13 +1156,17 @@ type transmissionClient struct {
 }
 
 func (c *transmissionClient) call(payload map[string]any, out any) error {
+	return c.callContext(context.Background(), payload, out)
+}
+
+func (c *transmissionClient) callContext(ctx context.Context, payload map[string]any, out any) error {
 	cfg := runtimeConfig()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	do := func() (*http.Response, error) {
-		req, err := http.NewRequest("POST", cfg.transmissionURL+"/transmission/rpc", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, "POST", cfg.transmissionURL+"/transmission/rpc", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}

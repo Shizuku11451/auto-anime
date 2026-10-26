@@ -72,6 +72,43 @@ func withMetaTestEnv(t *testing.T) {
 	t.Cleanup(func() { coversDir, bangumiEnabled, metaQueue = oldDir, oldEnabled, oldQueue })
 }
 
+func TestCorrectedSearchDoesNotRefreshPreviousAutoSubject(t *testing.T) {
+	testDatabase(t)
+	startMetaTestServer(t, "纠正动画")
+	if _, err := ensureAnime("纠正动画"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE animes SET search_name='纠正动画';
+		INSERT INTO anime_meta(anime_title,subject_id,source,rating,summary) VALUES('纠正动画',123,'bangumi',8,'old')`); err != nil {
+		t.Fatal(err)
+	}
+	lookupAndCacheMeta("纠正动画")
+	var subject int
+	if err := db.QueryRow("SELECT subject_id FROM anime_meta WHERE anime_title='纠正动画'").Scan(&subject); err != nil || subject != 4242 {
+		t.Fatalf("old subject survived correction: %d %v", subject, err)
+	}
+}
+
+func TestMetaMatchCurrent(t *testing.T) {
+	for _, tc := range []struct {
+		search, source, key string
+		binding             int64
+		want                bool
+	}{
+		{"", "bangumi", "", 0, true},
+		{"纠正", "bangumi", "", 0, false},
+		{"纠正", "bangumi", metaLookupKey("测试", ""), 0, false},
+		{"纠正", "bangumi", metaLookupKey("测试", "纠正"), 0, true},
+		{"纠正", "bangumi", "mikan-link:" + metaLookupKey("测试", "纠正"), 0, true},
+		{"纠正", "manual", "", 0, true},
+		{"纠正", "bangumi", "", 123, true},
+	} {
+		if got := metaMatchCurrent("测试", metaLookupState{SearchName: tc.search, BangumiID: tc.binding}, tc.source, tc.key); got != tc.want {
+			t.Errorf("%+v: %v", tc, got)
+		}
+	}
+}
+
 func TestCoverLookupCachesAndServes(t *testing.T) {
 	testDatabase(t)
 	server, imageHits := startMetaTestServer(t, "测试动画")

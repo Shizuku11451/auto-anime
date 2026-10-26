@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,7 +10,159 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func seedCompletedReceipt(t *testing.T, downloader, taskID string) int {
+	t.Helper()
+	archive := filepath.Join(t.TempDir(), "saved.mp4")
+	if err := os.WriteFile(archive, []byte("media"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	id := insertItem(t, "https://example.test/"+taskID)
+	if _, err := db.Exec("UPDATE items SET downloader=?,task_id=?,task_submitted_at=1,status='已保存',file_path=? WHERE id=?", downloader, taskID, archive, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO completed_tasks VALUES(?,?,?,?,?)", id, downloader, taskID, 1, cleanupConnection(downloader)); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestCompletedTasksPollActiveFirstAndReuseLogin(t *testing.T) {
+	for _, failCleanup := range []bool{false, true} {
+		t.Run(fmt.Sprint(failCleanup), func(t *testing.T) {
+			testDatabase(t)
+			old := qbitURL
+			defer func() { qbitURL = old }()
+			activeHash := strings.Repeat("f", 40)
+			logins, historyQueries := 0, 0
+			activePolled := false
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v2/auth/login":
+					logins++
+					if failCleanup && logins > 1 {
+						http.Error(w, "offline", 503)
+						return
+					}
+					fmt.Fprint(w, "Ok.")
+				case "/api/v2/torrents/info":
+					if r.URL.Query().Get("hashes") == activeHash {
+						activePolled = true
+						fmt.Fprintf(w, `[{"hash":%q,"progress":0.2,"state":"downloading"}]`, activeHash)
+					} else {
+						if !activePolled {
+							t.Error("history cleanup ran before active polling")
+						}
+						historyQueries++
+						fmt.Fprint(w, `[]`)
+					}
+				default:
+					t.Error("unexpected request", r.URL.Path)
+				}
+			}))
+			defer s.Close()
+			qbitURL = s.URL
+			for i := 0; i < 3; i++ {
+				seedCompletedReceipt(t, "qbittorrent", strings.Repeat(fmt.Sprint(i+1), 40))
+			}
+			id := insertItem(t, "https://example.test/active")
+			if _, err := db.Exec("UPDATE items SET downloader='qbittorrent',task_id=?,status='下载中' WHERE id=?", activeHash, id); err != nil {
+				t.Fatal(err)
+			}
+			pollDownloaderTasks()
+			if !activePolled || logins != 2 || (!failCleanup && historyQueries != 3) || (failCleanup && historyQueries != 0) {
+				t.Fatalf("active=%v logins=%d history=%d", activePolled, logins, historyQueries)
+			}
+			var remaining int
+			if err := db.QueryRow("SELECT COUNT(*) FROM completed_tasks").Scan(&remaining); err != nil || remaining != map[bool]int{false: 0, true: 3}[failCleanup] {
+				t.Fatalf("receipts=%d %v", remaining, err)
+			}
+		})
+	}
+}
+
+func TestCompletedTasksDeadlineRotatesPastSlowReceipt(t *testing.T) {
+	testDatabase(t)
+	oldURL, oldCursor := aria2URL, completedTaskCursor
+	defer func() { aria2URL, completedTaskCursor = oldURL, oldCursor }()
+	completedTaskCursor = 0
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// tellStatus also carries an array of fields after the GID.
+		var body struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		var gid string
+		if err := json.Unmarshal(body.Params[0], &gid); err != nil {
+			t.Error(err)
+		}
+		if gid == "1111111111111111" {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(time.Second):
+			}
+			return
+		}
+		if body.Method == "aria2.tellStatus" {
+			fmt.Fprint(w, `{"result":{"status":"complete"}}`)
+		} else {
+			fmt.Fprint(w, `{"result":"OK"}`)
+		}
+	}))
+	defer s.Close()
+	aria2URL = s.URL
+	seedCompletedReceipt(t, "aria2", "1111111111111111")
+	seedCompletedReceipt(t, "aria2", "2222222222222222")
+	for i := 0; i < 2; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		start := time.Now()
+		processCompletedTasksContext(ctx)
+		cancel()
+		if time.Since(start) > 750*time.Millisecond {
+			t.Fatal("cleanup ignored its deadline")
+		}
+	}
+	var remaining int
+	if err := db.QueryRow("SELECT COUNT(*) FROM completed_tasks").Scan(&remaining); err != nil || remaining != 1 {
+		t.Fatalf("slow first receipt starved the second: %d %v", remaining, err)
+	}
+}
+
+func TestCompletedTasksRotatesAfterImmediateFailure(t *testing.T) {
+	testDatabase(t)
+	oldURL, oldCursor := qbitURL, completedTaskCursor
+	defer func() { qbitURL, completedTaskCursor = oldURL, oldCursor }()
+	completedTaskCursor = 0
+	var queried []string
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			fmt.Fprint(w, "Ok.")
+			return
+		}
+		hash := r.URL.Query().Get("hashes")
+		queried = append(queried, hash)
+		if hash == strings.Repeat("1", 40) {
+			http.Error(w, "invalid task", 500)
+			return
+		}
+		fmt.Fprint(w, `[]`)
+	}))
+	defer s.Close()
+	qbitURL = s.URL
+	for i := 1; i <= 3; i++ {
+		seedCompletedReceipt(t, "qbittorrent", strings.Repeat(fmt.Sprint(i), 40))
+	}
+	processCompletedTasks()
+	processCompletedTasks()
+	if len(queried) != 4 || queried[1] != strings.Repeat("2", 40) || queried[2] != strings.Repeat("3", 40) {
+		t.Fatalf("failure starved later receipts: %v", queried)
+	}
+}
 
 func TestCompletedQbitTaskPreservesFilesAndWaitsForSeedGoal(t *testing.T) {
 	testDatabase(t)

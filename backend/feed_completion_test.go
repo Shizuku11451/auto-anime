@@ -231,6 +231,60 @@ func TestFeedCompletionDeletedAnimeDropsSeasonCache(t *testing.T) {
 	}
 }
 
+func TestFeedCompletionRejectsOldLibraryMatchAfterCorrection(t *testing.T) {
+	for _, key := range []string{"", metaLookupKey("完结测试", ""), "mikan-link:" + metaLookupKey("完结测试", "")} {
+		t.Run(key, func(t *testing.T) {
+			seedCompletion(t)
+			if _, err := db.Exec(`UPDATE anime_meta SET episode_total=3,episode_season=2,episode_subject_id=123,match_key=?`, key); err != nil {
+				t.Fatal(err)
+			}
+			rec := putAnime(t, animeIDByTitle(t, "完结测试"), `{"search_name":"用户纠正的另一部作品"}`)
+			if rec.Code != http.StatusOK {
+				t.Fatal(rec.Code, rec.Body.String())
+			}
+			assertCompletion(t, false)
+			hits := 0
+			scheduleTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				if strings.HasPrefix(r.URL.Path, "/search/subject/") {
+					fmt.Fprint(w, `{"list":[{"id":456,"name_cn":"用户纠正的另一部作品 第二季"}]}`)
+				} else if r.URL.Path == "/v0/subjects/456" {
+					fmt.Fprint(w, `{"id":456,"name_cn":"用户纠正的另一部作品 第二季","eps":4}`)
+				} else {
+					t.Error("unexpected request", r.URL.Path)
+				}
+			})
+			refreshFeedEpisodeTotals("完结测试")
+			if hits != 2 {
+				t.Fatalf("old match suppressed corrected lookup: %d", hits)
+			}
+			assertCompletion(t, false)
+			if _, err := db.Exec(`UPDATE animes SET bangumi_id=123`); err != nil {
+				t.Fatal(err)
+			}
+			assertCompletion(t, true)
+		})
+	}
+}
+
+func TestFeedCompletionRenamePreservesCurrentMatchKey(t *testing.T) {
+	for _, prefix := range []string{"", "mikan-link:"} {
+		t.Run(prefix, func(t *testing.T) {
+			seedCompletion(t)
+			if _, err := db.Exec(`UPDATE items SET anime_id=(SELECT id FROM animes WHERE title=items.anime_title)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE anime_meta SET episode_total=3,episode_season=2,episode_subject_id=123,match_key=?`, prefix+metaLookupKey("完结测试", "")); err != nil {
+				t.Fatal(err)
+			}
+			if err := renameAnime("完结测试", "改名测试"); err != nil {
+				t.Fatal(err)
+			}
+			assertCompletion(t, true)
+		})
+	}
+}
+
 func TestFeedCompletionRealArchiveAndExplicitReenable(t *testing.T) {
 	testDatabase(t)
 	withMetaTestEnv(t)

@@ -42,6 +42,11 @@ func metaLookupKey(title, searchName string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func metaMatchCurrent(title string, state metaLookupState, source, key string) bool {
+	// Legacy matches without a key are only safe without a search correction.
+	return state.BangumiID > 0 || source == "manual" || strings.TrimPrefix(key, "mikan-link:") == metaLookupKey(title, state.SearchName) || (key == "" && state.SearchName == "")
+}
+
 func metaCacheFresh(source, updated, key, currentKey string, rating float64, summary string) bool {
 	if source == "manual" || source == "bangumi" {
 		// Matches made before rating/summary were stored carry only a cover;
@@ -181,13 +186,14 @@ func lookupAndCacheMeta(animeTitle string) {
 		return
 	}
 	currentKey := metaLookupKey(animeTitle, searchName)
-	if metaCacheFresh(source, updated, key, currentKey, rating, summary) {
+	currentMatch := metaMatchCurrent(animeTitle, expected, source, key)
+	if currentMatch && metaCacheFresh(source, updated, key, currentKey, rating, summary) {
 		return
 	}
 	// Refresh an existing match by its recorded subject ID; a manual binding
 	// wins, and old auto matches keep their ID instead of re-running search.
 	target := bangumiID
-	if target == 0 && (source == "bangumi" || source == "manual") {
+	if target == 0 && currentMatch && (source == "bangumi" || source == "manual") {
 		target = subjectID
 	}
 	if target > 0 {

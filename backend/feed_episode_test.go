@@ -23,6 +23,11 @@ func TestInferEpisodeOffset(t *testing.T) {
 		{[]string{"测试动画 [01-12合集]", "测试动画 SP"}, 0, false},
 		{[]string{"测试动画 第一季 [01]", "测试动画 第二季 [12]"}, 0, false},
 		{[]string{"作品甲 [01]", "作品乙 [12]"}, 0, false},
+		{[]string{"作品甲 [12]", "作品乙 [01-12合集]"}, 0, false},
+		{[]string{"作品乙 [01-12合集]", "作品甲 [12]"}, 0, false},
+		{[]string{"作品甲 [12]", "作品乙 SP01"}, 0, false},
+		{[]string{"测试动画 第一季 [12]", "测试动画 第二季 [01-12合集]"}, 0, false},
+		{[]string{"测试动画 [12]", "测试动画 [01-12合集]"}, -11, true},
 	} {
 		var items []feedItem
 		for _, title := range tc.titles {

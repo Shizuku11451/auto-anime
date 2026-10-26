@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -17,7 +18,13 @@ import (
 
 // Only receipts created by a successful archive commit can remove a task.
 func processCompletedTasks() {
-	rows, err := db.Query("SELECT item_id,downloader,task_id,submitted_at,connection FROM completed_tasks")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	processCompletedTasksContext(ctx)
+}
+
+func processCompletedTasksContext(ctx context.Context) {
+	rows, err := db.Query("SELECT item_id,downloader,task_id,submitted_at,connection FROM completed_tasks ORDER BY item_id")
 	if err != nil {
 		return
 	}
@@ -33,13 +40,31 @@ func processCompletedTasks() {
 		}
 	}
 	rows.Close()
-	for _, r := range pending {
+	cleaner := completedTaskCleaner{}
+	broken := make(map[string]bool)
+	// Rotate the snapshot so unfinished or slow receipts cannot starve later ones.
+	start := 0
+	for start < len(pending) && pending[start].ID <= completedTaskCursor {
+		start++
+	}
+	if len(pending) > 0 {
+		completedTaskCursor = pending[start%len(pending)].ID
+	}
+	for i := 0; i < len(pending) && ctx.Err() == nil; i++ {
+		r := pending[(start+i)%len(pending)]
+		if broken[r.Downloader] {
+			continue
+		}
 		func() {
 			l, release := downloadLock(r.ID)
 			defer release()
-			l.operation.Lock()
+			if !l.operation.TryLock() {
+				return
+			}
 			defer l.operation.Unlock()
-			animeCleanupMu.RLock()
+			if !animeCleanupMu.TryRLock() {
+				return
+			}
 			defer animeCleanupMu.RUnlock()
 			item, err := readControlledItem(r.ID)
 			if err != nil || item.taskRef != r.taskRef {
@@ -63,22 +88,36 @@ func processCompletedTasks() {
 			if _, err := os.Stat(archive); err != nil {
 				return
 			}
-			if done, err := removeFinishedTask(r.taskRef); err == nil && done {
+			if done, err := cleaner.remove(ctx, r.taskRef); err != nil {
+				broken[r.Downloader] = true
+			} else if done {
 				db.Exec("DELETE FROM completed_tasks WHERE item_id=?", r.ID)
 			}
 		}()
 	}
 }
 
+// The downloader poller runs cleanup serially; the cursor survives its rounds.
+var completedTaskCursor int
+
+type completedTaskCleaner struct {
+	qbit         *qbitClient
+	transmission transmissionClient
+}
+
 func removeFinishedTask(t taskRef) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return (&completedTaskCleaner{}).remove(ctx, t)
+}
+
+func (c *completedTaskCleaner) remove(ctx context.Context, t taskRef) (bool, error) {
 	switch t.Downloader {
 	case "native":
 		if nativeTaskHash(t.TaskID) == "" {
 			return false, fmt.Errorf("内置 BT 任务标识无效")
 		}
 		done := false
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
 		err := nativeDownloads.withSession(ctx, func(s *raintorrent.Session) error {
 			torrent := s.GetTorrent(t.TaskID)
 			if torrent == nil {
@@ -114,22 +153,29 @@ func removeFinishedTask(t taskRef) (bool, error) {
 			return false, fmt.Errorf("Aria2 任务标识无效")
 		}
 		var st aria2Status
-		if err := aria2RPC("aria2.tellStatus", []any{t.TaskID, []string{"status", "followedBy"}}, &st); err != nil {
+		if err := aria2RPCContext(ctx, "aria2.tellStatus", []any{t.TaskID, []string{"status", "followedBy"}}, &st); err != nil {
 			return false, err
 		}
 		if st.Status != "complete" || len(st.FollowedBy) != 0 {
 			return false, nil
 		}
-		return true, aria2RPC("aria2.removeDownloadResult", []any{t.TaskID}, nil)
+		return true, aria2RPCContext(ctx, "aria2.removeDownloadResult", []any{t.TaskID}, nil)
 	case "qbittorrent":
 		if !qbitControlHash.MatchString(t.TaskID) {
 			return false, fmt.Errorf("qBittorrent 任务标识无效")
 		}
-		c, err := qbitLogin()
-		if err != nil {
-			return false, err
+		cfg := runtimeConfig()
+		config := qbitConnection{cfg.qbitURL, cfg.qbitUser, cfg.qbitPassword, cfg.qbitSavePath, cfg.qbitLocalDir}
+		config.URL = strings.TrimRight(config.URL, "/")
+		if c.qbit == nil || c.qbit.config != config {
+			var err error
+			c.qbit, err = loginQBittorrentContext(ctx, config, 10*time.Second)
+			if err != nil {
+				return false, err
+			}
 		}
-		found, err := c.info(url.Values{"hashes": {t.TaskID}})
+		client := c.qbit
+		found, err := client.infoContext(ctx, url.Values{"hashes": {t.TaskID}})
 		if err != nil {
 			return false, err
 		}
@@ -149,7 +195,11 @@ func removeFinishedTask(t taskRef) (bool, error) {
 		}
 		ratio, minutes := *st.RatioLimit, *st.SeedingTimeLimit
 		if ratio == -2 || minutes == -2 {
-			res, err := c.http.Get(c.config.URL + "/api/v2/app/preferences")
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, client.config.URL+"/api/v2/app/preferences", nil)
+			if err != nil {
+				return false, err
+			}
+			res, err := client.http.Do(req)
 			if err != nil {
 				return false, err
 			}
@@ -182,13 +232,12 @@ func removeFinishedTask(t taskRef) (bool, error) {
 		if !(ratio >= 0 && st.Ratio >= ratio) && !(minutes >= 0 && st.SeedingTime >= minutes*60) {
 			return false, nil
 		}
-		return true, c.remove(t.TaskID) // deleteFiles=false is enforced by the client.
+		return true, client.removeContext(ctx, t.TaskID) // deleteFiles=false is enforced by the client.
 	case "transmission":
 		id, err := strconv.Atoi(t.TaskID)
 		if err != nil || id < 0 {
 			return false, fmt.Errorf("Transmission 任务标识无效")
 		}
-		c := &transmissionClient{}
 		var out struct {
 			Result    string `json:"result"`
 			Arguments struct {
@@ -200,7 +249,7 @@ func removeFinishedTask(t taskRef) (bool, error) {
 				} `json:"torrents"`
 			} `json:"arguments"`
 		}
-		if err := c.call(map[string]any{"method": "torrent-get", "arguments": map[string]any{"ids": []int{id}, "fields": []string{"id", "status", "percentDone", "isFinished"}}}, &out); err != nil {
+		if err := c.transmission.callContext(ctx, map[string]any{"method": "torrent-get", "arguments": map[string]any{"ids": []int{id}, "fields": []string{"id", "status", "percentDone", "isFinished"}}}, &out); err != nil {
 			return false, err
 		}
 		if out.Result != "success" {
@@ -219,7 +268,7 @@ func removeFinishedTask(t taskRef) (bool, error) {
 		var result struct {
 			Result string `json:"result"`
 		}
-		if err := c.call(map[string]any{"method": "torrent-remove", "arguments": map[string]any{"ids": []int{id}, "delete-local-data": false}}, &result); err != nil {
+		if err := c.transmission.callContext(ctx, map[string]any{"method": "torrent-remove", "arguments": map[string]any{"ids": []int{id}, "delete-local-data": false}}, &result); err != nil {
 			return false, err
 		}
 		if result.Result != "success" {

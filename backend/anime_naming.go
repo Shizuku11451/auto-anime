@@ -126,6 +126,16 @@ func renameAnime(oldTitle, newTitle string) error {
 
 // renameAnimeTx 做数据库侧的改名（番剧、条目、订阅目标名、元数据键）；由调用方提交事务。
 func renameAnimeTx(tx *sql.Tx, id int64, oldTitle, newTitle string) error {
+	state, err := readMetaLookupState(tx, oldTitle)
+	if err != nil {
+		return err
+	}
+	// Preserve verified matches across a rename without renewing stale matches.
+	oldKey, newKey := metaLookupKey(oldTitle, state.SearchName), metaLookupKey(newTitle, state.SearchName)
+	if _, err := tx.Exec(`UPDATE anime_meta SET match_key=CASE WHEN match_key=? THEN ? ELSE ? END
+		WHERE anime_title=? AND match_key IN (?,?)`, "mikan-link:"+oldKey, "mikan-link:"+newKey, newKey, oldTitle, oldKey, "mikan-link:"+oldKey); err != nil {
+		return err
+	}
 	for _, update := range []struct {
 		query string
 		args  []any

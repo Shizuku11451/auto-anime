@@ -52,10 +52,11 @@ func refreshFeedEpisodeTotals(title string) {
 			continue
 		}
 		// A matching verified library subject already supplies this season.
-		var known bool
-		db.QueryRow(`SELECT EXISTS(SELECT 1 FROM anime_meta WHERE anime_title=? AND source IN ('bangumi','manual') AND subject_id=episode_subject_id
-			AND episode_season=? AND (episode_total>0 OR ?>0) AND (?=0 OR subject_id=?))`, title, season, expected.BangumiID, expected.BangumiID, expected.BangumiID).Scan(&known)
-		if known {
+		total, metaSeason, err := feedLibraryEpisodes(db, title, expected)
+		if err != nil {
+			return
+		}
+		if metaSeason == season && (total > 0 || expected.BangumiID > 0) {
 			continue
 		}
 		name := title
@@ -90,6 +91,26 @@ func refreshFeedEpisodeTotals(title string) {
 		}
 	}
 	wakeTaskPoller()
+}
+
+func feedLibraryEpisodes(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, title string, state metaLookupState) (int, int, error) {
+	var total, season int
+	var source, key string
+	err := q.QueryRow(`SELECT episode_total,episode_season,source,COALESCE(match_key,'') FROM anime_meta
+		WHERE anime_title=? AND source IN ('bangumi','manual') AND subject_id>0 AND episode_subject_id=subject_id
+		AND (?=0 OR subject_id=?)`, title, state.BangumiID, state.BangumiID).Scan(&total, &season, &source, &key)
+	if err == sql.ErrNoRows {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if !metaMatchCurrent(title, state, source, key) {
+		return 0, 0, nil
+	}
+	return total, season, nil
 }
 
 // Use the wiki's episode count, not the number of episode records in Bangumi.
@@ -196,11 +217,12 @@ func completeFeed(tx *sql.Tx, id int) error {
 	if err != nil || len(groups) != 1 || title == "" {
 		return err
 	}
-	var total, metaSeason int
-	err = tx.QueryRow(`SELECT m.episode_total,m.episode_season FROM anime_meta m JOIN animes a ON a.title=m.anime_title
-		WHERE m.anime_title=? AND m.source IN ('bangumi','manual') AND m.subject_id>0 AND m.episode_subject_id=m.subject_id
-		AND (COALESCE(a.bangumi_id,0)=0 OR a.bangumi_id=m.subject_id)`, title).Scan(&total, &metaSeason)
-	if err != nil && err != sql.ErrNoRows {
+	state, err := readMetaLookupState(tx, title)
+	if err != nil || state.ID == 0 {
+		return err
+	}
+	total, metaSeason, err := feedLibraryEpisodes(tx, title, state)
+	if err != nil {
 		return err
 	}
 	if total < 1 || season != metaSeason {
