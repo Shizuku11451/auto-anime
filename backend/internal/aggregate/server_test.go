@@ -183,6 +183,52 @@ func TestPartialFailureNotCachedAndUpstreamErrorsRedacted(t *testing.T) {
 	}
 }
 
+func TestResultCapRetainsLaterFailuresAndSources(t *testing.T) {
+	s := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v0/") {
+			fmt.Fprint(w, `{"id":1,"type":2,"name":"Test Anime","name_cn":"测试动画","infobox":[{"key":"别名","value":[{"v":"Test Animation"}]}]}`)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/nyaasi/") {
+			http.Error(w, "unavailable", http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, `<rss><channel>`)
+		if strings.Contains(r.URL.Path, "/mikan/") {
+			// Three queries return 100 distinct releases each.
+			for i := 0; i < 100; i++ {
+				fmt.Fprintf(w, `<item><title>Test Anime - 01</title><guid>https://site.example/%s/%d</guid></item>`, url.PathEscape(r.URL.Query().Get("q")), i)
+			}
+		} else if strings.Contains(r.URL.Path, "/dmhy/") {
+			fmt.Fprint(w, `<item><title>Test Anime - 01</title><guid>https://site.example/extra</guid></item>`)
+		} else {
+			fmt.Fprint(w, `<item><title>Test Anime - 01</title><guid>https://site.example/Test%20Anime/0</guid></item>`)
+		}
+		fmt.Fprint(w, `</channel></rss>`)
+	})
+	s.config.Indexers = []string{"mikan", "dmhy", "nyaasi", "acgrip"}
+	result, err := s.search(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 300 {
+		t.Fatalf("got %d items, want 300", len(result.Items))
+	}
+	warnings := strings.Join(result.Warnings, ";")
+	if strings.Count(warnings, "已达到 300 条结果上限") != 1 || !strings.Contains(warnings, "nyaasi 部分查询失败") {
+		t.Fatalf("cap lost or duplicated warnings: %v", result.Warnings)
+	}
+	for _, item := range result.Items {
+		if item.DetailsURL == "https://site.example/Test%20Anime/0" {
+			if !contains(item.Sources, "acgrip") {
+				t.Fatalf("cap lost later source: %v", item.Sources)
+			}
+			return
+		}
+	}
+	t.Fatal("expected shared resource missing")
+}
+
 func TestCancellationRedirectAndMalformedFeed(t *testing.T) {
 	for _, mode := range []string{"cancel", "redirect", "invalid", "oversized"} {
 		t.Run(mode, func(t *testing.T) {

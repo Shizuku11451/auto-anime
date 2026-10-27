@@ -277,6 +277,7 @@ func (s *Server) search(ctx context.Context, id int) (Result, error) {
 	wg.Wait()
 	seen := map[string]int{}
 	succeeded := false
+	limited := false
 	for i, source := range results {
 		succeeded = succeeded || source.succeeded
 		if source.failed {
@@ -298,8 +299,11 @@ func (s *Server) search(ctx context.Context, id int) (Result, error) {
 				continue
 			}
 			if len(result.Items) == 300 {
-				result.Warnings = append(result.Warnings, "已达到 300 条结果上限")
-				return result, nil
+				if !limited {
+					result.Warnings = append(result.Warnings, "已达到 300 条结果上限")
+					limited = true
+				}
+				continue
 			}
 			seen[key] = len(result.Items)
 			result.Items = append(result.Items, item)
