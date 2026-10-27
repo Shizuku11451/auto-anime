@@ -429,3 +429,40 @@ export interface ItemPage {
   items: Item[]
   next_before: number
 }
+
+export interface DiscoverSubject {
+  id: number
+  name: string
+  name_cn: string
+  cover: string
+  summary: string
+  date: string
+  rating: number
+}
+
+export interface DiscoverSubjectResult {
+  keyword: string
+  items: DiscoverSubject[]
+  resources_enabled: boolean
+}
+
+export interface AggregateResource {
+  title: string
+  anime_title: string
+  fansub_group: string
+  episode: string
+  quality: string
+  season: number
+  size: number
+  published: string
+  magnet: string
+  details_url: string
+  sources: string[]
+  needs_review: boolean
+}
+
+export interface AggregateResult {
+  subject_id: number
+  items: AggregateResource[]
+  warnings: string[]
+}

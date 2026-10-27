@@ -23,6 +23,9 @@ services:
       NATIVE_BT_PORT: "6881"
       # true 保留下载源文件做种；改为 false 时仅在归档成功后删除源文件。
       KEEP_SOURCE_FILES: "true"
+      # 可选独立聚合服务；仅后端持有令牌，空值不启用资源聚合。
+      AGGREGATE_SEARCH_URL: ${AGGREGATE_SEARCH_URL:-}
+      AGGREGATE_SEARCH_TOKEN: ${AGGREGATE_SEARCH_TOKEN:-}
     volumes:
       # 保留已有部署目录，与本地开发的 backend/data/ 分开。
       - ./docker-data:/data

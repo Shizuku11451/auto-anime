@@ -8,11 +8,11 @@ import * as vue from 'vue'
 import * as discoverUtils from '../utils/discover.ts'
 
 const source = parse(readFileSync(new URL('./DiscoverView.vue', import.meta.url), 'utf8')).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(source + '\nexport { subscribe, filters, filtered };', {
+const compiled = ts.transpileModule(source + '\nexport { subscribe, filters, filtered, fallbackRSS };', {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 
-test('从番剧库进入时使用关键词搜索，离开后不触发迟到的搜索', async () => {
+test('从番剧库进入默认使用番剧搜索，不提前请求 RSS；离开后不改写输入', async () => {
   for (const scenario of ['source', 'no-source', 'unmounted']) {
     let mount, unmount, finishLoading, searches = 0, cancellations = 0
     const state = vue.reactive({ sources: scenario === 'no-source' ? [] : [{ id: 'source' }], source: 'source', keyword: '', result: { items: [] } })
@@ -30,12 +30,40 @@ test('从番剧库进入时使用关键词搜索，离开后不触发迟到的�
     if (scenario === 'unmounted') unmount()
     finishLoading()
     await pending
-    assert.equal(searches, scenario === 'source' ? 1 : 0)
+    assert.equal(searches, 0)
     assert.equal(cancellations, 1)
     assert.equal(state.keyword, scenario === 'unmounted' ? '' : '测试动画')
     if (scenario !== 'unmounted') assert.equal(state.result, null)
     scope.stop()
   }
+})
+
+test('RSS 来源仍在加载时切换模式，保留用户选定番名并在加载后搜索', async () => {
+  let mount, finishLoading, searched
+  const state = vue.reactive({ sources: [], source: '', keyword: '', result: null })
+  const modules = {
+    vue: { ...vue, onMounted: fn => { mount = fn }, onUnmounted() {} },
+    'vue-router': { useRoute: () => ({ query: { keyword: '入口旧番名' } }) },
+    '@/stores/discover': { useDiscover: () => ({ state,
+      loadSources: () => new Promise(resolve => { finishLoading = resolve }),
+      search: () => { searched = state.keyword }, cancelSearch() {},
+    }) },
+    '@/stores/dialogs': { useDialogs: () => ({}) },
+    '@/stores/app': { useAppStore: () => ({ feeds: vue.ref([]) }) },
+    '@/utils/discover': discoverUtils,
+  }
+  const context = { exports: {}, require: id => modules[id] }
+  const scope = vue.effectScope()
+  scope.run(() => runInNewContext(compiled, context))
+  const pending = mount()
+  context.exports.fallbackRSS('选定番剧')
+  assert.equal(searched, undefined)
+  state.sources = [{ id: 'source' }]
+  state.source = 'source'
+  finishLoading()
+  await pending
+  assert.equal(searched, '选定番剧')
+  scope.stop()
 })
 
 test('输入框和来源修改后，订阅仍对应展示结果；新结果到达后清除旧筛选', async (t) => {

@@ -12,6 +12,7 @@ docker-data/
 *.test
 auto-anime
 /auto-anime.exe
+/backend/search-server
 
 # 缓存与日志
 __pycache__/
@@ -24,6 +25,7 @@ __pycache__/
 !.env.*.example
 *.pem
 *.key
+/deploy/search/jackett-config/
 
 # 本地协作说明（不入库）
 AGENTS.md

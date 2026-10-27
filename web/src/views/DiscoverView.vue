@@ -6,6 +6,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ReleaseCard from '@/components/discover/ReleaseCard.vue'
+import SubjectSearch from '@/components/discover/SubjectSearch.vue'
 import { useDiscover } from '@/stores/discover'
 import { useDialogs } from '@/stores/dialogs'
 import { toast } from '@/stores/toast'
@@ -15,6 +16,7 @@ import { discoveredSubscriptionWords, filterReleases, groupReleases, releaseFiel
 
 const { state, loadSources, search, cancelSearch, retry } = useDiscover()
 const route = useRoute()
+const mode = ref<'subjects' | 'rss'>('subjects')
 const dialogs = useDialogs()
 const store = useAppStore()
 const releases = computed(() => groupReleases(state.result?.items ?? []))
@@ -55,11 +57,14 @@ let active = true
 onMounted(async () => {
   await loadSources()
   if (!active) return
+  if (mode.value === 'rss') {
+    submit()
+    return
+  }
   if (typeof route.query.keyword === 'string' && route.query.keyword.trim()) {
     cancelSearch()
     state.result = null
     state.keyword = route.query.keyword.slice(0, 100)
-    submit()
   }
 })
 onUnmounted(() => { active = false; cancelSearch() })
@@ -77,6 +82,17 @@ function switchSource(source: string) {
   state.source = source
   cancelSearch()
   submit()
+}
+
+function fallbackRSS(keyword: string) {
+  mode.value = 'rss'
+  state.keyword = keyword
+  submit()
+}
+
+function switchMode(value: 'subjects' | 'rss') {
+  cancelSearch()
+  mode.value = value
 }
 
 function searchRecent(keyword: string) {
@@ -139,7 +155,13 @@ function subscribe(item: DiscoverItem) {
 
 <template>
   <div class="page">
-    <PageHeader title="找番" description="搜番名、选版本，喜欢的字幕组持续追更" />
+    <PageHeader title="找番" description="先找 Bangumi 番剧，再查看对应的候选资源" />
+    <div class="search-modes" role="group" aria-label="搜索方式">
+      <button type="button" class="source-button" :class="{ active: mode === 'subjects' }" :aria-pressed="mode === 'subjects'" @click="switchMode('subjects')">番剧与聚合资源</button>
+      <button type="button" class="source-button" :class="{ active: mode === 'rss' }" :aria-pressed="mode === 'rss'" @click="switchMode('rss')">RSS 搜索与订阅</button>
+    </div>
+    <SubjectSearch v-if="mode === 'subjects'" @fallback="fallbackRSS" />
+    <template v-else>
 
     <section class="search-panel card" aria-label="搜索番剧">
       <form class="toolbar" @submit.prevent="submit">
@@ -257,10 +279,12 @@ function subscribe(item: DiscoverItem) {
         <p class="subscription-hint">选择版本后将自动预览字幕组、清晰度与字幕语言的匹配结果，核对后再保存订阅。</p>
       </template>
     </template>
+    </template>
   </div>
 </template>
 
 <style scoped>
+.search-modes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .search-panel { padding: 20px; border-radius: var(--r-lg); margin-bottom: 24px; }
 .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 .kw { position: relative; display: block; min-width: 0; }

@@ -1,0 +1,83 @@
+# 在线聚合搜索服务
+
+[配置参考](CONFIGURATION.md) · [使用指南](USAGE.md)
+
+## 职责与边界
+
+在线服务与用户 NAS 上的 Auto-Anime 是两个独立进程、独立部署。浏览器先通过 NAS 后端搜索 Bangumi，确认条目后再由 NAS 把条目 ID 发给在线服务；在线服务获取公开动画资料，用中文名、原名和有限别名查询明确启用的 Jackett 索引器，返回候选资源。浏览器不直连 Jackett，不接收 Jackett API Key 或聚合服务令牌。
+
+第一版仅支持 Jackett 的 Torznab 接口，不宣称已经支持 Prowlarr。没有默认启用的资源站点；管理员必须自行核实条款、内容授权和访问条件，然后配置来源。可评估的索引器 ID 包括 `mikan`、`dmhy`、`acgrip`，实际可用性取决于所部署 Jackett 版本和服务器网络，不能仅凭存在适配定义判断。
+
+可供评估的常见动漫资源来源如下；这些 ID 来自 Jackett 适配定义，不代表本站已完成真实站点搜索验收，也不代表服务器所在地可以直连。
+
+| 来源 | Jackett ID | 选型参考 |
+| --- | --- | --- |
+| 蜜柑计划 Mikan | `mikan` | 中文动漫发布聚合，可优先评估 |
+| 动漫花园 DMHY | `dmhy` | 中文动漫发布，可优先评估 |
+| ACG.RIP | `acgrip` | 中文动漫发布，可作补充 |
+| Nyaa | `nyaasi` | 日文原版及多语言动漫资源，需核实直连条件 |
+| Bangumi Moe | `bangumi-moe` | 动漫种子站，与提供条目资料的 Bangumi（bgm.tv）不是同一服务 |
+| Anime Tosho | `animetosho-xyz` | 动漫资源聚合，接口可能受访问限制 |
+| Tokyo Toshokan | `tokyotosho` | 日系资源发布，可作补充 |
+
+建议先接入并验证 1–3 个可直连来源，不把境外来源作为基本找番能力的前提；不要为了增加来源数量而默认全开。
+
+当前能力：先返回最多 8 个 Bangumi 番剧候选，展开后聚合搜索，在该条目下显示原始标题、来源、字幕组、清晰度、标题季号、发布时间及已知大小。相同 BT v1 InfoHash 跨站去重并保留来源；磁力中的 tracker、其他附加参数不转发，避免私有凭据泄漏，因此不适用于依赖私有 tracker 的 PT 来源。没有磁力但有安全来源页的条目只能打开来源页，不转发 Jackett 种子下载地址。做种人数可能由适配器填入占位值，当前不显示、不据此承诺可下载。
+
+名称匹配只是候选筛选，不是已验证的 Bangumi 绑定；副标题、季度、分割放送和集数仍需人工核对。第一版不自动订阅、不在站内一键下载聚合结果，不修改已有番剧归属、RSS、下载任务或媒体。需要持续追更时使用保留的「RSS 搜索与订阅」入口，并自行确认实际 RSS 和规则。服务失败不影响已有 RSS 同步和下载；Bangumi 失败时可直接切换 RSS 搜索。
+
+## 部署在线端
+
+准备安装 Docker Compose 的 Linux 服务器。仓库提供 `deploy/search/compose.yml`，只启动聚合 API 和 Jackett，不启动 NAS 主程序，也不挂载媒体或应用数据库。
+
+1. 把 `deploy/search/.env.example` 复制为同目录 `.env`，设置已核实的 `JACKETT_IMAGE` 标签或摘要，以及容器目录适用的 `PUID`、`PGID`。镜像仓库可选 `lscr.io/linuxserver/jackett`，模板不默认使用浮动标签；先核实对应镜像文档及版本。
+2. 在仓库根执行 `docker compose -f deploy/search/compose.yml up -d jackett`。Jackett 管理端只绑定服务器回环地址 `127.0.0.1:9117`，通过 SSH 隧道访问，配置管理员密码和你有权使用的索引器，并在 Jackett 中分别测试。
+3. 在 `.env` 填写 Jackett API Key、明确启用的 `JACKETT_INDEXERS`（逗号分隔，1–8 个，不接受 `all`），以及随机生成的至少 32 字符 `SEARCH_API_TOKEN`。令牌可用本地密码管理器或 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成，不要把输出提交或发送到日志。
+4. 执行 `docker compose -f deploy/search/compose.yml up -d --build search`。缺少必需配置时聚合服务进程会拒绝启动；不要用示例或弱令牌代替真实配置。
+5. 在同一主机的反向代理配置 HTTPS，转发到 `127.0.0.1:8090`。保留 `Authorization` 请求头，上游超时至少 50 秒，设置请求速率和连接限制。不要把 Jackett、API Key 或不加密的 8090 端口公开到互联网；访问日志不要记录认证头，避免记录完整用户搜索参数。
+
+首次只启动 Jackett 不要求提前填写尚未获取的 Key；填齐真实配置后再启动 search。已有 Jackett 可跳过此模板的 Jackett 容器，使用独立运行方式配置其私有地址。
+
+Jackett 配置持久化在 `deploy/search/jackett-config/`，含密钥及可能的站点凭据，不得提交；备份时按敏感数据保护。`.env` 也含密钥。聚合 API 无数据库和媒体目录，缓存仅在内存中，重启即清空。
+
+## NAS 端配置
+
+在运行 Auto-Anime 的环境中设置以下启动变量，修改后重建容器或重启可执行程序：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `AGGREGATE_SEARCH_URL` | 空 | 独立在线 API 根地址，如 `https://search.example.com`；不要加 `/v1/search` |
+| `AGGREGATE_SEARCH_TOKEN` | 空 | 与在线端 `SEARCH_API_TOKEN` 相同的随机令牌，仅 NAS 后端持有 |
+
+公网地址必须 HTTPS，仅 `localhost`、`127.0.0.1`、`::1` 可 HTTP。根地址不接受内嵌账号密码、查询参数和片段。未配置或格式无效时仍可搜索 Bangumi，但提示聚合服务未配置。变量只从启动环境读取，不进入网页设置或 JSON 备份；不要把令牌放到前端环境变量、URL 或截图中。Docker 的 `localhost` 指当前容器，不是宿主机。
+
+## 在线端启动变量
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `SEARCH_LISTEN` | `127.0.0.1:8090` | 源码程序监听地址；容器内设为 `0.0.0.0:8090`，宿主机仍只映射回环 |
+| `SEARCH_API_TOKEN` | 无 | 至少 32 字符，必填 |
+| `JACKETT_URL` | 无 | Jackett 根地址，必填；优先私有网络，仅管理员配置 |
+| `JACKETT_API_KEY` | 无 | Jackett API Key，必填，不回传 |
+| `JACKETT_INDEXERS` | 无 | 显式启用的索引器 ID，1–8 个，以逗号分隔 |
+| `BANGUMI_API` | `https://api.bgm.tv` | 公开 Bangumi API 根地址，无需用户收藏令牌 |
+
+不使用 Docker 时，在 `backend/` 设置 `CGO_ENABLED=0` 后执行 `go run ./cmd/search-server`，或 `go build -o <独立输出路径> ./cmd/search-server`。它与 NAS 主程序共用标题解析代码，但不初始化数据库、下载器或 NAS 的设置。在线程序使用 Go 标准库，不新增第三方依赖。
+
+## API 与限制
+
+- `GET /healthz`：仅返回进程可响应，不含地址、配置或订阅信息，也不代表上游站点可用。
+- `GET /v1/search?subject_id=123`：必须携带 `Authorization: Bearer <令牌>`；条目 ID 为正的 32 位整数，服务端重新从 Bangumi 确认为动画，不接受客户端指定站点地址、查询 URL 或上游凭据。
+- 成功响应包含 `subject_id`、`items`、`warnings`；全部来源失败返回 502，部分失败保留成功结果并明确提示；不是把网络错误当作零资源。
+- 每个条目最多使用 3 个名称查询，每站每次读取最多 100 条，合并最多 300 条，超出提示截断。不是全站爬取，也不承诺历史资源齐全。
+- 上游请求总并发最多 4，独立条目搜索最多 4；同 ID 进行中的请求合并等待。上游单次 12 秒，整个搜索 40 秒，NAS 等待 45 秒。请求取消传到上游；若合并请求的发起者取消，等待者会一起收到失败，可重试。
+- 全局固定时间窗每分钟最多 60 个合法认证搜索请求，包括缓存命中。当前是单个共享令牌、单实例内存限流，不是多租户账号和配额系统；大规模公开运营前应升级为独立客户端凭据、配额和入口防滥用措施，不应将共享令牌硬编码到公开安装包。
+- 完整成功结果缓存 5 分钟，最多 128 个条目；部分失败和错误不缓存。缓存不持久化，不保存用户 NAS 信息。搜索服务会获知请求者网络地址、Bangumi 条目 ID，Bangumi 和各索引站还会收到对应的查询；对外运营需提供隐私说明。
+
+默认显式直连，不读取系统代理。NAS 到在线服务的请求沿用 NAS 的 `PROXY_URL`；在线程序自己的 Bangumi 与 Jackett 请求直连，站点请求由 Jackett 执行，需要时在其管理页显式配置代理，不默认依赖代理或境外服务。
+
+网络要求分开看：源码镜像构建需要取得 Go/Alpine 基础镜像和 Alpine CA 软件包；Jackett 镜像需要访问所选镜像仓库；运行时需要服务器访问 Bangumi 和已授权站点，NAS 需要访问你的 HTTPS 服务。Windows 编译或模拟接口测试不能代替 Linux 容器、真实站点和 NAS 验收。
+
+## 验收建议
+
+先测试无令牌请求被拒绝、`/healthz` 不泄露信息，再用 NAS 搜索条目、展开资源、切换条目、取消和重试；检查来源、重复种子合并、部分故障提示。不要在测试日志中输出认证头、Jackett URL 查询参数或真实密钥。实际站点验收使用有权访问的内容，不以首页可访问、构建成功或健康检查成功代替搜索可用性验证。

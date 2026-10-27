@@ -8,9 +8,15 @@
 !backend/go.sum
 !backend/internal/
 !backend/internal/**
+!backend/cmd/
+!backend/cmd/search-server/
+!backend/cmd/search-server/*.go
 !backend/third_party/
 !backend/third_party/**
 !backend/static/
 !backend/static/**
 !scripts/
 !scripts/docker-entrypoint.sh
+!deploy/
+!deploy/search/
+!deploy/search/Dockerfile

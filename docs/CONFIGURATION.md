@@ -26,6 +26,8 @@
 | `PROXY_URL` | 空 | 显式出站代理，留空直连 |
 | `BANGUMI_ENABLED` | `true` | 仅值为 `true` 时开启自动元数据获取；关闭可用 `false` |
 | `BANGUMI_API` | `https://api.bgm.tv` | Bangumi API 根地址 |
+| `AGGREGATE_SEARCH_URL` | 空 | 可选独立聚合服务 HTTPS 根地址；仅回环地址可用 HTTP，不在网页设置中修改 |
+| `AGGREGATE_SEARCH_TOKEN` | 空 | 聚合服务随机令牌（至少 32 字符），仅后端持有，不进入设置 API 或 JSON 备份 |
 | `WEB_USER` / `WEB_PASSWORD` | 空 | 同时配置启用认证，缺一项不算完整账户 |
 | `WEBHOOK_URL` | 空 | 事件 JSON POST 接收地址 |
 | `UPDATE_CHECK` | `1` | `0` / `false` / `off` / `no` 关闭联网版本检查和一键更新 |
@@ -36,6 +38,12 @@
 Linux 源码运行同样默认 `/data`，不是 `backend/data`；普通用户开发应显式设置独立目录。Windows 可执行文件默认程序同级 `data`（媒体库默认同级的 `media`），`go run` / `go test` 退回当前工作目录。程序打印实际数据库、下载、封面与媒体库路径。早期盘根数据不自动迁移，继续使用需显式配置旧路径。Windows 上的存储位置只接受盘符路径或 UNC 共享，`/vol1/...` 这类容器路径会被拒绝，已在数据库里的旧值会在启动日志提示。
 
 Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；Windows 上返回 404，设置页不显示入口。
+
+## 在线聚合找番
+
+「找番」默认先查询 Bangumi，返回最多 8 个番剧候选，不要求配置 RSS。配置 `AGGREGATE_SEARCH_URL`、`AGGREGATE_SEARCH_TOKEN` 后，用户展开条目才由 NAS 后端发送 Bangumi ID 到独立聚合服务，结果显示在该条目下面；地址或令牌缺失时提示未配置，仍可使用「RSS 搜索与订阅」。启动变量更改后需重建容器或重启程序，不会写入数据库。自动元数据开关 `BANGUMI_ENABLED` 不禁用此用户主动搜索。
+
+在线端使用 Jackett 聚合明确启用的来源，按 InfoHash 去重、保留来源；不把名称匹配当作已验证的季度或资源归属，所有结果需人工核对。第一版仅复制磁力、打开来源页，持续订阅仍使用实际 RSS，不自动创建订阅或下载。NAS 请求沿用 `PROXY_URL`，拒绝向非回环明文 HTTP 发送令牌，不跟随重定向；上游失败不回传包含密钥的原始错误。来源条款、鉴权、缓存、限流、隐私、独立 Compose 部署及服务端变量见[在线聚合搜索服务](SEARCH_SERVER.md)。
 
 ## 下载模式
 

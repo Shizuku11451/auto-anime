@@ -1,0 +1,36 @@
+services:
+  search:
+    build:
+      context: ../..
+      dockerfile: deploy/search/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 50s
+    ports:
+      # Terminate HTTPS at a reverse proxy on this host; do not publish 8090 directly.
+      - "127.0.0.1:8090:8090"
+    environment:
+      # The search process validates these at startup; Jackett can be configured first.
+      SEARCH_API_TOKEN: ${SEARCH_API_TOKEN:-}
+      JACKETT_URL: http://jackett:9117
+      JACKETT_API_KEY: ${JACKETT_API_KEY:-}
+      JACKETT_INDEXERS: ${JACKETT_INDEXERS:-}
+      BANGUMI_API: https://api.bgm.tv
+
+  jackett:
+    # Set an explicitly verified image tag or digest in .env; no floating default.
+    image: ${JACKETT_IMAGE:?Set a verified Jackett image tag or digest}
+    restart: unless-stopped
+    ports:
+      # Manage through an SSH tunnel, never expose the Jackett UI/API publicly.
+      - "127.0.0.1:9117:9117"
+    environment:
+      TZ: Asia/Shanghai
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      AUTO_UPDATE: "false"
+    volumes:
+      - ./jackett-config:/config
