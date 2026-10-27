@@ -83,7 +83,21 @@ export interface BangumiCollection {
   name: string
   name_cn: string
   cover?: string
+  rating?: number
   type: BangumiCollectionType
+}
+
+export interface BangumiSubject {
+  id: number
+  name: string
+  name_cn: string
+  summary: string
+  cover: string
+  rating: number
+  rating_total: number
+  rank: number
+  eps: number
+  date: string
 }
 
 export interface BangumiCollectionState {
@@ -116,6 +130,11 @@ export interface AnimeSummary {
   episode_count: number
   rating: number
   summary: string
+}
+
+export interface LibraryAnime extends AnimeSummary {
+  cloudOnly?: boolean
+  collectionType?: BangumiCollectionType
 }
 
 export interface ResourceItem {

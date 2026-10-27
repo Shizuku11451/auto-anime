@@ -17,11 +17,12 @@ var bangumiWishMu sync.Mutex
 var bangumiWishClient = &http.Client{Timeout: 15 * time.Second, Transport: &proxyTransport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 type bangumiWish struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	NameCN string `json:"name_cn"`
-	Cover  string `json:"cover,omitempty"`
-	Type   int    `json:"type"`
+	ID     int64   `json:"id"`
+	Name   string  `json:"name"`
+	NameCN string  `json:"name_cn"`
+	Cover  string  `json:"cover,omitempty"`
+	Type   int     `json:"type"`
+	Rating float64 `json:"rating"`
 }
 type bangumiWishState struct {
 	Username string        `json:"username"`
@@ -84,8 +85,9 @@ func syncBangumiWishes(ctx context.Context) error {
 				SubjectID int64 `json:"subject_id"`
 				Type      int   `json:"type"`
 				Subject   struct {
-					Name   string `json:"name"`
-					NameCN string `json:"name_cn"`
+					Name   string  `json:"name"`
+					NameCN string  `json:"name_cn"`
+					Score  float64 `json:"score"`
 					Images struct {
 						Large  string `json:"large"`
 						Medium string `json:"medium"`
@@ -110,7 +112,11 @@ func syncBangumiWishes(ctx context.Context) error {
 			if cover == "" {
 				cover = row.Subject.Images.Medium
 			}
-			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type})
+			score := row.Subject.Score
+			if score < 0 || score > 10 {
+				score = 0
+			}
+			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score})
 		}
 		if offset+len(page.Data) >= total {
 			break

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CircleCheck, Film, Star, ChevronDown, CalendarDays, Search } from '@lucide/vue'
+import { CircleCheck, Film, Star, ChevronDown, CalendarDays, Info } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import { BANGUMI_COLLECTION_LABELS, type AnimeSummary, type BangumiCollectionType } from '@/api/types'
 import { scheduleLabel } from '@/components/library/schedule'
@@ -18,7 +18,7 @@ const ratio = computed(() =>
 
 <template>
   <article class="anime-card" :class="{ selected, compact }" :style="{ '--cover-tone': ['var(--accent)', 'var(--blue)', 'var(--amber)'][Math.abs(anime.id) % 3] }">
-    <button class="card-open" type="button" :disabled="cloudOnly && selecting" :aria-label="`${cloudOnly ? '找资源' : selecting ? '选择' : '打开'} ${displayName}`" :aria-pressed="selecting && !cloudOnly ? !!selected : undefined" @click="selecting ? emit('toggle', anime.id) : emit('open', anime.id)">
+    <button class="card-open" type="button" :disabled="cloudOnly && selecting" :aria-label="`${selecting && !cloudOnly ? '选择' : '打开详情'} ${displayName}`" :aria-pressed="selecting && !cloudOnly ? !!selected : undefined" @click="selecting ? emit('toggle', anime.id) : emit('open', anime.id)">
     <div class="poster-wrap">
       <CoverImage :src="anime.cover" :alt="displayName" radius="0" class="poster">
         <div v-if="!anime.cover" class="poster-fallback" aria-hidden="true"><span>{{ displayName.slice(0, 2) }}</span><small>暂无封面</small></div>
@@ -41,7 +41,7 @@ const ratio = computed(() =>
       <p v-if="collectionType" class="collection-state"><span class="tag accent" title="来自 Bangumi 的收藏状态，不代表本地下载或播放进度">{{ BANGUMI_COLLECTION_LABELS[collectionType] }}</span></p>
       <p class="schedule"><CalendarDays aria-hidden="true" />{{ scheduleLabel(anime) }}</p>
       <div class="stats">
-        <span v-if="cloudOnly"><Search aria-hidden="true" />找资源</span>
+        <span v-if="cloudOnly"><Info aria-hidden="true" />查看详情与资源</span>
         <template v-else>
           <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
           <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>

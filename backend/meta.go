@@ -76,12 +76,14 @@ type bangumiSubject struct {
 	DetailsFetched bool            `json:"-"`
 	ID             int             `json:"id"`
 	Episodes       int             `json:"eps"`
+	Date           string          `json:"date"`
 	Name           string          `json:"name"`
 	NameCN         string          `json:"name_cn"`
 	Summary        string          `json:"summary"`
 	Rating         struct {
 		Score float64 `json:"score"`
 		Total int     `json:"total"`
+		Rank  int     `json:"rank"`
 	} `json:"rating"`
 	Images struct {
 		Large  string `json:"large"`
@@ -501,9 +503,16 @@ func fetchBangumiSubjectContext(ctx context.Context, id int64) (*bangumiSubject,
 	if res.StatusCode >= 400 {
 		return nil, fmt.Errorf("Bangumi 返回 HTTP %d", res.StatusCode)
 	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, (2<<20)+1))
+	if err != nil || len(data) > 2<<20 {
+		return nil, fmt.Errorf("Bangumi 详情响应无效或超过 2 MB")
+	}
 	var subject bangumiSubject
-	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&subject); err != nil {
+	if err := json.Unmarshal(data, &subject); err != nil {
 		return nil, err
+	}
+	if subject.ID != 0 && int64(subject.ID) != id {
+		return nil, fmt.Errorf("Bangumi 条目 ID 不匹配")
 	}
 	if subject.ID == 0 {
 		subject.ID = int(id)

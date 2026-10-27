@@ -25,7 +25,7 @@ func TestBangumiWishSyncPreservesPreviousListOnPageFailure(t *testing.T) {
 				http.Error(w, "failed", 500)
 				return
 			}
-			fmt.Fprint(w, `{"total":51,"data":[{"subject_id":51,"type":3,"subject":{"name":"last","images":{"large":"https://example.test/large.jpg"}}}]}`)
+			fmt.Fprint(w, `{"total":51,"data":[{"subject_id":51,"type":3,"rate":10,"subject":{"name":"last","score":8.2,"images":{"large":"https://example.test/large.jpg"}}}]}`)
 			return
 		}
 		fmt.Fprint(w, `{"total":51,"data":[`)
@@ -62,6 +62,9 @@ func TestBangumiWishSyncPreservesPreviousListOnPageFailure(t *testing.T) {
 	}
 	if !strings.Contains(before, `"cover":"https://example.test/large.jpg"`) {
 		t.Fatal("missing wish cover")
+	}
+	if items[50].Rating != 8.2 || items[0].Rating != 0 {
+		t.Fatalf("expected community score, not personal rate: %+v", items[50])
 	}
 	fail = true
 	if err := bangumiWishSync(context.Background()); err == nil {

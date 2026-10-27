@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
-import { Inbox, Link, Pencil, Merge, Trash2, RefreshCw } from '@lucide/vue'
+import { Inbox, Link, Pencil, Merge, Trash2, RefreshCw, Search } from '@lucide/vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
@@ -15,7 +16,8 @@ import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
 import { seasonLabel } from '@/utils/format'
-import type { MetaRematchResult, ResourceItem } from '@/api/types'
+import { BANGUMI_COLLECTION_LABELS, type MetaRematchResult, type ResourceItem } from '@/api/types'
+import { isDownloading } from '@/utils/status'
 import type { PlayerEntry } from '@/stores/dialogs'
 import { isWindows } from '@/utils/platform'
 /* Windows 本机没有 NAS 概念，删除记录只影响数据库记录。 */
@@ -24,22 +26,41 @@ const mediaKeptHint = computed(() =>
 )
 const dialogs = useDialogs()
 const store = useAppStore()
+const router = useRouter()
 const s = dialogs.state.animeDetail
 const visibility = useDocumentVisibility()
 useIntervalFn(() => {
   if (s.open && !s.loading && visibility.value === 'visible') void dialogs.reloadAnimeDetail()
 }, 5000)
 const d = computed(() => s.data)
+const subject = computed(() => s.subject?.id === d.value?.bangumi_id ? s.subject : null)
+const rating = computed(() => subject.value?.rating ?? d.value?.rating ?? 0)
+const summary = computed(() => subject.value?.summary || d.value?.summary || '')
+const cover = computed(() => d.value?.cover || subject.value?.cover || '')
+const cloudOnly = computed(() => (d.value?.id ?? 0) < 0)
+const resourceState = computed(() => {
+  const anime = d.value
+  if (!anime) return ''
+  if (cloudOnly.value) {
+    if (s.loading) return '正在核对本地资源…'
+    if (s.error) return '本地资源状态暂无法确认，请重试后再决定。'
+    return '应用番剧库中未找到关联的本地番剧或资源。'
+  }
+  if (anime.saved_count > 0) return `本地已有 ${anime.saved_count} 条已保存资源，可在下方选择播放。`
+  if (anime.item_count > 0) return '已有资源记录，尚无已保存媒体。可在下方查看下载状态并选择操作。'
+  return '该番剧暂无资源记录，也没有已保存媒体。'
+})
+const downloadingCount = computed(() => d.value?.seasons.flatMap(se => [...se.episodes.flatMap(ep => ep.items), ...se.loose]).filter(it => isDownloading(it.status)).length ?? 0)
 const { is: isBusy, run } = useBusySet()
 
-const displayName = computed(() => d.value?.meta_name_cn || d.value?.title || '')
+const displayName = computed(() => subject.value?.name_cn || d.value?.meta_name_cn || d.value?.title || '')
 
 const metaBits = computed(() => {
   const x = d.value
   if (!x) return []
-  const bits: string[] = [`识别名 ${x.title}`]
+  const bits: string[] = cloudOnly.value ? [] : [`识别名 ${x.title}`]
   if (x.meta_name && x.meta_name !== x.meta_name_cn) bits.push(x.meta_name)
-  if (x.season > 0) bits.push(`默认第 ${x.season} 季`)
+  if (!cloudOnly.value && x.season > 0) bits.push(`默认第 ${x.season} 季`)
   if (x.bangumi_id) bits.push(`Bangumi #${x.bangumi_id}`)
   if (x.storage_dir) bits.push(`存储 ${x.storage_dir}`)
   return bits
@@ -51,9 +72,18 @@ function close() {
   s.open = false
 }
 
+async function findResources() {
+  const anime = d.value
+  if (!anime || (cloudOnly.value && (s.loading || s.error))) return
+  try {
+    const failure = await router.push({ path: '/discover', query: { keyword: (anime.meta_name_cn || anime.title).slice(0, 100) } })
+    if (!failure && s.data === anime) close()
+  } catch (e) { toast.error(errorMessage(e)) }
+}
+
 async function rematchMetadata() {
   const anime = d.value
-  if (!anime) return
+  if (!anime || cloudOnly.value) return
   if (anime.bangumi_id || anime.meta_source === 'manual') {
     toast.error('该番剧已手动绑定元数据，请先在「元数据绑定」中解除绑定')
     return
@@ -153,12 +183,12 @@ function epNo(x: { episode: string }): number {
     </div>
 
     <EmptyState v-else-if="!d && s.error" :icon="Inbox" title="加载失败" :hint="s.error" tone="error" compact>
-      <BaseButton @click="s.id && dialogs.openAnimeDetail(s.id)">重试</BaseButton>
+      <BaseButton @click="dialogs.reloadAnimeDetail()">重试</BaseButton>
     </EmptyState>
 
     <template v-else-if="d">
       <section class="hero">
-        <CoverImage :src="d.cover" :alt="displayName" class="hero-cover" radius="var(--r-md)" />
+        <CoverImage :src="cover" :alt="displayName" class="hero-cover" radius="var(--r-md)" />
         <div class="hero-info">
           <div class="hero-meta">
             <template v-for="(b, i) in metaBits" :key="i">
@@ -166,15 +196,26 @@ function epNo(x: { episode: string }): number {
               <span>{{ b }}</span>
             </template>
           </div>
-          <div class="hero-stats">
+          <p v-if="s.collectionType" class="collection-status"><span class="tag accent">Bangumi · {{ BANGUMI_COLLECTION_LABELS[s.collectionType] }}</span><span>只读收藏状态，不代表本地下载或播放进度</span></p>
+          <div v-if="!cloudOnly" class="hero-stats">
             <div class="stat"><b>{{ d.item_count }}</b><span>资源</span></div>
             <div class="stat"><b>{{ d.saved_count }}</b><span>已保存</span></div>
             <div class="stat"><b>{{ totalEpisodes }}</b><span>集</span></div>
             <div class="stat"><b>{{ d.seasons.length }}</b><span>季</span></div>
           </div>
-          <div v-if="d.rating" class="rating" :aria-label="`评分 ${d.rating.toFixed(1)} 分`">评分 <b>{{ d.rating.toFixed(1) }}</b> / 10</div>
-          <p v-if="d.summary" class="summary">{{ d.summary }}</p>
-          <p class="hero-rules">
+          <div v-if="rating > 0" class="rating" :aria-label="`Bangumi 评分 ${rating.toFixed(1)} 分`">Bangumi 评分 <b>{{ rating.toFixed(1) }}</b> / 10 <span v-if="subject?.rating_total">· {{ subject.rating_total }} 人评分</span></div>
+          <div v-if="subject" class="hero-meta">
+            <span v-if="subject.date">放送日期 {{ subject.date }}</span>
+            <span v-if="subject.eps > 0">正篇 {{ subject.eps }} 集</span>
+            <span v-if="subject.rank > 0">排名 #{{ subject.rank }}</span>
+            <span v-if="!subject.rating">暂无评分</span>
+            <a :href="`https://bgm.tv/subject/${subject.id}`" target="_blank" rel="noopener noreferrer">Bangumi 条目</a>
+          </div>
+          <p v-if="summary" class="summary">{{ summary }}</p>
+          <p v-else-if="subject" class="hero-meta">Bangumi 暂无简介</p>
+          <p v-if="s.subjectLoading" class="hero-meta" role="status">正在加载 Bangumi 详情…</p>
+          <p v-if="s.subjectError" class="resource-error" role="alert">{{ s.subjectError }} <BaseButton size="sm" @click="dialogs.reloadBangumiSubject()">重试资料</BaseButton></p>
+          <p v-if="!cloudOnly" class="hero-rules">
             <template v-if="d.include_rules">
               多来源规则：包含 <code>{{ d.include_rules }}</code>
               <template v-if="d.exclude_rules"> · 排除 <code>{{ d.exclude_rules }}</code></template>
@@ -182,7 +223,7 @@ function epNo(x: { episode: string }): number {
             <template v-else>未设置多来源规则，仅按识别标题归并</template>
           </p>
           <p v-if="d.sources?.length" class="hero-sources">来源订阅：{{ d.sources.join('、') }}</p>
-          <div class="hero-actions">
+          <div v-if="!cloudOnly" class="hero-actions">
             <BaseButton size="sm" :icon="Pencil" @click="dialogs.openAnimeEdit(d)">编辑番剧</BaseButton>
             <BaseButton size="sm" :icon="Link" :variant="d.bangumi_id ? 'default' : 'soft'" @click="dialogs.openBind(d)">
               {{ d.bangumi_id ? '更换元数据' : '元数据绑定' }}
@@ -192,6 +233,16 @@ function epNo(x: { episode: string }): number {
             <BaseButton size="sm" :icon="Trash2" variant="danger" @click="dialogs.openAnimeManage('delete', [d])">删除番剧</BaseButton>
           </div>
         </div>
+      </section>
+
+      <section class="resource-status" aria-label="本地资源状态" aria-live="polite" :aria-busy="cloudOnly && s.loading">
+        <h3>本地资源</h3>
+        <p>{{ resourceState }}</p>
+        <p v-if="downloadingCount">{{ downloadingCount }} 条资源正在下载或等待下载器完成，尚不代表已保存。</p>
+        <p v-if="s.error" class="resource-error" role="alert">资源状态刷新失败：{{ s.error }} <BaseButton size="sm" :loading="s.loading" @click="dialogs.reloadAnimeDetail()">重试</BaseButton></p>
+        <p class="resource-hint">仅检查应用内关联的资源记录，不扫描磁盘上的其他文件。打开详情不会自动订阅或下载。</p>
+        <BaseButton :icon="Search" variant="primary" :disabled="cloudOnly && (s.loading || !!s.error)" @click="findResources">找资源并选择下载</BaseButton>
+        <p class="resource-hint">进入搜索后核对季数、字幕组和版本，再自行选择订阅或下载。</p>
       </section>
 
       <section v-if="d.voices?.length" class="voices">
@@ -204,9 +255,9 @@ function epNo(x: { episode: string }): number {
         </div>
       </section>
 
-      <EmptyState v-if="!d.seasons.length" :icon="Inbox" title="该番剧下暂无资源" compact />
+      <EmptyState v-if="!cloudOnly && !d.seasons.length" :icon="Inbox" title="该番剧下暂无资源" compact />
 
-      <div v-else class="seasons" :class="{ refreshing: s.loading }">
+      <div v-else-if="d.seasons.length" class="seasons" :class="{ refreshing: s.loading }">
         <section v-for="se in d.seasons" :key="se.season" class="season">
           <h3 class="season-title">
             <span>{{ seasonLabel(se.season) }}</span>
@@ -252,6 +303,12 @@ function epNo(x: { episode: string }): number {
 </template>
 
 <style scoped>
+.collection-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--text-3); font-size: 12px; }
+.resource-status { display: grid; justify-items: start; gap: 10px; padding: 16px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.resource-status h3 { font-size: 14px; }
+.resource-status p { font-size: 13px; line-height: 1.7; color: var(--text-2); }
+.resource-status .resource-hint { font-size: 12px; color: var(--text-3); }
+.resource-error { color: var(--red); font-size: 13px; }
 .hero {
   display: flex;
   gap: 20px;

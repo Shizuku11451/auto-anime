@@ -1,7 +1,7 @@
 /* 全局弹窗状态：各视图只负责"打开"，弹窗组件统一挂在 App 根部读取这里的状态。 */
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { http } from '@/api/client'
-import type { AnimeDetail, AnimeSummary, Feed, Item, ResourceItem } from '@/api/types'
+import type { AnimeDetail, AnimeSummary, BangumiCollectionType, BangumiSubject, Feed, Item, LibraryAnime, ResourceItem } from '@/api/types'
 
 export type FeedPrefill = Partial<Feed> & { url?: string; name?: string; from_discover?: boolean; requires_season_confirmation?: boolean }
 
@@ -33,7 +33,7 @@ interface DialogState {
   feed: { open: boolean; feed: FeedPrefill | null }
   storage: { open: boolean; title: string }
   correct: { open: boolean; item: Item | ResourceItem | null }
-  animeDetail: { open: boolean; id: number | null; data: AnimeDetail | null; loading: boolean; error: string }
+  animeDetail: { open: boolean; id: number | null; data: AnimeDetail | null; collectionType: BangumiCollectionType | null; loading: boolean; error: string; subject: BangumiSubject | null; subjectLoading: boolean; subjectError: string }
   animeEdit: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
   bind: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
   animeManage: { open: boolean; action: 'delete' | 'merge'; animes: (AnimeDetail | AnimeSummary)[] }
@@ -46,7 +46,7 @@ const state = reactive<DialogState>({
   feed: { open: false, feed: null },
   storage: { open: false, title: '' },
   correct: { open: false, item: null },
-  animeDetail: { open: false, id: null, data: null, loading: false, error: '' },
+  animeDetail: { open: false, id: null, data: null, collectionType: null, loading: false, error: '', subject: null, subjectLoading: false, subjectError: '' },
   animeEdit: { open: false, anime: null },
   bind: { open: false, anime: null },
   animeManage: { open: false, action: 'delete', animes: [] },
@@ -70,6 +70,35 @@ function openCorrect(item: Item | ResourceItem) {
 }
 
 let detailRequestVersion = 0
+let subjectController: AbortController | undefined
+let subjectID = 0
+
+watch(() => state.animeDetail.open, open => {
+  if (!open) subjectController?.abort()
+}, { flush: 'sync' })
+
+async function loadBangumiSubject(id: number) {
+  subjectController?.abort()
+  subjectID = id
+  state.animeDetail.subject = null
+  state.animeDetail.subjectError = ''
+  state.animeDetail.subjectLoading = id > 0
+  if (id <= 0) return
+  const controller = new AbortController()
+  subjectController = controller
+  try {
+    const subject = await http.get<BangumiSubject>('/api/bangumi/subjects/' + id, { signal: controller.signal })
+    if (!controller.signal.aborted) state.animeDetail.subject = subject
+  } catch (e) {
+    if (!controller.signal.aborted) state.animeDetail.subjectError = e instanceof Error ? e.message : String(e)
+  } finally {
+    if (!controller.signal.aborted) state.animeDetail.subjectLoading = false
+  }
+}
+
+function reloadBangumiSubject() {
+  if (state.animeDetail.open) void loadBangumiSubject(subjectID)
+}
 
 async function loadAnimeDetail(id: number) {
   const version = ++detailRequestVersion
@@ -77,8 +106,20 @@ async function loadAnimeDetail(id: number) {
   state.animeDetail.loading = true
   state.animeDetail.error = ''
   try {
-    const d = await http.get<AnimeDetail>('/api/animes/' + id)
-    if (current()) state.animeDetail.data = d
+    let localID = id
+    if (id < 0) {
+      const animes = await http.get<AnimeSummary[]>('/api/animes')
+      if (!current()) return
+      localID = animes.find(a => a.bangumi_id === -id)?.id ?? 0
+      if (!localID) return
+    }
+    const d = await http.get<AnimeDetail>('/api/animes/' + localID)
+    if (current()) {
+      state.animeDetail.data = d
+      state.animeDetail.loading = false
+      state.animeDetail.id = localID
+      if ((d.bangumi_id || 0) !== subjectID) void loadBangumiSubject(d.bangumi_id || 0)
+    }
   } catch (e) {
     if (current()) state.animeDetail.error = e instanceof Error ? e.message : String(e)
   } finally {
@@ -86,12 +127,18 @@ async function loadAnimeDetail(id: number) {
   }
 }
 
-function openAnimeDetail(id: number) {
+function openAnimeDetail(id: number, entry?: LibraryAnime) {
+  if (id <= 0 && (!entry?.cloudOnly || entry.id !== id || entry.bangumi_id !== -id)) return
   const same = state.animeDetail.id === id
   state.animeDetail.id = id
   if (!same) state.animeDetail.data = null
+  state.animeDetail.collectionType = entry?.collectionType ?? null
+  if (id < 0 && entry) {
+    state.animeDetail.data = { ...entry, meta_source: '', sources: [], voices: [], seasons: [] }
+  }
   state.animeDetail.open = true
   void loadAnimeDetail(id)
+  void loadBangumiSubject(entry?.bangumi_id || 0)
 }
 
 /** 详情打开时刷新（编辑/绑定/纠错后调用），未打开则忽略 */
@@ -145,6 +192,7 @@ export function useDialogs() {
     openCorrect,
     openAnimeDetail,
     reloadAnimeDetail,
+    reloadBangumiSubject,
     openAnimeEdit,
     openBind,
     openAnimeManage,

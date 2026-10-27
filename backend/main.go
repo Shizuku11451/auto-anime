@@ -1612,6 +1612,7 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	http.HandleFunc("/api/animes", animesAPI)
 	http.HandleFunc("/api/animes/", animeEntryAPI)
 	http.HandleFunc("/api/meta/search", metaSearchAPI)
+	http.HandleFunc("/api/bangumi/subjects/", bangumiSubjectAPI)
 	http.HandleFunc("/api/bangumi/wishes", bangumiWishAPI)
 	http.HandleFunc("/api/bangumi/wishes/sync", bangumiWishSyncAPI)
 	http.HandleFunc("/api/discover/sources", discoverSourcesAPI)

@@ -10,7 +10,7 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import AnimeCard from '@/components/library/AnimeCard.vue'
 import { http, errorMessage } from '@/api/client'
-import { BANGUMI_COLLECTION_LABELS, type AnimeSummary, type BangumiCollectionState, type BangumiCollectionType } from '@/api/types'
+import { BANGUMI_COLLECTION_LABELS, type LibraryAnime, type BangumiCollectionState } from '@/api/types'
 import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { localDate, weekdayOfDate, weekdays, effectiveWeekday } from '@/components/library/schedule'
@@ -38,14 +38,14 @@ async function loadWishes() {
 onMounted(loadWishes)
 useIntervalFn(loadWishes, 30000)
 onBeforeUnmount(() => wishController?.abort())
-const library = computed<(AnimeSummary & { cloudOnly?: boolean; collectionType?: BangumiCollectionType })[]>(() => {
+const library = computed<LibraryAnime[]>(() => {
   const collections = new Map((wishes.value?.items ?? []).map(w => [w.id, w]))
-  const local = store.animes.value.map(a => ({ ...a, cover: a.cover || collections.get(a.bangumi_id)?.cover || '', collectionType: collections.get(a.bangumi_id)?.type }))
+  const local = store.animes.value.map(a => ({ ...a, cover: a.cover || collections.get(a.bangumi_id)?.cover || '', rating: collections.get(a.bangumi_id)?.rating || a.rating, collectionType: collections.get(a.bangumi_id)?.type }))
   const bound = new Set(local.map(a => a.bangumi_id).filter(Boolean))
   const pending = (wishes.value?.items ?? []).filter(w => !bound.has(w.id)).map(w => ({
     id: -w.id, bangumi_id: w.id, title: w.name || w.name_cn, meta_name: w.name, meta_name_cn: w.name_cn,
     cover: w.cover || '', cloudOnly: true, collectionType: w.type, search_name: '', season: 1, storage_dir: '', include_rules: '', exclude_rules: '',
-    updated_at: '', update_weekday: 0, item_count: 0, saved_count: 0, episode_count: 0, rating: 0, summary: '',
+    updated_at: '', update_weekday: 0, item_count: 0, saved_count: 0, episode_count: 0, rating: w.rating || 0, summary: '',
   }))
   return [...local, ...pending]
 })
@@ -99,8 +99,7 @@ function selectVisible() {
 function openAnime(id: number) {
   const anime = library.value.find(a => a.id === id)
   if (!anime) return
-  if (anime.cloudOnly) void router.push({ path: '/discover', query: { keyword: (anime.meta_name_cn || anime.title).slice(0, 100) } })
-  else dialogs.openAnimeDetail(id)
+  dialogs.openAnimeDetail(id, anime)
 }
 </script>
 

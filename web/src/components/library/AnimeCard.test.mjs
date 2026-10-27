@@ -130,7 +130,8 @@ test('模板渲染：评分徽章随评分出现，简介面板默认收起', as
   }
   const cloud = await html(anime, { collectionType: 3, cloudOnly: true, selecting: true })
   assert.match(cloud, />在看<\/span>/)
-  assert.match(cloud, /找资源/)
+  assert.match(cloud, /打开详情/)
+  assert.match(cloud, /查看详情与资源/)
   assert.match(cloud, /disabled/)
   assert.doesNotMatch(cloud, /type="checkbox"|class="ratio"|8 资源|8 已保存/)
   assert.doesNotMatch(withMeta, /class="collection-state"/)

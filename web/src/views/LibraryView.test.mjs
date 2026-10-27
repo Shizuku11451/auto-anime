@@ -27,7 +27,7 @@ function fixture(t) {
     'vue-router': { useRouter: () => ({ push: route => routes.push(route) }) },
     '@/api/client': { http: { get: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })) }, errorMessage: e => e.message },
     '@/stores/app': { useAppStore: () => store },
-    '@/stores/dialogs': { useDialogs: () => ({ openAnimeDetail: id => opened.push(id) }) },
+    '@/stores/dialogs': { useDialogs: () => ({ openAnimeDetail: (id, entry) => opened.push({ id, entry }) }) },
     '@/components/library/schedule': schedule.exports,
     '@/api/types': types.exports,
   }
@@ -77,19 +77,24 @@ test('想看直接进入番剧库，按 Bangumi ID 去重并参与搜索、排�
   const { h, store, opened, routes } = fixture(t)
   store.animes.value = [{ id: 7, bangumi_id: 101, title: '本地动画', item_count: 2, saved_count: 1, update_weekday: 3 }]
   h.wishes.value = { items: [
-    { id: 101, name: 'duplicate', name_cn: '重复条目', type: 3, cover: 'https://example.test/local-cover.jpg' },
-    { id: 102, name: 'Wish', name_cn: '想看动画', cover: 'https://example.test/cover.jpg', type: 1 },
+    { id: 101, name: 'duplicate', name_cn: '重复条目', type: 3, rating: 8.1, cover: 'https://example.test/local-cover.jpg' },
+    { id: 102, name: 'Wish', name_cn: '想看动画', rating: 7.6, cover: 'https://example.test/cover.jpg', type: 1 },
     { id: 103, name: '无封面动画', name_cn: '', type: 5 },
   ] }
   assert.equal(h.library.value.length, 3)
   assert.equal(h.library.value[0].cover, 'https://example.test/local-cover.jpg')
   assert.equal(h.library.value[1].cover, 'https://example.test/cover.jpg')
   assert.equal(h.library.value[2].cover, '')
+  assert.equal(h.library.value[0].rating, 8.1)
+  assert.equal(h.library.value[1].rating, 7.6)
+  assert.equal(h.library.value[2].rating, 0)
   h.openAnime(7)
   h.openAnime(-102)
-  assert.deepEqual(opened, [7])
-  assert.equal(routes[0].path, '/discover')
-  assert.equal(routes[0].query.keyword, '想看动画')
+  assert.deepEqual(opened.map(a => a.id), [7, -102])
+  assert.equal(opened[0].entry.collectionType, 3)
+  assert.equal(opened[1].entry.cloudOnly, true)
+  assert.equal(opened[1].entry.meta_name_cn, '想看动画')
+  assert.equal(routes.length, 0)
   h.filter.value = 'wish'
   assert.equal(h.list.value[0].id, -102)
   h.filter.value = ''
@@ -151,7 +156,7 @@ test('五种收藏状态可筛选，本地条目合并状态并保留资源和�
   h.selectVisible()
   assert.deepEqual([...h.selected.value], [7, 8])
   h.openAnime(7)
-  assert.deepEqual(opened, [7])
+  assert.deepEqual(opened.map(a => a.id), [7])
   h.collection.value = '1'
   await vue.nextTick()
   assert.equal(h.selected.value.length, 0)
