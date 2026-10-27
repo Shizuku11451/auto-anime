@@ -20,13 +20,17 @@ const scheduleContext = { exports: {} }
 runInNewContext(ts.transpileModule(readFileSync(new URL('./schedule.ts', import.meta.url), 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText, scheduleContext)
+const typesContext = { exports: {} }
+runInNewContext(ts.transpileModule(readFileSync(new URL('../../api/types.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText, typesContext)
 const modules = {
   '@/components/library/schedule': scheduleContext.exports,
   vue,
   '@lucide/vue': new Proxy({}, { get: () => stub }),
   '@/components/ui/BaseButton.vue': stub,
   '@/components/ui/CoverImage.vue': stub,
-  '@/api/types': {},
+  '@/api/types': typesContext.exports,
 }
 const context = { exports: {}, require: (id) => {
   assert.ok(id in modules, `unmocked import: ${id}`)
@@ -93,8 +97,8 @@ test('模板渲染：评分徽章随评分出现，简介面板默认收起', as
   })
   assert.deepEqual(tpl.errors, [])
   const render = new Function('Vue', `${tpl.code}\nreturn render;`)(vue)
-  const html = async (props) => {
-    const app = vue.createSSRApp({ render: () => vue.h({ ...component, render }, { anime: props }) })
+  const html = async (props, extra = {}) => {
+    const app = vue.createSSRApp({ render: () => vue.h({ ...component, render }, { anime: props, ...extra }) })
     for (const name of ['CoverImage', 'BaseButton', 'Star', 'ChevronDown', 'CircleCheck', 'Film', 'Tv', 'Pencil', 'Merge', 'Trash2']) {
       app.component(name, stub)
     }
@@ -115,4 +119,19 @@ test('模板渲染：评分徽章随评分出现，简介面板默认收起', as
   assert.doesNotMatch(withoutMeta, /summary-toggle/)
   assert.doesNotMatch(withoutMeta, /summary-panel/)
   assert.doesNotMatch(withoutMeta, /poster-veil/)
+  for (const [type, label] of Object.entries(typesContext.exports.BANGUMI_COLLECTION_LABELS)) {
+    const local = await html(anime, { collectionType: Number(type), selecting: true })
+    assert.match(local, new RegExp(`>${label}</span>`))
+    assert.match(local, /8 资源/)
+    assert.match(local, /8 已保存/)
+    assert.match(local, /type="checkbox"/)
+    assert.match(local, /class="ratio"/)
+    assert.match(local, /不代表本地下载或播放进度/)
+  }
+  const cloud = await html(anime, { collectionType: 3, cloudOnly: true, selecting: true })
+  assert.match(cloud, />在看<\/span>/)
+  assert.match(cloud, /找资源/)
+  assert.match(cloud, /disabled/)
+  assert.doesNotMatch(cloud, /type="checkbox"|class="ratio"|8 资源|8 已保存/)
+  assert.doesNotMatch(withMeta, /class="collection-state"/)
 })

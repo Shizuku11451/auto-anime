@@ -20,6 +20,8 @@ type bangumiWish struct {
 	ID     int64  `json:"id"`
 	Name   string `json:"name"`
 	NameCN string `json:"name_cn"`
+	Cover  string `json:"cover,omitempty"`
+	Type   int    `json:"type"`
 }
 type bangumiWishState struct {
 	Username string        `json:"username"`
@@ -80,13 +82,18 @@ func syncBangumiWishes(ctx context.Context) error {
 			Total *int `json:"total"`
 			Data  []struct {
 				SubjectID int64 `json:"subject_id"`
+				Type      int   `json:"type"`
 				Subject   struct {
 					Name   string `json:"name"`
 					NameCN string `json:"name_cn"`
+					Images struct {
+						Large  string `json:"large"`
+						Medium string `json:"medium"`
+					} `json:"images"`
 				} `json:"subject"`
 			} `json:"data"`
 		}
-		path := fmt.Sprintf("/v0/users/%s/collections?subject_type=2&type=1&limit=50&offset=%d", url.PathEscape(username), offset)
+		path := fmt.Sprintf("/v0/users/%s/collections?subject_type=2&limit=50&offset=%d", url.PathEscape(username), offset)
 		if err := bangumiWishRequest(ctx, token, path, &page); err != nil {
 			return err
 		}
@@ -95,11 +102,15 @@ func syncBangumiWishes(ctx context.Context) error {
 		}
 		total = *page.Total
 		for _, row := range page.Data {
-			if row.SubjectID <= 0 || (strings.TrimSpace(row.Subject.Name) == "" && strings.TrimSpace(row.Subject.NameCN) == "") || seen[row.SubjectID] {
+			if row.SubjectID <= 0 || row.Type < 1 || row.Type > 5 || (strings.TrimSpace(row.Subject.Name) == "" && strings.TrimSpace(row.Subject.NameCN) == "") || seen[row.SubjectID] {
 				return errors.New("Bangumi 收藏数据不完整，请稍后重试")
 			}
 			seen[row.SubjectID] = true
-			items = append(items, bangumiWish{row.SubjectID, row.Subject.Name, row.Subject.NameCN})
+			cover := row.Subject.Images.Large
+			if cover == "" {
+				cover = row.Subject.Images.Medium
+			}
+			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type})
 		}
 		if offset+len(page.Data) >= total {
 			break
@@ -141,6 +152,12 @@ func bangumiWishAPI(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal([]byte(raw), &state.Items) != nil {
 				http.Error(w, "读取收藏失败", 500)
 				return
+			}
+		}
+		// Caches written before collection sync contain only wishes, without a type.
+		for i := range state.Items {
+			if state.Items[i].Type == 0 {
+				state.Items[i].Type = 1
 			}
 		}
 		jsonOut(w, state)

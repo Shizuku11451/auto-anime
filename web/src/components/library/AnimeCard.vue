@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CircleCheck, Film, Star, ChevronDown, CalendarDays } from '@lucide/vue'
+import { CircleCheck, Film, Star, ChevronDown, CalendarDays, Search } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
-import type { AnimeSummary } from '@/api/types'
+import { BANGUMI_COLLECTION_LABELS, type AnimeSummary, type BangumiCollectionType } from '@/api/types'
 import { scheduleLabel } from '@/components/library/schedule'
 
-const props = defineProps<{ anime: AnimeSummary; selecting?: boolean; selected?: boolean; compact?: boolean }>()
+const props = defineProps<{ anime: AnimeSummary; cloudOnly?: boolean; collectionType?: BangumiCollectionType; selecting?: boolean; selected?: boolean; compact?: boolean }>()
 const emit = defineEmits<{ open: [id: number]; toggle: [id: number] }>()
 
 const displayName = computed(() => props.anime.meta_name_cn || props.anime.title)
@@ -17,8 +17,8 @@ const ratio = computed(() =>
 </script>
 
 <template>
-  <article class="anime-card" :class="{ selected, compact }" :style="{ '--cover-tone': ['var(--accent)', 'var(--blue)', 'var(--amber)'][anime.id % 3] }">
-    <button class="card-open" type="button" :aria-label="`${selecting ? '选择' : '打开'} ${displayName}`" :aria-pressed="selecting ? !!selected : undefined" @click="selecting ? emit('toggle', anime.id) : emit('open', anime.id)">
+  <article class="anime-card" :class="{ selected, compact }" :style="{ '--cover-tone': ['var(--accent)', 'var(--blue)', 'var(--amber)'][Math.abs(anime.id) % 3] }">
+    <button class="card-open" type="button" :disabled="cloudOnly && selecting" :aria-label="`${cloudOnly ? '找资源' : selecting ? '选择' : '打开'} ${displayName}`" :aria-pressed="selecting && !cloudOnly ? !!selected : undefined" @click="selecting ? emit('toggle', anime.id) : emit('open', anime.id)">
     <div class="poster-wrap">
       <CoverImage :src="anime.cover" :alt="displayName" radius="0" class="poster">
         <div v-if="!anime.cover" class="poster-fallback" aria-hidden="true"><span>{{ displayName.slice(0, 2) }}</span><small>暂无封面</small></div>
@@ -38,12 +38,16 @@ const ratio = computed(() =>
     <div class="body">
       <h3 class="title" :title="displayName">{{ displayName }}</h3>
       <p v-if="showSub" class="sub truncate" :title="anime.title">{{ anime.title }}</p>
+      <p v-if="collectionType" class="collection-state"><span class="tag accent" title="来自 Bangumi 的收藏状态，不代表本地下载或播放进度">{{ BANGUMI_COLLECTION_LABELS[collectionType] }}</span></p>
       <p class="schedule"><CalendarDays aria-hidden="true" />{{ scheduleLabel(anime) }}</p>
       <div class="stats">
-        <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
-        <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>
+        <span v-if="cloudOnly"><Search aria-hidden="true" />找资源</span>
+        <template v-else>
+          <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
+          <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>
+        </template>
       </div>
-      <div class="ratio" :title="`已保存 ${ratio}%`" aria-hidden="true">
+      <div v-if="!cloudOnly" class="ratio" :title="`已保存 ${ratio}%`" aria-hidden="true">
         <i :style="{ width: ratio + '%' }" />
       </div>
     </div>
@@ -53,7 +57,7 @@ const ratio = computed(() =>
       <ChevronDown aria-hidden="true" class="chev" :class="{ open: expanded }" />
     </button>
     <div v-if="anime.summary" v-show="expanded" class="summary-panel">{{ anime.summary }}</div>
-    <div v-if="selecting" class="card-actions">
+    <div v-if="selecting && !cloudOnly" class="card-actions">
       <label class="select-label"><input type="checkbox" :checked="selected" :aria-label="`选择 ${displayName}`" @change="emit('toggle', anime.id)" />{{ selected ? '已选择' : '选择' }}</label>
     </div>
   </article>

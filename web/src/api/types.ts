@@ -72,6 +72,27 @@ export interface Item {
   cover: string
 }
 
+export type BangumiCollectionType = 1 | 2 | 3 | 4 | 5
+
+export const BANGUMI_COLLECTION_LABELS: Record<BangumiCollectionType, string> = {
+  1: '想看', 2: '看过', 3: '在看', 4: '搁置', 5: '抛弃',
+}
+
+export interface BangumiCollection {
+  id: number
+  name: string
+  name_cn: string
+  cover?: string
+  type: BangumiCollectionType
+}
+
+export interface BangumiCollectionState {
+  username: string
+  last_sync: string
+  error: string
+  items: BangumiCollection[]
+}
+
 export interface AnimeSummary {
 	/* Bangumi 明确标注的放送星期，0 表示未获取；手动 update_weekday 优先。 */
 	broadcast_weekday?: number

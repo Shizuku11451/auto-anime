@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useResizeObserver } from '@vueuse/core'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { useIntervalFn, useResizeObserver } from '@vueuse/core'
 import { useRouter } from 'vue-router'
 import { Clapperboard, SearchX, Plus, ListChecks, Merge, Trash2, ServerOff, SlidersHorizontal, LayoutGrid, Rows3, CalendarDays } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -9,7 +9,8 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import AnimeCard from '@/components/library/AnimeCard.vue'
-import BangumiWishes from '@/components/discover/BangumiWishes.vue'
+import { http, errorMessage } from '@/api/client'
+import { BANGUMI_COLLECTION_LABELS, type AnimeSummary, type BangumiCollectionState, type BangumiCollectionType } from '@/api/types'
 import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { localDate, weekdayOfDate, weekdays, effectiveWeekday } from '@/components/library/schedule'
@@ -18,16 +19,48 @@ const store = useAppStore()
 const dialogs = useDialogs()
 const router = useRouter()
 
+const wishes = ref<BangumiCollectionState | null>(null)
+const wishError = ref('')
+let wishController: AbortController | undefined
+async function loadWishes() {
+  wishController?.abort()
+  const controller = new AbortController()
+  wishController = controller
+  try {
+    const state = await http.get<BangumiCollectionState>('/api/bangumi/wishes', { signal: controller.signal })
+    if (controller.signal.aborted) return
+    wishes.value = state
+    wishError.value = ''
+  } catch (e) {
+    if (!controller.signal.aborted) wishError.value = errorMessage(e)
+  }
+}
+onMounted(loadWishes)
+useIntervalFn(loadWishes, 30000)
+onBeforeUnmount(() => wishController?.abort())
+const library = computed<(AnimeSummary & { cloudOnly?: boolean; collectionType?: BangumiCollectionType })[]>(() => {
+  const collections = new Map((wishes.value?.items ?? []).map(w => [w.id, w]))
+  const local = store.animes.value.map(a => ({ ...a, cover: a.cover || collections.get(a.bangumi_id)?.cover || '', collectionType: collections.get(a.bangumi_id)?.type }))
+  const bound = new Set(local.map(a => a.bangumi_id).filter(Boolean))
+  const pending = (wishes.value?.items ?? []).filter(w => !bound.has(w.id)).map(w => ({
+    id: -w.id, bangumi_id: w.id, title: w.name || w.name_cn, meta_name: w.name, meta_name_cn: w.name_cn,
+    cover: w.cover || '', cloudOnly: true, collectionType: w.type, search_name: '', season: 1, storage_dir: '', include_rules: '', exclude_rules: '',
+    updated_at: '', update_weekday: 0, item_count: 0, saved_count: 0, episode_count: 0, rating: 0, summary: '',
+  }))
+  return [...local, ...pending]
+})
+
 const filter = ref('')
 const selecting = ref(false)
 const selected = ref<number[]>([])
 const scope = ref('all')
+const collection = ref('all')
 const sort = ref('recent')
 const weekday = ref(-1)
 const date = ref('')
 const moreFilters = ref(false)
 const layout = ref<'compact' | 'poster'>('compact')
-const hasFilters = computed(() => !!filter.value || scope.value !== 'all' || activeWeekday.value !== -1)
+const hasFilters = computed(() => !!filter.value || scope.value !== 'all' || collection.value !== 'all' || activeWeekday.value !== -1)
 const resultTitle = computed(() => activeWeekday.value === -1 ? '全部番剧' : activeWeekday.value === 0 ? '更新日待补充' : `${weekdays[activeWeekday.value]}追番`)
 const activeWeekday = computed(() => date.value ? weekdayOfDate(date.value) ?? -1 : weekday.value)
 const weekdayList = ref<HTMLElement | null>(null)
@@ -40,15 +73,15 @@ function updateWeekdayIndicator() {
 useResizeObserver(weekdayList, updateWeekdayIndicator)
 function chooseDay(day: number) { date.value = ''; weekday.value = day }
 function showToday() { date.value = localDate(); weekday.value = -1 }
-function clearFilters() { filter.value = ''; scope.value = 'all'; chooseDay(-1) }
-watch([filter, scope, sort, weekday, date], () => { selected.value = [] })
+function clearFilters() { filter.value = ''; scope.value = 'all'; collection.value = 'all'; chooseDay(-1) }
+watch([filter, scope, collection, sort, weekday, date], () => { selected.value = [] })
 const chosen = computed(() => store.animes.value.filter(a => selected.value.includes(a.id)))
-watch(() => store.animes.value, all => { selected.value = selected.value.filter(id => all.some(a => a.id === id)) })
 function toggle(id: number) { selected.value = selected.value.includes(id) ? selected.value.filter(x => x !== id) : [...selected.value, id] }
 function toggleMode() { selecting.value = !selecting.value; selected.value = [] }
 const matching = computed(() => {
   const q = filter.value.trim().toLowerCase()
-  const all = store.animes.value.filter(a => (scope.value !== 'empty' || !a.item_count) && (scope.value !== 'saved' || a.saved_count > 0))
+  const all = library.value.filter(a => (scope.value !== 'empty' || !a.item_count) && (scope.value !== 'saved' || a.saved_count > 0))
+    .filter(a => collection.value === 'all' || (collection.value === 'none' ? !a.collectionType : String(a.collectionType) === collection.value))
     .filter(a => !q || [a.title, a.meta_name_cn, a.meta_name, a.search_name].some(s => s && s.toLowerCase().includes(q)))
   if (sort.value === 'title') all.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'))
   if (sort.value === 'resources') all.sort((a, b) => b.item_count - a.item_count)
@@ -57,12 +90,17 @@ const matching = computed(() => {
 const dayCounts = computed(() => weekdays.map((_, day) => matching.value.filter(a => effectiveWeekday(a) === day).length))
 watch([activeWeekday, dayCounts, store.loaded, weekdayList], updateWeekdayIndicator, { flush: 'post' })
 const list = computed(() => matching.value.filter(a => activeWeekday.value === -1 || effectiveWeekday(a) === activeWeekday.value))
-const allSelected = computed(() => list.value.length > 0 && list.value.every(a => selected.value.includes(a.id)))
+watch(list, all => { selected.value = selected.value.filter(id => all.some(a => a.id === id && !a.cloudOnly)) })
+const selectable = computed(() => list.value.filter(a => !a.cloudOnly))
+const allSelected = computed(() => selectable.value.length > 0 && selectable.value.every(a => selected.value.includes(a.id)))
 function selectVisible() {
-  selected.value = allSelected.value ? selected.value.filter(id => !list.value.some(a => a.id === id)) : [...new Set([...selected.value, ...list.value.map(a => a.id)])]
+  selected.value = allSelected.value ? selected.value.filter(id => !selectable.value.some(a => a.id === id)) : [...new Set([...selected.value, ...selectable.value.map(a => a.id)])]
 }
-function searchWish(keyword: string) {
-  void router.push({ path: '/discover', query: { keyword: keyword.slice(0, 100) } })
+function openAnime(id: number) {
+  const anime = library.value.find(a => a.id === id)
+  if (!anime) return
+  if (anime.cloudOnly) void router.push({ path: '/discover', query: { keyword: (anime.meta_name_cn || anime.title).slice(0, 100) } })
+  else dialogs.openAnimeDetail(id)
 }
 </script>
 
@@ -71,13 +109,13 @@ function searchWish(keyword: string) {
     <PageHeader
       title="番剧库"
       description="每周的期待，都在这里"
-      :count="store.loaded.value ? store.animes.value.length : undefined"
+      :count="store.loaded.value ? library.length : undefined"
     >
       <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.animes.value.length" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
       <BaseButton :icon="Plus" variant="primary" @click="dialogs.openAnimeEdit()">新建番剧</BaseButton>
     </PageHeader>
 
-    <BangumiWishes @search="searchWish" />
+    <p v-if="wishError || wishes?.error" class="wish-error" role="alert">Bangumi 收藏同步异常：{{ wishError || wishes?.error }}；已有番剧不受影响。<button type="button" class="reset-button" @click="loadWishes">重新读取</button><RouterLink to="/settings">前往设置</RouterLink></p>
 
     <section class="schedule-panel" aria-label="每周追番安排">
       <div class="schedule-heading"><CalendarDays aria-hidden="true" />每周追番</div>
@@ -95,6 +133,7 @@ function searchWish(keyword: string) {
         <button v-if="hasFilters" type="button" class="reset-button" @click="clearFilters">清除筛选</button>
       </div>
       <SearchInput v-model="filter" placeholder="搜索番剧名称" width="240px" />
+      <select v-model="collection" class="collection-select" aria-label="收藏状态"><option value="all">全部收藏状态</option><option v-for="(label, type) in BANGUMI_COLLECTION_LABELS" :key="type" :value="String(type)">{{ label }}</option><option value="none">未关联收藏</option></select>
       <BaseButton size="sm" :icon="SlidersHorizontal" :variant="moreFilters || scope !== 'all' || date ? 'soft' : 'ghost'" :aria-expanded="moreFilters" aria-controls="library-filters" @click="moreFilters = !moreFilters">筛选与日期</BaseButton>
       <select v-model="sort" class="sort-select" aria-label="排序"><option value="recent">最近收录</option><option value="title">名称排序</option><option value="resources">资源数量</option></select>
       <div class="view-switch" role="group" aria-label="番剧展示方式">
@@ -126,11 +165,11 @@ function searchWish(keyword: string) {
       </div>
     </div>
 
-    <EmptyState v-else-if="store.loadError.value && !store.animes.value.length" :icon="ServerOff" title="番剧库加载失败" hint="请检查服务连接后重新加载" tone="error" compact>
+    <EmptyState v-else-if="store.loadError.value && !library.length" :icon="ServerOff" title="番剧库加载失败" hint="请检查服务连接后重新加载" tone="error" compact>
       <BaseButton @click="store.refresh()">重新加载</BaseButton>
     </EmptyState>
     <EmptyState
-      v-else-if="!store.animes.value.length"
+      v-else-if="!library.length"
       :icon="Clapperboard"
       title="番剧库还是空的"
       hint="添加 RSS 订阅并同步后，识别出的番剧会自动出现在这里"
@@ -149,11 +188,13 @@ function searchWish(keyword: string) {
         v-for="(a, i) in list"
         :key="a.id"
         :anime="a"
+        :cloud-only="a.cloudOnly"
+        :collection-type="a.collectionType"
         :compact="layout === 'compact'"
         :selecting="selecting"
         :selected="selected.includes(a.id)"
         :style="{ '--i': i }"
-        @open="dialogs.openAnimeDetail"
+        @open="openAnime"
         @toggle="toggle"
       />
     </TransitionGroup>
@@ -161,6 +202,7 @@ function searchWish(keyword: string) {
 </template>
 
 <style scoped>
+.wish-error { margin: 0 0 16px; color: var(--red); font-size: 13px; }
 .library-page :deep(.page-head) { margin-bottom: 22px; padding-bottom: 0; border: 0; }
 .schedule-panel { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
 .schedule-heading { display: flex; align-items: center; gap: 6px; flex: none; font-size: 12px; color: var(--text-2); }
@@ -177,6 +219,7 @@ function searchWish(keyword: string) {
 .library-toolbar, .batch-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 13px; }
 .library-toolbar :deep(.search) { flex: 1; max-width: 280px; min-width: 160px; }
 .sort-select { margin-left: auto; width: 116px; font-size: 12px; }
+.collection-select { width: 140px; font-size: 12px; }
 .view-switch { display: flex; padding: 3px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-sm); }
 .view-switch button { display: grid; place-items: center; width: 34px; height: 30px; border: 0; background: transparent; color: var(--text-3); border-radius: var(--r-xs); cursor: pointer; }
 .view-switch button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }

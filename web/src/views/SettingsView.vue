@@ -508,7 +508,7 @@ async function save() {
       </section>
     </fieldset>
 
-    <BangumiWishes v-if="section === 'network'" settings />
+    <BangumiWishes v-if="section === 'network'" />
     <div class="save-bar">
       <span class="save-status" role="status">{{ loading ? '正在读取设置…' : loadErr ? '读取失败后无法保存' : dirty ? '有未保存的更改' : '设置已与服务同步' }}</span>
       <Transition name="fade">
