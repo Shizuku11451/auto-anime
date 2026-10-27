@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search, X, ExternalLink, Copy, CloudOff, Compass, Plus } from '@lucide/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -19,6 +19,31 @@ const store = useAppStore()
 const webLink = (raw: string) => /^https?:\/\//i.test(raw)
 const magnetLink = (raw: string) => /^magnet:\?xt=urn:btih:[a-f0-9]{40}$/i.test(raw)
 const sizeLabel = (size: number) => size > 0 ? `${(size / 1024 ** 3).toFixed(2)} GB` : '大小未知'
+const filters = reactive({ keyword: '', source: null as string | null, group: null as string | null, quality: null as string | null })
+const resourceItems = computed(() => state.resources?.items ?? [])
+const filterOptions = computed(() => {
+  const unique = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+  return {
+    sources: unique(resourceItems.value.flatMap(item => item.sources)),
+    groups: unique(resourceItems.value.map(item => item.fansub_group)),
+    qualities: unique(resourceItems.value.map(item => item.quality)),
+  }
+})
+const normalize = (value: string) => value.normalize('NFKC').toLowerCase()
+const filteredItems = computed(() => {
+  const keyword = normalize(filters.keyword.trim())
+  return resourceItems.value.filter(item =>
+    (!keyword || normalize(item.title).includes(keyword)) &&
+    (filters.source === null || item.sources.includes(filters.source)) &&
+    (filters.group === null || item.fansub_group === filters.group) &&
+    (filters.quality === null || item.quality === filters.quality))
+})
+const filtersActive = computed(() => Boolean(filters.keyword.trim()) || filters.source !== null || filters.group !== null || filters.quality !== null)
+
+function resetFilters() {
+  Object.assign(filters, { keyword: '', source: null, group: null, quality: null })
+}
+watch(() => state.resources, resetFilters, { flush: 'sync' })
 
 function subscribe(subject: DiscoverSubject, item: AggregateResource) {
   const feed = aggregateSubscription(subject, item, store.feeds.value)
@@ -80,7 +105,17 @@ onUnmounted(cancel)
             <p class="notice">候选资源，请核对番名、季数与字幕版本。</p>
             <p v-for="warning in state.resources.warnings" :key="warning" class="notice" role="status">{{ warning }}</p>
             <p v-if="!state.resources.items.length" role="status">没有找到候选资源。可能是来源未收录、命名不同或搜索范围受限。</p>
-            <div v-for="(item, index) in state.resources.items" :key="index" class="resource">
+            <template v-else>
+              <div class="resource-filters" role="group" aria-label="筛选候选资源">
+                <label class="filter-keyword">标题关键词<input v-model="filters.keyword" type="search" placeholder="如：简日、HEVC、合集" maxlength="200" /></label>
+                <label>来源<select v-model="filters.source"><option :value="null">全部来源</option><option v-for="source in filterOptions.sources" :key="source" :value="source">{{ source }}</option></select></label>
+                <label>字幕组 / 发布组<select v-model="filters.group"><option :value="null">全部字幕组</option><option v-for="group in filterOptions.groups" :key="group" :value="group">{{ group || '未识别字幕组' }}</option></select></label>
+                <label>清晰度<select v-model="filters.quality"><option :value="null">全部清晰度</option><option v-for="quality in filterOptions.qualities" :key="quality" :value="quality">{{ quality || '未识别清晰度' }}</option></select></label>
+              </div>
+              <div class="filter-summary"><p role="status" aria-live="polite">显示 {{ filteredItems.length }} / {{ resourceItems.length }} 条资源</p><BaseButton v-if="filtersActive" size="sm" @click="resetFilters">重置筛选</BaseButton></div>
+              <p v-if="!filteredItems.length" class="filter-empty" role="status">没有符合条件的资源，请调整或重置筛选。</p>
+            </template>
+            <div v-for="(item, index) in filteredItems" :key="index" class="resource">
               <h3>{{ item.title }}</h3>
               <p class="metadata"><span>{{ item.sources.join(' / ') }}</span><span v-if="item.fansub_group">{{ item.fansub_group }}</span><span v-if="item.quality">{{ item.quality }}</span><span>{{ sizeLabel(item.size) }}</span><span v-if="item.published">{{ formatTime(item.published) }}</span><span v-if="item.season > 0">标题标记第 {{ item.season }} 季</span><span v-else>季数未标明</span></p>
               <div class="resource-actions"><BaseButton v-if="magnetLink(item.magnet) && item.anime_title.trim() && item.season >= 0" size="sm" variant="primary" :icon="Plus" @click="subscribe(subject, item)">订阅此版本</BaseButton><BaseButton v-if="magnetLink(item.magnet)" size="sm" :icon="Copy" @click="copyMagnet(item.magnet)">复制磁力</BaseButton><a v-if="magnetLink(item.magnet)" :href="item.magnet">磁力链接</a><a v-if="webLink(item.details_url)" :href="item.details_url" target="_blank" rel="noopener noreferrer">来源页 <ExternalLink aria-hidden="true" /></a></div>
@@ -115,6 +150,13 @@ a svg { width: 12px; height: 12px; }
 .resources { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; display: grid; gap: 12px; }
 .notice { color: var(--amber); font-size: 12px; line-height: 1.7; margin-bottom: 10px; }
 .resource { padding: 14px; background: var(--surface-2); border-radius: var(--r-sm); min-width: 0; }
+.resource-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(0, 1fr)); gap: 12px; }
+.resource-filters label { display: grid; gap: 6px; min-width: 0; color: var(--text-2); font-size: 12px; }
+.resource-filters select { text-overflow: ellipsis; }
+.filter-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-3); font-size: 12px; }
+.filter-empty { color: var(--text-2); font-size: 13px; padding: 12px 0; }
+@media (max-width: 1000px) { .resource-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .resource-filters .filter-keyword { grid-column: 1 / -1; } }
 h3 { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .resource-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 560px) { .search-panel, .subject { padding: 16px; } .subject-heading { gap: 12px; } .subject-heading img { width: 64px; height: 92px; } form { flex-wrap: wrap; } form > .btn { width: 100%; } .keyword { flex-basis: 100%; } }
