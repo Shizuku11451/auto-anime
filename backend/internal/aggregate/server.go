@@ -336,8 +336,12 @@ type torznabItem struct {
 }
 
 func (s *Server) searchSource(ctx context.Context, source, query string, aliases []string) ([]Resource, bool, error) {
+	category := "5070"
+	if source == "acgrip" {
+		category = "5000" // ACG.RIP maps anime releases to TV, not TV/Anime.
+	}
 	u := strings.TrimRight(s.config.JackettURL, "/") + "/api/v2.0/indexers/" + source + "/results/torznab/api?" +
-		url.Values{"apikey": {s.config.JackettKey}, "t": {"search"}, "q": {query}, "cat": {"5070"}, "limit": {"100"}}.Encode()
+		url.Values{"apikey": {s.config.JackettKey}, "t": {"search"}, "q": {query}, "cat": {category}, "limit": {"100"}}.Encode()
 	data, err := s.get(ctx, u, 8<<20)
 	if err != nil {
 		return nil, false, err

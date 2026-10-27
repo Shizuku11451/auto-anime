@@ -77,6 +77,26 @@ func TestSearchAggregationCacheAndSecrets(t *testing.T) {
 	}
 }
 
+func TestSourceCategories(t *testing.T) {
+	s := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		wantCategory := "5070"
+		if strings.Contains(r.URL.Path, "/acgrip/") {
+			wantCategory = "5000"
+		}
+		if r.URL.Query().Get("cat") != wantCategory {
+			t.Errorf("%s: category = %q, want %q", r.URL.Path, r.URL.Query().Get("cat"), wantCategory)
+		}
+		fmt.Fprint(w, `<rss><channel></channel></rss>`)
+	})
+	for _, source := range []string{"mikan", "dmhy", "acgrip", "nyaasi", "bangumi-moe"} {
+		t.Run(source, func(t *testing.T) {
+			if _, _, err := s.searchSource(context.Background(), source, "Test Anime", []string{"Test Anime"}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestValidationAuthenticationAndRateLimit(t *testing.T) {
 	var calls atomic.Int32
 	s := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls.Add(1); http.Error(w, "upstream", 500) })
