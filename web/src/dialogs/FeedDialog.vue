@@ -20,6 +20,13 @@ const s = state.feed
 
 const editing = computed(() => !!(s.feed && s.feed.id))
 const form = reactive({ name: '', url: '', include: '', exclude: '', auto: true, target: '', storage: '', season: 0, allowUnknown: false, offset: '' as number | string })
+const aggregate = computed(() => form.url.startsWith('aggregate://subject/'))
+const versionLabel = computed(() => {
+  if (!aggregate.value) return ''
+  const rules = new URLSearchParams(form.url.split('?')[1])
+  const season = Number(rules.get('season'))
+  return [rules.get('title'), rules.get('group') || '字幕组未识别', rules.get('quality') || '清晰度未识别', rules.get('language'), season > 0 ? `第 ${season} 季` : '季数未标明'].filter(Boolean).join(' · ')
+})
 const preview = ref('')
 const previewing = ref(false)
 const saving = ref(false)
@@ -109,7 +116,7 @@ function resetAvailability() {
 }
 
 watch(filterKey, resetAvailability)
-watch(filterKey, () => { if (!editing.value && !offsetManual.value) form.offset = '' })
+watch(filterKey, () => { if (!editing.value && !offsetManual.value) form.offset = aggregate.value ? 0 : '' })
 
 watch(
   () => s.open,
@@ -157,7 +164,7 @@ async function runPreview() {
   }
   msg.value = ''
   previewing.value = true
-  preview.value = '正在读取 RSS，支持翻页的来源会继续查找早期集数…'
+  preview.value = aggregate.value ? '正在获取匹配资源…' : '正在读取 RSS，支持翻页的来源会继续查找早期集数…'
   previewController = new AbortController()
   try {
     const data = await api<PreviewResult>('/api/preview', {
@@ -177,12 +184,16 @@ async function runPreview() {
           .join('\n') +
         (data.count > data.items.length ? '\n仅展示前 20 条' : '')
       : `共读取 ${data.pages} 页、${data.total} 条，没有符合过滤规则的资源，请调整关键词后重新预览`
-    preview.value += '\n\n' + (data.warning || (data.history
-      ? '保存后同步同样的历史页；以上为当前来源已发现的资源，不代表全季已发布。'
-      : '此来源仅提供当前 RSS 列表，未找到的早期集数可换源或缩小搜索范围。'))
-    preview.value += data.episode_offset == null
-      ? '\n无法统一推断集数偏移；请核对资源编号。'
-      : `\n推断集数偏移：${data.episode_offset > 0 ? '+' : ''}${data.episode_offset}（资源集数 + 偏移 = 归档集数）。请确认 RSS 包含起始集，滚动列表可能缺少早期资源。`
+    if (aggregate.value) {
+      if (data.warning) preview.value += '\n' + data.warning
+    } else {
+      preview.value += '\n\n' + (data.warning || (data.history
+        ? '保存后同步同样的历史页；以上为当前来源已发现的资源，不代表全季已发布。'
+        : '此来源仅提供当前 RSS 列表，未找到的早期集数可换源或缩小搜索范围。'))
+      preview.value += data.episode_offset == null
+        ? '\n无法统一推断集数偏移；请核对资源编号。'
+        : `\n推断集数偏移：${data.episode_offset > 0 ? '+' : ''}${data.episode_offset}（资源集数 + 偏移 = 归档集数）。请确认 RSS 包含起始集，滚动列表可能缺少早期资源。`
+    }
     if (s.feed?.from_discover && btLinks.value.length) void runAvailability()
   } catch (e) {
     if (request !== previewRequest) return
@@ -232,7 +243,7 @@ async function save() {
   if (saving.value) return
   msg.value = ''
   if (s.feed?.requires_season_confirmation && !seasonConfirmed.value) {
-    msg.value = '该资源没有明确季数，请核对原始标题并确认后再保存'
+    msg.value = '请核对原始标题、季数和字幕版本并确认后再保存'
     return
   }
   if (s.feed?.from_discover && (!previewReady.value || previewing.value)) {
@@ -322,14 +333,12 @@ async function save() {
 <template>
   <BaseDialog :open="s.open" :title="editing ? '编辑订阅' : '添加订阅'" @close="close">
     <form @submit.prevent="save">
-      <p v-if="s.feed?.from_discover" class="intro field-hint">
-        {{ editing ? '此 RSS 已订阅，保存将更新规则并同步，保留已有条目和文件。' : '已带入所选版本，核对下方匹配资源后即可订阅。' }}
-      </p>
+      <p v-if="aggregate" class="intro">{{ versionLabel }}</p>
       <div class="field">
         <label for="f-name">订阅名称</label>
         <input id="f-name" v-model="form.name" type="text" placeholder="例如：我的追番订阅" autofocus />
       </div>
-      <div v-if="!s.feed?.from_discover" class="field">
+      <div v-if="!s.feed?.from_discover && !aggregate" class="field">
         <label for="f-url">RSS 地址</label>
         <input id="f-url" v-model="form.url" type="url" placeholder="https://example.com/rss.xml" :disabled="editing" spellcheck="false" />
         <p v-if="editing" class="field-hint">编辑时不能修改地址；换源请新建订阅。</p>
@@ -385,7 +394,7 @@ async function save() {
         <details class="option-section">
           <summary tabindex="0"><span>来源与保存位置<small>{{ saveBase ? '自定义目录' : `默认${defaultBaseSource}` }}</small></span><ChevronDown aria-hidden="true" /></summary>
           <div class="option-body">
-            <div v-if="s.feed?.from_discover" class="field">
+            <div v-if="s.feed?.from_discover && !aggregate" class="field">
               <label for="f-url">RSS 地址</label>
               <input id="f-url" v-model="form.url" type="url" placeholder="https://example.com/rss.xml" :disabled="editing" spellcheck="false" />
               <p v-if="editing" class="field-hint">编辑时不能修改地址；换源请新建订阅。</p>
@@ -406,7 +415,7 @@ async function save() {
         </details>
       </div>
       <div v-if="s.feed?.requires_season_confirmation" class="season-confirmation">
-        <p>此版本未标明季数，请核对原始标题。确认不会指定归档季号。</p>
+        <p>请核对匹配资源的番名、季数和字幕版本。</p>
         <label class="check"><input v-model="seasonConfirmed" type="checkbox" /> 已核对，这是我要订阅的版本</label>
       </div>
       <h3 v-if="preview" class="preview-title">匹配预览</h3>
@@ -453,7 +462,7 @@ async function save() {
       <BaseButton variant="ghost" :icon="Eye" :loading="previewing" @click="runPreview">预览</BaseButton>
       <span class="spacer" />
       <BaseButton @click="close">取消</BaseButton>
-      <BaseButton variant="primary" :loading="saving" :disabled="!!s.feed?.from_discover && (!previewReady || previewing)" @click="save">{{ editing ? (s.feed?.from_discover ? '保存并同步' : '保存') : '保存并获取' }}</BaseButton>
+      <BaseButton variant="primary" :loading="saving" :disabled="!!s.feed?.from_discover && (!previewReady || previewing)" @click="save">{{ editing ? (s.feed?.from_discover ? '保存并同步' : '保存') : aggregate ? '确认订阅' : '保存并获取' }}</BaseButton>
     </template>
   </BaseDialog>
 </template>

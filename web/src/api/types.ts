@@ -39,6 +39,7 @@ export interface Feed {
   storage_dir: string
   id: number
   name: string
+  /** HTTP(S) RSS 地址，或不含凭据的 aggregate://subject/<id>?... 版本选择规则。 */
   url: string
   include_words: string
   exclude_words: string
@@ -298,7 +299,6 @@ export interface Settings {
   proxy_url: string
   proxy_credentials_set: boolean
   poll_minutes: number
-  discover_search_template: string
   library_dir: string
   download_dir: string
   setup_done: boolean
@@ -330,30 +330,7 @@ export interface SettingsInput {
   proxy_url?: string
   proxy_clear_credentials?: boolean
   poll_minutes?: number
-  discover_search_template?: string
   library_dir?: string
-}
-
-export interface DiscoverSource {
-  id: string
-  name: string
-  hint: string
-  custom: boolean
-}
-
-export interface DiscoverItem {
-  season?: number
-  inferred_season?: number
-  feed_url?: string
-  query?: string
-  title: string
-  anime_title: string
-  fansub_group: string
-  episode: string
-  quality: string
-  link: string
-  torrent: string
-  published: string
 }
 
 export interface FeedReadInfo {
@@ -361,18 +338,6 @@ export interface FeedReadInfo {
   history: boolean
   limited: boolean
   warning: string
-}
-
-export interface DiscoverResult extends FeedReadInfo {
-  base_keyword?: string
-  requested_season?: number
-  queries?: string[]
-  source: string
-  source_name: string
-  keyword: string
-  feed_url: string
-  count: number
-  items: DiscoverItem[]
 }
 
 export interface MetaCandidate {

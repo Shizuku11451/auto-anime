@@ -107,7 +107,6 @@ function openAnime(id: number) {
   <div class="page library-page">
     <PageHeader
       title="番剧库"
-      description="每周的期待，都在这里"
       :count="store.loaded.value ? library.length : undefined"
     >
       <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.animes.value.length" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
@@ -175,7 +174,7 @@ function openAnime(id: number) {
       compact
     >
       <BaseButton variant="primary" @click="router.push('/feeds')">去添加订阅</BaseButton>
-      <BaseButton @click="router.push('/discover')">先去找番</BaseButton>
+      <BaseButton @click="router.push('/discover')">去搜索</BaseButton>
     </EmptyState>
 
     <EmptyState v-else-if="!list.length" :icon="SearchX" title="没有匹配的番剧" hint="试试其他关键词，或清除筛选" compact>

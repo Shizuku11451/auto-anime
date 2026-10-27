@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	titleparse "auto-anime/internal/title"
 )
 
 func TestTraditionalReleasePreviewAndSyncAtReadLimit(t *testing.T) {
@@ -118,25 +120,20 @@ func TestFullwidthReleasePreviewAndSync(t *testing.T) {
 		fmt.Fprint(w, `</channel></rss>`)
 	}))
 	defer server.Close()
-	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=custom&keyword=AI")
-	var found struct{ Items []discoverItem }
-	if err := json.Unmarshal(rec.Body.Bytes(), &found); err != nil || rec.Code != 200 || len(found.Items) != 4 {
-		t.Fatalf("discover: %s err=%v", rec.Body.String(), err)
+	info := titleparse.Extract(rawTitle)
+	words := info.Title + ",[" + info.Group + "]," + info.Quality
+	if words != "AIの遺電子,[Group],1080P" || titleparse.ResourceSeason(rawTitle) != 2 {
+		t.Fatalf("unexpected parsed release: %+v words=%q", info, words)
 	}
-	item := found.Items[0]
-	words := item.AnimeTitle + ",[" + item.Group + "]," + item.Quality
-	if words != "AIの遺電子,[Group],1080P" || item.Season != 2 {
-		t.Fatalf("unexpected parsed release: %+v words=%q", item, words)
-	}
-	payload, _ := json.Marshal(PreviewInput{URL: item.FeedURL, Include: words, SeasonFilter: 2})
+	feedURL := server.URL + "/?term=AI"
+	payload, _ := json.Marshal(PreviewInput{URL: feedURL, Include: words, SeasonFilter: 2})
 	result := httptest.NewRecorder()
 	preview(result, httptest.NewRequest("POST", "/api/preview", strings.NewReader(string(payload))))
 	var out struct{ Count int }
 	if err := json.Unmarshal(result.Body.Bytes(), &out); err != nil || result.Code != 200 || out.Count != 1 {
 		t.Fatalf("preview: %s err=%v", result.Body.String(), err)
 	}
-	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,include_words,season_filter) VALUES(1,'全角标题',?,?,2)`, item.FeedURL, words); err != nil {
+	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,include_words,season_filter) VALUES(1,'全角标题',?,?,2)`, feedURL, words); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []int{1, 0} {
@@ -145,7 +142,7 @@ func TestFullwidthReleasePreviewAndSync(t *testing.T) {
 		}
 	}
 	var storedTitle, storedWords string
-	if err := db.QueryRow("SELECT title FROM items WHERE link=?", item.Link).Scan(&storedTitle); err != nil || storedTitle != rawTitle {
+	if err := db.QueryRow("SELECT title FROM items WHERE link=?", server.URL+"/item/0").Scan(&storedTitle); err != nil || storedTitle != rawTitle {
 		t.Fatalf("raw title changed: %q err=%v", storedTitle, err)
 	}
 	if err := db.QueryRow("SELECT include_words FROM feeds WHERE id=1").Scan(&storedWords); err != nil || storedWords != words {

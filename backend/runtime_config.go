@@ -29,7 +29,6 @@ type runtimeSettings struct {
 	webHash                 string
 	webPassword             string
 	setupDone               bool
-	discoverSearchTemplate  string
 }
 
 func runtimeConfig() runtimeSettings {
@@ -58,6 +57,5 @@ func runtimeConfig() runtimeSettings {
 		webHash:                 webHash,
 		webPassword:             webPassword,
 		setupDone:               setupDone,
-		discoverSearchTemplate:  discoverSearchTemplate,
 	}
 }

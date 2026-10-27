@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,9 +17,34 @@ import (
 	"auto-anime/internal/aggregate"
 )
 
-var aggregateSearchURL = strings.TrimRight(env("AGGREGATE_SEARCH_URL", ""), "/")
-var aggregateSearchToken = env("AGGREGATE_SEARCH_TOKEN", "")
+const defaultAggregateSearchURL = "https://search.115415.xyz"
+
+var aggregateSearchURL = configuredAggregateSearchURL()
+var aggregateSearchToken = configuredAggregateSearchToken(aggregateSearchURL)
 var discoverAggregateSlots = make(chan struct{}, 4)
+
+func configuredAggregateSearchURL() string {
+	if value, ok := os.LookupEnv("AGGREGATE_SEARCH_URL"); ok {
+		return strings.TrimRight(strings.TrimSpace(value), "/")
+	}
+	return defaultAggregateSearchURL
+}
+
+func configuredAggregateSearchToken(address string) string {
+	if value, ok := os.LookupEnv("AGGREGATE_SEARCH_TOKEN"); ok {
+		return value
+	}
+	// A custom endpoint must never receive the default service's local credential.
+	if address != defaultAggregateSearchURL {
+		return ""
+	}
+	value, err := localAggregateSearchToken()
+	if err != nil {
+		log.Print("本机聚合服务凭据无法读取，资源聚合未启用")
+		return ""
+	}
+	return value
+}
 
 func aggregateConfigured() bool {
 	u, err := url.Parse(aggregateSearchURL)
@@ -48,7 +76,7 @@ func discoverSubjectsAPI(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	subjects, err := searchBangumiListContext(ctx, keyword)
 	if err != nil {
-		http.Error(w, "Bangumi 搜索暂不可用，可重试或改用 RSS 搜索", http.StatusBadGateway)
+		http.Error(w, "Bangumi 搜索暂不可用，请稍后重试", http.StatusBadGateway)
 		return
 	}
 	items := []map[string]any{}
@@ -74,23 +102,44 @@ func discoverResourcesAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bangumi 条目 ID 无效", http.StatusBadRequest)
 		return
 	}
-	if !aggregateConfigured() {
-		http.Error(w, "尚未配置在线聚合服务，请联系实例管理员；现有 RSS 搜索仍可使用", http.StatusServiceUnavailable)
+	result, err := fetchAggregateResources(r.Context(), int(id))
+	if err != nil {
+		status := http.StatusBadGateway
+		if failure, ok := err.(*aggregateRequestError); ok {
+			status = failure.status
+		}
+		if status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "60")
+		}
+		http.Error(w, err.Error(), status)
 		return
+	}
+	jsonOut(w, result)
+}
+
+type aggregateRequestError struct {
+	status  int
+	message string
+}
+
+func (e *aggregateRequestError) Error() string { return e.message }
+
+func fetchAggregateResources(ctx context.Context, id int) (aggregate.Result, error) {
+	var result aggregate.Result
+	if !aggregateConfigured() {
+		return result, &aggregateRequestError{http.StatusServiceUnavailable, "尚未配置在线聚合服务，请联系实例管理员；已有 RSS 订阅不受影响"}
 	}
 	select {
 	case discoverAggregateSlots <- struct{}{}:
 		defer func() { <-discoverAggregateSlots }()
 	default:
-		http.Error(w, "搜索请求较多，请稍后重试", http.StatusTooManyRequests)
-		return
+		return result, &aggregateRequestError{http.StatusTooManyRequests, "搜索请求较多，请稍后重试"}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, aggregateSearchURL+"/v1/search?subject_id="+strconv.FormatInt(id, 10), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, aggregateSearchURL+"/v1/search?subject_id="+strconv.Itoa(id), nil)
 	if err != nil {
-		http.Error(w, "聚合服务配置无效", http.StatusServiceUnavailable)
-		return
+		return result, fmt.Errorf("聚合服务配置无效")
 	}
 	req.Header.Set("Authorization", "Bearer "+aggregateSearchToken)
 	client := *httpClient
@@ -98,8 +147,7 @@ func discoverResourcesAPI(w http.ResponseWriter, r *http.Request) {
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	res, err := client.Do(req)
 	if err != nil {
-		http.Error(w, "在线聚合服务暂不可用，请稍后重试", http.StatusBadGateway)
-		return
+		return result, fmt.Errorf("在线聚合服务暂不可用，请稍后重试")
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
@@ -107,16 +155,12 @@ func discoverResourcesAPI(w http.ResponseWriter, r *http.Request) {
 		message := "在线聚合服务请求失败，请联系管理员或稍后重试"
 		if res.StatusCode == http.StatusTooManyRequests {
 			status, message = http.StatusTooManyRequests, "在线聚合服务繁忙，请稍后重试"
-			w.Header().Set("Retry-After", "60")
 		}
-		http.Error(w, message, status)
-		return
+		return result, &aggregateRequestError{status, message}
 	}
 	data, err := io.ReadAll(io.LimitReader(res.Body, (2<<20)+1))
-	var result aggregate.Result
-	if err != nil || len(data) > 2<<20 || !utf8.Valid(data) || json.Unmarshal(data, &result) != nil || result.SubjectID != int(id) || len(result.Items) > 300 {
-		http.Error(w, "在线聚合服务响应无效", http.StatusBadGateway)
-		return
+	if err != nil || len(data) > 2<<20 || !utf8.Valid(data) || json.Unmarshal(data, &result) != nil || result.SubjectID != id || len(result.Items) > 300 {
+		return aggregate.Result{}, fmt.Errorf("在线聚合服务响应无效")
 	}
 	if result.Items == nil {
 		result.Items = []aggregate.Resource{}
@@ -124,5 +168,5 @@ func discoverResourcesAPI(w http.ResponseWriter, r *http.Request) {
 	if result.Warnings == nil {
 		result.Warnings = []string{}
 	}
-	jsonOut(w, result)
+	return result, nil
 }

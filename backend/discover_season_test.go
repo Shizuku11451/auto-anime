@@ -6,51 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
-
-func TestDiscoverSeasonExpansionAndProvenance(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		fmt.Fprint(w, `<rss><channel>`)
-		switch r.URL.Query().Get("term") {
-		case "测试动画 S1":
-			fmt.Fprint(w, `<item><title>[组] 测试动画 [S1 Reseed Fin]</title><link>/one</link></item>`)
-		case "测试动画 S01":
-			fmt.Fprint(w, `<item><title>[组] 测试动画 S01 [02]</title><link>/two</link></item>`)
-		case "测试动画":
-			fmt.Fprint(w, `<item><title>[组] 测试动画 [S1 Reseed Fin]</title><link>/one</link></item><item><title>[组] 测试动画 S3 [01]</title><link>/three</link></item><item><title>[组] 测试动画 [01]</title><link>/unknown</link></item>`)
-		}
-		fmt.Fprint(w, `</channel></rss>`)
-	}))
-	defer server.Close()
-	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("测试动画 第一季"))
-	var out struct {
-		Items           []discoverItem
-		RequestedSeason int `json:"requested_season"`
-		Queries         []string
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || len(out.Items) != 4 || out.RequestedSeason != 1 || requests.Load() != 4 {
-		t.Fatalf("response: %s %v", rec.Body.String(), err)
-	}
-	for _, item := range out.Items {
-		u, _ := url.Parse(item.FeedURL)
-		if u.Query().Get("term") != item.Query {
-			t.Fatalf("lost provenance: %+v", item)
-		}
-	}
-	requests.Store(0)
-	rec = discoverGet(t, "/api/discover/search?source=custom&literal=1&keyword="+url.QueryEscape("测试动画 第一季"))
-	if rec.Code != 200 || requests.Load() != 1 {
-		t.Fatal("literal search expanded")
-	}
-}
 
 func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
 	testDatabase(t)
@@ -104,7 +63,7 @@ func TestRomanAndUnderscoreSeasonPreviewSync(t *testing.T) {
 	}
 }
 
-func TestDiscoverPartialFailureAndSharedBudget(t *testing.T) {
+func TestFeedSharedReadBudget(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -116,10 +75,6 @@ func TestDiscoverPartialFailureAndSharedBudget(t *testing.T) {
 	}))
 	defer server.Close()
 	pagedTestSource(t, server.URL+"/?term={keyword}", 1)
-	rec := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("测试动画 第一季"))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "503") || !strings.Contains(rec.Body.String(), `"count":1`) {
-		t.Fatalf("partial: %s", rec.Body.String())
-	}
 	budget := feedReadBudget{pages: 2, items: 10, bytes: 1 << 20}
 	calls.Store(0)
 	for i := 0; i < 2; i++ {
@@ -127,40 +82,6 @@ func TestDiscoverPartialFailureAndSharedBudget(t *testing.T) {
 	}
 	if calls.Load() != 2 || budget.pages != 0 {
 		t.Fatalf("budget not shared: %d %+v", calls.Load(), budget)
-	}
-}
-
-func TestDiscoverExpansionCancellation(t *testing.T) {
-	var calls atomic.Int32
-	started := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		close(started)
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-	overrideDiscoverSource(t, server.URL+"/?term={keyword}")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req := httptest.NewRequest("GET", "/api/discover/search?source=custom&keyword="+url.QueryEscape("测试动画 第一季"), nil).WithContext(ctx)
-	done := make(chan struct{})
-	go func() {
-		discoverSearchAPI(httptest.NewRecorder(), req)
-		close(done)
-	}()
-	select {
-	case <-started:
-	case <-time.After(3 * time.Second):
-		t.Fatal("request not started")
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("cancel did not stop search")
-	}
-	if calls.Load() != 1 {
-		t.Fatal("cancelled search started expansion")
 	}
 }
 

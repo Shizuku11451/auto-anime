@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, Check, FolderOpen, Globe, HardDrive, Search, UserRound } from '@lucide/vue'
+import { ArrowLeft, ArrowRight, Check, FolderOpen, Globe, HardDrive, UserRound } from '@lucide/vue'
 import AuthShell from '@/components/auth/AuthShell.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ConfirmHost from '@/components/ui/ConfirmHost.vue'
@@ -13,7 +13,6 @@ const STEPS = [
   { key: 'account', title: '管理员账户', icon: UserRound, hint: '建议创建账户，保护订阅与下载管理；这是 Auto-Anime 的账户，与 NAS 账户无关。' },
   { key: 'download', title: '下载方式', icon: HardDrive, hint: '默认使用内置 BT 下载器，也可连接已有下载器或选择本地直链。' },
   { key: 'storage', title: '保存目录', icon: FolderOpen, hint: '选择整理好的番剧放在哪里，飞牛影视、Emby 或 Jellyfin 扫描这个目录。' },
-  { key: 'source', title: '搜索源', icon: Search, hint: '应用不内置资源搜索源。填写你有权使用的 RSS 搜索模板，之后即可在「找番」输入番名搜索。' },
   { key: 'network', title: '确认并开始', icon: Globe, hint: '已沿用部署配置；未配置时默认直连、每 30 分钟同步。确认后即可开始添加订阅。' },
 ] as const
 
@@ -53,7 +52,6 @@ let storageController: AbortController | null = null
 let storageVersion = 0
 const deploymentProxyEnabled = ref(false)
 const completed = ref(false)
-const searchConfigured = ref(false)
 const libraryWarning = ref('')
 const loginFailed = ref(false)
 const locked = computed(() => busy.value || confirming.value || !statusLoaded.value)
@@ -81,7 +79,6 @@ const form = reactive({
   transmission_download_dir: '',
   transmission_local_dir: '',
   proxy_url: '',
-  discover_search_template: '',
   poll_minutes: 30,
   keep_source_files: true,
 })
@@ -175,17 +172,6 @@ function validateNetwork(): string {
   return ''
 }
 
-function validateSearchSource(): string {
-  const template = form.discover_search_template.trim()
-  if (!template) return ''
-  if (!template.includes('{keyword}') && !template.includes('{关键词}')) return '搜索模板必须包含 {keyword} 占位符'
-  try {
-    const url = new URL(template)
-    if ((url.protocol === 'http:' || url.protocol === 'https:') && url.hostname) return ''
-  } catch { /* 显示统一的地址提示 */ }
-  return '搜索模板必须是 HTTP 或 HTTPS 地址'
-}
-
 function validateDownloader(): string {
   const address = form.mode === 'aria2' ? form.aria2_url : form.mode === 'qbittorrent' ? form.qbit_url : form.mode === 'transmission' ? form.transmission_url : null
   if (address === null) return ''
@@ -202,7 +188,7 @@ function go(delta: 1 | -1) {
   if (locked.value) return
   msg.value = ''
   if (delta > 0) {
-    const err = current.value.key === 'account' ? validateAccount() : current.value.key === 'download' ? validateDownloader() : current.value.key === 'source' ? validateSearchSource() : ''
+    const err = current.value.key === 'account' ? validateAccount() : current.value.key === 'download' ? validateDownloader() : ''
     if (err) {
       msg.value = err
       return
@@ -218,7 +204,6 @@ function collect() {
     library_dir: form.library_dir.trim(),
     poll_minutes: Number.parseInt(String(form.poll_minutes), 10) || 30,
     keep_source_files: form.keep_source_files,
-    discover_search_template: form.discover_search_template.trim(),
   }
   // Empty input preserves a deployment proxy without exposing its address or
   // credentials through the anonymous setup status endpoint.
@@ -264,7 +249,6 @@ async function submit(body: Record<string, unknown>) {
     // The configuration is committed; never offer to submit setup again if
     // login fails or a mount warning requires the user's attention.
     completed.value = true
-    searchConfigured.value = !!body.discover_search_template
     try {
       const result = (await res.json()) as SetupResult
       libraryWarning.value = result.library_warning ?? ''
@@ -290,7 +274,7 @@ async function submit(body: Record<string, unknown>) {
 async function finish() {
   if (locked.value || completed.value) return
   msg.value = ''
-  const err = validateAccount() || validateDownloader() || validateSearchSource() || validateNetwork()
+  const err = validateAccount() || validateDownloader() || validateNetwork()
   if (err) {
     msg.value = err
     return
@@ -332,8 +316,7 @@ function enterPanel() {
       <template v-else>
         <p v-if="libraryWarning" class="storage-warning" role="alert">{{ libraryWarning }}</p>
         <p v-if="libraryWarning">请在设置页确认媒体库目录。{{ isWindowsOS ? '目录要存在且当前用户可以写入，再开始下载。' : '容器内目录需要映射到 NAS 文件夹，再开始下载。' }}</p>
-        <p v-else-if="searchConfigured">下一步在「找番」搜索番名，预览资源并添加订阅。使用媒体服务器时，扫描{{ isWindowsOS ? '上面显示的媒体库目录' : 'Compose 中映射的 NAS 媒体文件夹' }}。</p>
-        <p v-else>尚未配置搜索源。可以直接手动添加 RSS，或稍后到设置页配置搜索模板再使用「找番」。</p>
+        <p v-else>下一步可在「搜索」查找 Bangumi 番剧，或在「订阅管理」手动添加 RSS。查看候选资源需由管理员配置在线聚合服务。</p>
       </template>
       <BaseButton variant="primary" :icon="ArrowRight" :disabled="busy" @click="enterPanel">{{ loginFailed ? '前往登录' : libraryWarning ? '检查媒体库目录' : '开始添加订阅' }}</BaseButton>
     </section>
@@ -516,26 +499,12 @@ function enterPanel() {
             </details>
           </template>
 
-          <template v-else-if="current.key === 'source'">
-            <div class="field">
-              <label for="su-source">RSS 搜索地址模板（可选）</label>
-              <input id="su-source" v-model="form.discover_search_template" type="text" spellcheck="false" autocomplete="off"
-                placeholder="https://example.com/search/rss?term={keyword}" aria-describedby="su-source-hint" />
-              <p id="su-source-hint" class="field-hint">从你使用的来源获取 RSS 搜索地址，把搜索词替换为 <code>{keyword}</code>（也支持 <code>{关键词}</code>）。普通网页搜索地址不能作为 RSS 使用；保存时仅校验格式，不检测连通性。</p>
-            </div>
-            <div class="storage-note">
-              <p>请自行确认来源的使用条款与内容授权，只订阅和下载你有权获取的内容。应用不提供或推荐资源来源。</p>
-              <p>没有模板可以留空继续，不影响手动添加 RSS；安装后可在「设置 → 网络与同步」修改。地址需能从部署设备访问，电脑上能打开不代表 NAS 可直连。</p>
-            </div>
-          </template>
-
           <template v-else>
             <dl class="setup-summary">
               <dt>登录账户</dt><dd>{{ form.user.trim() || '未启用登录' }}</dd>
               <dt>下载方式</dt><dd>{{ MODE_LABEL[form.mode] }}</dd>
               <dt>媒体库目录</dt><dd class="storage-path">{{ archiveRoot }}</dd>
               <dt>原文件做种</dt><dd>{{ form.keep_source_files ? '保留并继续做种' : '归档后删除' }}</dd>
-              <dt>搜索源</dt><dd>{{ form.discover_search_template.trim() ? '已填写自定义 RSS 搜索模板' : '暂不配置，可手动添加 RSS' }}</dd>
               <dt>网络与同步</dt><dd>{{ proxyLabel }} · 每 {{ form.poll_minutes }} 分钟</dd>
             </dl>
             <details>

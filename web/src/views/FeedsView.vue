@@ -79,7 +79,6 @@ async function remove(feed: Feed) {
   <div class="page">
     <PageHeader
       title="订阅管理"
-      description="按关键词过滤 RSS 条目，自动下载新番"
       :count="store.loaded.value ? store.feeds.value.length : undefined"
     >
       <BaseButton variant="primary" :icon="Plus" @click="dialogs.openFeed(null)">添加订阅</BaseButton>
@@ -106,10 +105,10 @@ async function remove(feed: Feed) {
       v-else-if="!store.feeds.value.length"
       :icon="SatelliteDish"
       title="还没有订阅"
-      hint="粘贴一个 RSS 地址开始追番，或先在「找番」里搜索资源站"
+      hint="在「搜索」选择版本订阅，或手动添加 RSS"
     >
       <BaseButton variant="primary" :icon="Plus" @click="dialogs.openFeed(null)">添加订阅</BaseButton>
-      <BaseButton @click="router.push('/discover')">去找番</BaseButton>
+      <BaseButton @click="router.push('/discover')">去搜索</BaseButton>
     </EmptyState>
 
     <EmptyState v-else-if="!filteredFeeds.length" :icon="SearchX" title="没有匹配的订阅" hint="试试其他关键词，或清除筛选" compact>

@@ -58,7 +58,6 @@ const form = reactive({
   proxy_url: '',
   proxy_clear_credentials: false,
   poll_minutes: 30,
-  discover_search_template: '',
   library_dir: '',
   auto_cleanup_empty_anime: false,
   keep_source_files: true,
@@ -145,7 +144,6 @@ async function load() {
     form.proxy_url = s.proxy_url || ''
     form.proxy_clear_credentials = false
     form.poll_minutes = s.poll_minutes || 30
-    form.discover_search_template = s.discover_search_template || ''
     form.library_dir = s.library_dir || ''
     form.auto_cleanup_empty_anime = s.auto_cleanup_empty_anime === true
     form.keep_source_files = s.keep_source_files !== false
@@ -182,7 +180,6 @@ async function save() {
     proxy_url: form.proxy_url.trim(),
     proxy_clear_credentials: form.proxy_clear_credentials,
     poll_minutes: Number.parseInt(String(form.poll_minutes), 10) || 30,
-    discover_search_template: form.discover_search_template.trim(),
     library_dir: form.library_dir.trim(),
     auto_cleanup_empty_anime: form.auto_cleanup_empty_anime,
     keep_source_files: form.keep_source_files,
@@ -226,7 +223,7 @@ async function save() {
 
 <template>
   <div class="page settings">
-    <PageHeader title="设置" description="让追番服务按照你的习惯运行" />
+    <PageHeader title="设置" />
 
     <div v-if="loadErr" class="form-msg" role="alert">读取设置失败：{{ loadErr }} <BaseButton @click="load">重新加载</BaseButton></div>
     <nav class="settings-nav" aria-label="设置分类">
@@ -469,7 +466,7 @@ async function save() {
           <span class="group-ico"><Globe aria-hidden="true" /></span>
           <div>
             <h2>网络与同步</h2>
-            <p>代理只作用于 RSS、找番搜索、直链下载、封面与 Webhook；下载器 RPC 始终直连</p>
+            <p>代理只作用于 RSS、番剧搜索、直链下载、封面与 Webhook；下载器 RPC 始终直连</p>
           </div>
         </header>
         <div class="field-row">
@@ -493,17 +490,6 @@ async function save() {
             <input id="st-poll" v-model.number="form.poll_minutes" type="number" min="5" max="1440" />
             <p class="field-hint">修改后从下一轮同步开始生效，最小 5 分钟。</p>
           </div>
-        </div>
-        <div class="field">
-          <label for="st-discover">找番搜索源（RSS 地址模板，含 {keyword} 占位符；留空不启用资源搜索）</label>
-          <input
-            id="st-discover"
-            v-model="form.discover_search_template"
-            type="text"
-            spellcheck="false"
-            placeholder="例如 https://example.com/search/rss?term={keyword}"
-          />
-          <p class="field-hint">应用不内置或推荐资源来源。请自行确认来源的使用条款与内容授权；保存仅校验格式，不检测连通性。留空仍可手动添加 RSS，已有订阅不受影响。</p>
         </div>
       </section>
     </fieldset>
@@ -535,6 +521,9 @@ async function save() {
 .groups.loading {
   opacity: 0.55;
   pointer-events: none;
+}
+.groups + .bangumi {
+  margin-top: 16px;
 }
 .group {
   padding: 20px 22px 12px;

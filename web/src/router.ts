@@ -13,7 +13,7 @@ export const router = createRouter({
     { path: '/library', name: 'library', component: LibraryView, meta: { title: '番剧库' } },
     { path: '/items', name: 'items', component: ItemsView, meta: { title: '最近条目' } },
     { path: '/feeds', name: 'feeds', component: FeedsView, meta: { title: '订阅管理' } },
-    { path: '/discover', name: 'discover', component: DiscoverView, meta: { title: '找番' } },
+    { path: '/discover', name: 'discover', component: DiscoverView, meta: { title: '搜索' } },
     { path: '/settings', name: 'settings', component: SettingsView, meta: { title: '设置' } },
     { path: '/:pathMatch(.*)*', redirect: '/library' },
   ],

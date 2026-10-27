@@ -86,3 +86,8 @@ func (filter Filter) Allows(title string) bool {
 func Allowed(title, include, exclude string) bool {
 	return New(include, exclude).Allows(title)
 }
+
+// Equivalent compares literal release fields using the same offline normalization as rules.
+func Equivalent(a, b string) bool {
+	return normalizeKeywordText(a) == normalizeKeywordText(b)
+}

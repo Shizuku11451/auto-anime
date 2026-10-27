@@ -402,7 +402,10 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 		return 0, e
 	}
 	f.Auto = a == 1
-	fetched, e := fetchRSS(ctx, f.URL)
+	if strings.HasPrefix(f.URL, "aggregate:") && f.EpisodeOffset == nil {
+		f.EpisodeOffset = new(int) // Aggregation returns candidates, never a complete numbering baseline.
+	}
+	fetched, e := fetchSubscription(ctx, f.URL)
 	if e != nil {
 		db.Exec("UPDATE feeds SET last_error=? WHERE id=?", e.Error(), id)
 		return 0, e
@@ -896,11 +899,16 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "订阅名称不能为空", 400)
 		return
 	}
-	// 与恢复备份、编辑订阅同一套校验：只认有主机名的 http/https，
-	// "httpfoo://" 或 "http:evil" 这类前缀相似但不可抓取的地址不再被接受。
 	if !validFeedURL(in.URL) {
-		http.Error(w, "RSS 地址无效", 400)
+		http.Error(w, "RSS 地址无效或聚合订阅规则无效", 400)
 		return
+	}
+	if strings.HasPrefix(in.URL, "aggregate:") {
+		id, rules, _ := aggregateSubscription(in.URL)
+		in.URL = "aggregate://subject/" + strconv.Itoa(id) + "?" + rules.Encode()
+		if in.EpisodeOffset == nil {
+			in.EpisodeOffset = new(int) // Search results are not a complete episode-numbering baseline.
+		}
 	}
 	target := ""
 	if in.TargetTitle != nil {
@@ -927,7 +935,7 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 	}
 	result, e := db.Exec("INSERT INTO feeds(name,url,include_words,exclude_words,auto_download,created_at,target_title,storage_dir,season_filter,allow_unknown_season,episode_offset) VALUES(?,?,?,?,?,?,?,?,?,?,?)", in.Name, in.URL, in.Include, in.Exclude, boolInt(in.Auto), time.Now().Format(time.RFC3339), target, storage, season, boolInt(allowUnknown), in.EpisodeOffset)
 	if e != nil {
-		http.Error(w, "RSS 地址已经存在", 409)
+		http.Error(w, "订阅已存在，请在订阅管理中编辑", 409)
 		return
 	}
 	newID, _ := result.LastInsertId()
@@ -935,9 +943,12 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, map[string]any{"ok": true, "id": newID, "storage_path": storagePath, "storage_warning": warning})
 }
 
-// validFeedURL 判断订阅地址是否为可抓取的 http/https URL：伪协议（"httpfoo://"）
-// 或缺少主机名（"http:///rss"）的地址即使前缀像 http 也不能保存。
+// Subscription addresses are either user-provided RSS or a validated aggregate selection.
 func validFeedURL(raw string) bool {
+	if strings.HasPrefix(raw, "aggregate:") {
+		_, _, err := aggregateSubscription(raw)
+		return err == nil
+	}
 	u, err := url.Parse(raw)
 	return err == nil && u.Hostname() != "" && (u.Scheme == "http" || u.Scheme == "https")
 }
@@ -973,9 +984,9 @@ func preview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "季数条件无效", 400)
 		return
 	}
-	fetched, err := fetchRSS(r.Context(), strings.TrimSpace(in.URL))
+	fetched, err := fetchSubscription(r.Context(), strings.TrimSpace(in.URL))
 	if err != nil {
-		http.Error(w, "RSS 预览失败："+err.Error(), 502)
+		http.Error(w, "订阅预览失败："+err.Error(), 502)
 		return
 	}
 	items := feedItemsFromEntries(fetched.Entries)
@@ -984,6 +995,9 @@ func preview(w http.ResponseWriter, r *http.Request) {
 	offset := inferEpisodeOffset(filtered)
 	if fetched.Incomplete {
 		offset = nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(in.URL), "aggregate:") {
+		offset = new(int)
 	}
 	count := len(filtered)
 	items = filtered
@@ -1114,10 +1128,16 @@ func restore(w http.ResponseWriter, r *http.Request) {
 			f.EpisodeOffset = new(int) // Legacy backups must not renumber their future episodes.
 		}
 		f.Name, f.URL = strings.TrimSpace(f.Name), strings.TrimSpace(f.URL)
-		u, err := url.Parse(f.URL)
-		if f.Name == "" || err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || !titleparse.ValidSeasonFilter(f.SeasonFilter) || !validEpisodeOffset(f.EpisodeOffset) {
+		if f.Name == "" || !validFeedURL(f.URL) || !titleparse.ValidSeasonFilter(f.SeasonFilter) || !validEpisodeOffset(f.EpisodeOffset) {
 			http.Error(w, "备份包含无效订阅", 400)
 			return
+		}
+		if strings.HasPrefix(f.URL, "aggregate:") {
+			id, rules, _ := aggregateSubscription(f.URL)
+			f.URL = "aggregate://subject/" + strconv.Itoa(id) + "?" + rules.Encode()
+			if f.EpisodeOffset == nil {
+				f.EpisodeOffset = new(int)
+			}
 		}
 	}
 	tx, err := db.BeginTx(r.Context(), nil)
@@ -1128,7 +1148,7 @@ func restore(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 	restored := 0
 	for _, f := range input.Feeds {
-		if strings.TrimSpace(f.Name) == "" || (!strings.HasPrefix(f.URL, "http://") && !strings.HasPrefix(f.URL, "https://")) {
+		if strings.TrimSpace(f.Name) == "" || !validFeedURL(f.URL) {
 			tx.Rollback()
 			http.Error(w, "备份包含无效订阅", 400)
 			return
@@ -1615,10 +1635,8 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	http.HandleFunc("/api/bangumi/subjects/", bangumiSubjectAPI)
 	http.HandleFunc("/api/bangumi/wishes", bangumiWishAPI)
 	http.HandleFunc("/api/bangumi/wishes/sync", bangumiWishSyncAPI)
-	http.HandleFunc("/api/discover/sources", discoverSourcesAPI)
 	http.HandleFunc("/api/discover/subjects", discoverSubjectsAPI)
 	http.HandleFunc("/api/discover/resources", discoverResourcesAPI)
-	http.HandleFunc("/api/discover/search", discoverSearchAPI)
 	http.HandleFunc("/api/discover/availability", discoverAvailabilityAPI)
 	http.HandleFunc("/api/health", healthStatus)
 	http.HandleFunc("/api/version", updateHandler)

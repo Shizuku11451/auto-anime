@@ -204,7 +204,7 @@ function epNo(x: { episode: string }): number {
 
 <template>
   <div class="page">
-    <PageHeader title="最近条目" description="查看下载进度，管理每一集的保存状态">
+    <PageHeader title="最近条目">
       <BaseButton :icon="RefreshCw" :loading="refreshing" :disabled="queryPending || !!batchRunning" @click="refreshItems">刷新</BaseButton>
       <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="(!list.length && !selecting) || !!batchRunning" :aria-pressed="selecting" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
     </PageHeader>

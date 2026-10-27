@@ -126,10 +126,6 @@ func applyStoredSettings(stored map[string]string) {
 			pollMinutes = n
 		}
 	}
-	// 找番自定义搜索模板：键存在即生效，清空则回到"未配置自定义源"。
-	if v, ok := stored["discover_search_template"]; ok {
-		discoverSearchTemplate = v
-	}
 	// 媒体库目录：键存在即生效（含清空回退 env），非法历史值忽略。
 	if v, ok := stored["library_dir"]; ok {
 		if clean, err := sanitizeStorageDir(v); err == nil {
@@ -251,7 +247,6 @@ type settingsInput struct {
 	ProxyURL                *string `json:"proxy_url"`
 	ProxyClearCredentials   bool    `json:"proxy_clear_credentials"`
 	PollMinutes             *int    `json:"poll_minutes"`
-	DiscoverSearchTemplate  *string `json:"discover_search_template"`
 	LibraryDir              *string `json:"library_dir"`
 	AutoCleanupEmptyAnime   *bool   `json:"auto_cleanup_empty_anime"`
 	KeepSourceFiles         *bool   `json:"keep_source_files"`
@@ -299,11 +294,6 @@ func validateSettings(in *settingsInput) error {
 	}
 	if in.ProxyURL != nil {
 		if _, err := parseProxyURL(*in.ProxyURL); err != nil {
-			return err
-		}
-	}
-	if in.DiscoverSearchTemplate != nil {
-		if _, err := validateDiscoverTemplate(*in.DiscoverSearchTemplate); err != nil {
 			return err
 		}
 	}
@@ -430,9 +420,6 @@ func saveSettings(in *settingsInput, finishSetup bool) error {
 			return err
 		}
 	}
-	if err := setTrimmed(in.DiscoverSearchTemplate, "discover_search_template"); err != nil {
-		return err
-	}
 	if err := setTrimmed(in.LibraryDir, "library_dir"); err != nil {
 		return err
 	}
@@ -482,7 +469,6 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			"proxy_url":                redactProxy(proxyURL),
 			"proxy_credentials_set":    proxyURL != nil && proxyURL.User != nil,
 			"poll_minutes":             cfg.pollMinutes,
-			"discover_search_template": cfg.discoverSearchTemplate,
 			"library_dir":              cfg.libraryDir,
 			"auto_cleanup_empty_anime": getSetting("auto_cleanup_empty_anime") == "1",
 			"keep_source_files":        cfg.keepSourceFiles,

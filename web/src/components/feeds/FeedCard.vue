@@ -23,7 +23,7 @@ const excludes = computed(() => splitKeywords(props.feed.exclude_words))
       <span v-else class="tag green">正常</span>
     </header>
 
-    <p class="url mono truncate" :title="feed.url">{{ feed.url }}</p>
+    <p class="url mono truncate" :title="feed.url.startsWith('aggregate:') ? undefined : feed.url">{{ feed.url.startsWith('aggregate:') ? '在线聚合订阅' : feed.url }}</p>
     <p v-if="feed.target_title" class="state" :title="'归入番剧：' + feed.target_title">
       <span>归入番剧：{{ feed.target_title }}</span>
     </p>

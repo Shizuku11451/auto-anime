@@ -1,140 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { runInNewContext } from 'node:vm'
 import { parse } from '@vue/compiler-sfc'
-import ts from 'typescript'
-import * as vue from 'vue'
-import * as discoverUtils from '../utils/discover.ts'
 
-const source = parse(readFileSync(new URL('./DiscoverView.vue', import.meta.url), 'utf8')).descriptor.scriptSetup.content
-const compiled = ts.transpileModule(source + '\nexport { subscribe, filters, filtered, fallbackRSS };', {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-}).outputText
-
-test('从番剧库进入默认使用番剧搜索，不提前请求 RSS；离开后不改写输入', async () => {
-  for (const scenario of ['source', 'no-source', 'unmounted']) {
-    let mount, unmount, finishLoading, searches = 0, cancellations = 0
-    const state = vue.reactive({ sources: scenario === 'no-source' ? [] : [{ id: 'source' }], source: 'source', keyword: '', result: { items: [] } })
-    const modules = {
-      vue: { ...vue, onMounted: fn => { mount = fn }, onUnmounted: fn => { unmount = fn } },
-      'vue-router': { useRoute: () => ({ query: { keyword: '测试动画' } }) },
-      '@/stores/discover': { useDiscover: () => ({ state, loadSources: () => new Promise(resolve => { finishLoading = resolve }), search: () => { searches++ }, cancelSearch: () => { cancellations++ } }) },
-      '@/stores/dialogs': { useDialogs: () => ({}) },
-      '@/stores/app': { useAppStore: () => ({ feeds: vue.ref([]) }) },
-      '@/utils/discover': discoverUtils,
-    }
-    const scope = vue.effectScope()
-    scope.run(() => runInNewContext(compiled, { exports: {}, require: id => modules[id] }))
-    const pending = mount()
-    if (scenario === 'unmounted') unmount()
-    finishLoading()
-    await pending
-    assert.equal(searches, 0)
-    assert.equal(cancellations, 1)
-    assert.equal(state.keyword, scenario === 'unmounted' ? '' : '测试动画')
-    if (scenario !== 'unmounted') assert.equal(state.result, null)
-    scope.stop()
-  }
-})
-
-test('RSS 来源仍在加载时切换模式，保留用户选定番名并在加载后搜索', async () => {
-  let mount, finishLoading, searched
-  const state = vue.reactive({ sources: [], source: '', keyword: '', result: null })
-  const modules = {
-    vue: { ...vue, onMounted: fn => { mount = fn }, onUnmounted() {} },
-    'vue-router': { useRoute: () => ({ query: { keyword: '入口旧番名' } }) },
-    '@/stores/discover': { useDiscover: () => ({ state,
-      loadSources: () => new Promise(resolve => { finishLoading = resolve }),
-      search: () => { searched = state.keyword }, cancelSearch() {},
-    }) },
-    '@/stores/dialogs': { useDialogs: () => ({}) },
-    '@/stores/app': { useAppStore: () => ({ feeds: vue.ref([]) }) },
-    '@/utils/discover': discoverUtils,
-  }
-  const context = { exports: {}, require: id => modules[id] }
-  const scope = vue.effectScope()
-  scope.run(() => runInNewContext(compiled, context))
-  const pending = mount()
-  context.exports.fallbackRSS('选定番剧')
-  assert.equal(searched, undefined)
-  state.sources = [{ id: 'source' }]
-  state.source = 'source'
-  finishLoading()
-  await pending
-  assert.equal(searched, '选定番剧')
-  scope.stop()
-})
-
-test('输入框和来源修改后，订阅仍对应展示结果；新结果到达后清除旧筛选', async (t) => {
-  const item = { title: '[字幕组] 夏日动画 [01][1080P][简中]', anime_title: '夏日动画', fansub_group: '字幕组', quality: '1080P', episode: '01', published: '', torrent: '', link: '' }
-  const state = vue.reactive({ sources: [], keyword: '尚未搜索的番名', source: 'new-source', result: { keyword: '夏日', feed_url: 'https://example.test/old-feed', items: [item] } })
-  const feeds = vue.ref([{ id: 7, name: '旧订阅', url: state.result.feed_url, storage_dir: '/data/anime', enabled: false, auto_download: false }])
-  let opened
-  const modules = {
-    vue: { ...vue, onMounted() {}, onUnmounted() {} },
-    'vue-router': { useRoute: () => ({ query: {} }) },
-    '@/stores/discover': { useDiscover: () => ({ state }) },
-    '@/stores/dialogs': { useDialogs: () => ({ openFeed: feed => { opened = feed } }) },
-    '@/stores/app': { useAppStore: () => ({ feeds }) },
-    '@/utils/discover': discoverUtils,
-  }
-  const context = { exports: {}, require: id => modules[id] }
-  const scope = vue.effectScope()
-  scope.run(() => runInNewContext(compiled, context))
-  t.after(() => scope.stop())
-  context.exports.subscribe(item)
-  assert.equal(opened.url, 'https://example.test/old-feed')
-  assert.ok(opened.include_words.startsWith('夏日,'))
-  assert.equal(opened.include_words.includes('尚未搜索'), false)
-  assert.equal(opened.id, 7)
-  assert.equal(opened.storage_dir, '/data/anime')
-  assert.equal(opened.enabled, false)
-  assert.equal(opened.auto_download, false)
-  context.exports.filters.group = '不会匹配的字幕组'
-  assert.equal(context.exports.filtered.value.length, 0)
-  state.result = { keyword: '新搜索', feed_url: 'https://example.test/new-feed', items: [item] }
-  await vue.nextTick()
-  assert.equal(context.exports.filtered.value.length, 1)
-  const traditional = { ...item,
-    title: '[綠茶字幕組] 無職轉生 第三季 ～到了異世界就拿出真本事～ / Mushoku Tensei S3 [14][WebRip][1080p][繁日內嵌]',
-    anime_title: '無職轉生 ～到了異世界就拿出真本事～', fansub_group: '綠茶字幕組', quality: '1080P',
-  }
-  state.result = { keyword: '无职转生', feed_url: 'https://example.test/traditional-feed', items: [traditional] }
-  context.exports.subscribe(traditional)
-  assert.equal(opened.url, state.result.feed_url)
-  assert.equal(opened.id, undefined)
-  assert.equal(opened.target_title, traditional.anime_title)
-  assert.ok(opened.include_words.split(',').every(word => word === '无职转生' || traditional.title.toLowerCase().includes(word.toLowerCase())))
-  assert.ok(opened.include_words.includes('無職轉生'))
-  assert.equal(opened.include_words.includes('无职转生'), true)
-  const expanded = { ...item, season: 1, feed_url: 'https://example.test/S01', query: '夏日动画 S01' }
-  state.result = { keyword: '夏日动画 第一季', base_keyword: '夏日动画', requested_season: 1, feed_url: 'https://example.test/original', items: [expanded] }
-  await vue.nextTick()
-  const remounted = { exports: {}, require: id => modules[id] }
-  scope.run(() => runInNewContext(compiled, remounted))
-  assert.equal(remounted.exports.filtered.value.length, 1)
-  state.result.items.push({ ...expanded, season: 3 })
-  assert.equal(remounted.exports.filtered.value.length, 1)
-  context.exports.subscribe(expanded)
-  assert.equal(opened.url, expanded.feed_url)
-  assert.equal(opened.season_filter, 1)
-  assert.equal(opened.allow_unknown_season, false)
-  assert.equal(opened.include_words.includes('第一季'), false)
-  context.exports.subscribe({ ...expanded, season: 0 })
-  assert.equal(opened.season_filter, -1)
-  assert.equal(opened.auto_download, false)
-  assert.equal(opened.requires_season_confirmation, true)
-  const inferred = { ...expanded, season: 0, inferred_season: 1 }
-  state.result.items.push(inferred)
-  assert.equal(remounted.exports.filtered.value.length, 2)
-  context.exports.subscribe(inferred)
-  assert.equal(opened.season_filter, -1)
-  assert.equal(opened.allow_unknown_season, false)
-  assert.equal(opened.auto_download, false)
-  assert.equal(opened.requires_season_confirmation, true)
-  assert.ok(opened.name.includes('推测第 1 季'))
-  const previous = opened
-  context.exports.subscribe({ ...expanded, season: -1 })
-  assert.equal(opened, previous)
+test('搜索页只挂载 Bangumi 与聚合资源搜索，不加载旧 RSS 搜索', () => {
+  const source = readFileSync(new URL('./DiscoverView.vue', import.meta.url), 'utf8')
+  const { descriptor, errors } = parse(source)
+  assert.deepEqual(errors, [])
+  assert.match(descriptor.template.content, /title="搜索"/)
+  assert.match(descriptor.template.content, /<SubjectSearch \/>/)
+  assert.doesNotMatch(source, /useDiscover|fallback|RSS|search-modes/)
+  const subject = readFileSync(new URL('../components/discover/SubjectSearch.vue', import.meta.url), 'utf8')
+  assert.doesNotMatch(subject, /fallback|RSS 搜索|搜索 RSS/)
 })

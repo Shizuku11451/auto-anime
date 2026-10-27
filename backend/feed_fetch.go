@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	titleparse "auto-anime/internal/title"
 )
 
 const (
@@ -26,7 +24,7 @@ var feedMaxTotalBytes = 32 << 20
 var feedPageDelay = 200 * time.Millisecond
 var feedRequestSlots = make(chan struct{}, 3)
 
-// 搜索、预览和同步必须读取同一批资源，否则预览中的早期集数不会真正入库。
+// 预览和同步必须读取同一批资源，否则预览中的早期集数不会真正入库。
 type feedEntry struct {
 	Title, Link, Torrent, Published, Description string
 }
@@ -148,24 +146,7 @@ func backfillItemPageURL(link, page string) error {
 	return tx.Commit()
 }
 
-func discoverItemsFromEntries(entries []feedEntry) []discoverItem {
-	items := make([]discoverItem, 0, len(entries))
-	for _, entry := range entries {
-		if entry.Title == "" || entry.resourceURL() == "" {
-			continue
-		}
-		info := titleparse.Extract(entry.Title)
-		items = append(items, discoverItem{
-			Title: entry.Title, AnimeTitle: info.Title, Group: info.Group,
-			Season:  titleparse.ResourceSeason(entry.Title),
-			Episode: info.Episode, Quality: info.Quality,
-			Link: entry.Link, Torrent: entry.Torrent, Published: entry.Published,
-		})
-	}
-	return items
-}
-
-// 仅用于已有 RSS 的分页兼容，不注册为找番搜索源。
+// 仅用于已有 RSS 的分页兼容，不用于资源搜索。
 var feedKnownSources = []discoverSource{
 	{ID: "acgrip", Template: "https://acg.rip/.xml?term={keyword}", PageParam: "page", PageSize: 30},
 	{ID: "mikan", Template: "https://mikanani.me/RSS/Search?searchstr={keyword}", ResultLimit: 100},

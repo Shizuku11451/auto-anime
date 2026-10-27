@@ -4,9 +4,38 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestAggregateServiceDefaultsAndCredentialIsolation(t *testing.T) {
+	for _, key := range []string{"AGGREGATE_SEARCH_URL", "AGGREGATE_SEARCH_TOKEN"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if configuredAggregateSearchURL() != defaultAggregateSearchURL {
+		t.Fatal("default service address missing")
+	}
+	if configuredAggregateSearchToken("https://custom.example") != "" {
+		t.Fatal("local credential leaked to custom endpoint")
+	}
+	t.Setenv("AGGREGATE_SEARCH_URL", " https://custom.example/ ")
+	if configuredAggregateSearchURL() != "https://custom.example" {
+		t.Fatal("custom address ignored")
+	}
+	t.Setenv("AGGREGATE_SEARCH_TOKEN", "test-explicit-token-not-a-real-secret")
+	if configuredAggregateSearchToken("https://custom.example") != os.Getenv("AGGREGATE_SEARCH_TOKEN") {
+		t.Fatal("explicit credential ignored")
+	}
+	t.Setenv("AGGREGATE_SEARCH_URL", "")
+	t.Setenv("AGGREGATE_SEARCH_TOKEN", "")
+	if configuredAggregateSearchURL() != "" || configuredAggregateSearchToken(defaultAggregateSearchURL) != "" {
+		t.Fatal("explicit empty configuration must disable defaults")
+	}
+}
 
 func TestDiscoverSubjectsWithoutRSSOrDatabase(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

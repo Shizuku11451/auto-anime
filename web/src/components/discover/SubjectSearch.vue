@@ -1,19 +1,29 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Search, X, ExternalLink, Copy, CloudOff, Compass } from '@lucide/vue'
+import { Search, X, ExternalLink, Copy, CloudOff, Compass, Plus } from '@lucide/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useSubjectSearch } from '@/stores/subjectSearch'
 import { toast } from '@/stores/toast'
 import { formatTime } from '@/utils/format'
+import { useDialogs } from '@/stores/dialogs'
+import { useAppStore } from '@/stores/app'
+import { aggregateSubscription } from '@/utils/aggregateSubscription'
+import type { AggregateResource, DiscoverSubject } from '@/api/types'
 
-defineEmits<{ fallback: [keyword: string] }>()
 const { state, search, select, close, cancel } = useSubjectSearch()
 const route = useRoute()
+const dialogs = useDialogs()
+const store = useAppStore()
 const webLink = (raw: string) => /^https?:\/\//i.test(raw)
 const magnetLink = (raw: string) => /^magnet:\?xt=urn:btih:[a-f0-9]{40}$/i.test(raw)
 const sizeLabel = (size: number) => size > 0 ? `${(size / 1024 ** 3).toFixed(2)} GB` : '大小未知'
+
+function subscribe(subject: DiscoverSubject, item: AggregateResource) {
+  const feed = aggregateSubscription(subject, item, store.feeds.value)
+  if (feed) dialogs.openFeed(feed)
+}
 
 async function copyMagnet(magnet: string) {
   if (!magnetLink(magnet)) return
@@ -34,24 +44,21 @@ onUnmounted(cancel)
   <section class="search-panel card" aria-label="搜索 Bangumi 番剧">
     <form @submit.prevent="search">
       <label class="keyword"><Search aria-hidden="true" /><input v-model="state.keyword" maxlength="100" type="search"
-        aria-label="番剧名称" placeholder="输入番名，先找到对应的 Bangumi 条目" enterkeyhint="search" /></label>
+        aria-label="番剧名称" placeholder="输入番名" enterkeyhint="search" /></label>
       <BaseButton type="submit" variant="primary" :icon="Search" :disabled="!state.keyword.trim() || (state.searching && state.attempted === state.keyword.trim())">搜索番剧</BaseButton>
     </form>
-    <p>先确认作品，再展开查看在线服务聚合的候选资源。搜索不会创建订阅或自动下载。</p>
   </section>
   <EmptyState v-if="state.searching" :icon="Compass" title="正在搜索 Bangumi" loading>
     <BaseButton :icon="X" @click="cancel">取消搜索</BaseButton>
   </EmptyState>
   <EmptyState v-else-if="state.error" :icon="CloudOff" title="番剧搜索失败" :hint="state.error" tone="error">
-    <BaseButton @click="search">重试</BaseButton><BaseButton @click="$emit('fallback', state.keyword)">改用 RSS 搜索</BaseButton>
+    <BaseButton @click="search">重试</BaseButton>
   </EmptyState>
-  <EmptyState v-else-if="!state.result" :icon="Compass" title="先找到你想看的那部番" hint="按番名搜索 Bangumi，确认季度或续作后，再查看对应资源。" />
+  <EmptyState v-else-if="!state.result" :icon="Compass" title="先找到你想看的那部番" />
   <template v-else>
     <p class="result-note" role="status">「{{ state.result.keyword }}」找到 {{ state.result.items.length }} 个 Bangumi 候选条目，最多展示 8 个。</p>
-    <p v-if="!state.result.resources_enabled" class="notice" role="status">此实例尚未配置在线聚合服务，仍可浏览番剧条目或使用 RSS 搜索。</p>
-    <EmptyState v-if="!state.result.items.length" :icon="Search" title="没有找到番剧条目" hint="试试原名或其他别名，也可直接搜索自己的 RSS 来源。">
-      <BaseButton @click="$emit('fallback', state.keyword)">改用 RSS 搜索</BaseButton>
-    </EmptyState>
+    <p v-if="!state.result.resources_enabled" class="notice" role="status">此实例尚未配置在线聚合服务，仍可浏览番剧条目；查看资源需由管理员配置服务。</p>
+    <EmptyState v-if="!state.result.items.length" :icon="Search" title="没有找到番剧条目" hint="试试原名或其他别名。" />
     <div class="subjects">
       <article v-for="subject in state.result.items" :key="subject.id" class="subject card">
         <div class="subject-heading">
@@ -70,17 +77,16 @@ onUnmounted(cancel)
           </EmptyState>
           <EmptyState v-else-if="state.resourceError" :icon="CloudOff" title="资源搜索失败" :hint="state.resourceError" compact tone="error"><BaseButton @click="select(subject.id)">重试资源搜索</BaseButton></EmptyState>
           <template v-else-if="state.resources">
-            <p class="notice">以下为名称匹配的候选资源，尚未确认属于该季度或续作；请核对原始标题。第一版支持复制磁力链接或打开来源页，不提供自动订阅及站内一键下载。</p>
+            <p class="notice">候选资源，请核对番名、季数与字幕版本。</p>
             <p v-for="warning in state.resources.warnings" :key="warning" class="notice" role="status">{{ warning }}</p>
             <p v-if="!state.resources.items.length" role="status">没有找到候选资源。可能是来源未收录、命名不同或搜索范围受限。</p>
             <div v-for="(item, index) in state.resources.items" :key="index" class="resource">
               <h3>{{ item.title }}</h3>
               <p class="metadata"><span>{{ item.sources.join(' / ') }}</span><span v-if="item.fansub_group">{{ item.fansub_group }}</span><span v-if="item.quality">{{ item.quality }}</span><span>{{ sizeLabel(item.size) }}</span><span v-if="item.published">{{ formatTime(item.published) }}</span><span v-if="item.season > 0">标题标记第 {{ item.season }} 季</span><span v-else>季数未标明</span></p>
-              <div class="resource-actions"><BaseButton v-if="magnetLink(item.magnet)" size="sm" :icon="Copy" @click="copyMagnet(item.magnet)">复制磁力</BaseButton><a v-if="magnetLink(item.magnet)" :href="item.magnet">磁力链接</a><a v-if="webLink(item.details_url)" :href="item.details_url" target="_blank" rel="noopener noreferrer">来源页 <ExternalLink aria-hidden="true" /></a></div>
+              <div class="resource-actions"><BaseButton v-if="magnetLink(item.magnet) && item.anime_title.trim() && item.season >= 0" size="sm" variant="primary" :icon="Plus" @click="subscribe(subject, item)">订阅此版本</BaseButton><BaseButton v-if="magnetLink(item.magnet)" size="sm" :icon="Copy" @click="copyMagnet(item.magnet)">复制磁力</BaseButton><a v-if="magnetLink(item.magnet)" :href="item.magnet">磁力链接</a><a v-if="webLink(item.details_url)" :href="item.details_url" target="_blank" rel="noopener noreferrer">来源页 <ExternalLink aria-hidden="true" /></a></div>
             </div>
           </template>
-          <p v-else class="notice">请由实例管理员配置在线聚合服务，或使用原有 RSS 搜索。</p>
-          <BaseButton size="sm" @click="$emit('fallback', subject.name_cn || subject.name)">用此番名搜索 RSS 并订阅</BaseButton>
+          <p v-else class="notice">请由实例管理员配置在线聚合服务。</p>
         </section>
       </article>
     </div>
@@ -93,7 +99,7 @@ form { display: flex; gap: 10px; }
 .keyword { position: relative; flex: 1; min-width: 0; }
 .keyword svg { position: absolute; left: 12px; top: 12px; width: 17px; height: 17px; color: var(--text-3); }
 .keyword input { padding-left: 38px; }
-.search-panel > p, .result-note { font-size: 12px; color: var(--text-3); margin-top: 12px; line-height: 1.7; }
+.result-note { font-size: 12px; color: var(--text-3); margin-top: 12px; line-height: 1.7; }
 .result-note { margin-bottom: 16px; }
 .subjects { display: grid; gap: 16px; }
 .subject { padding: 20px; border-radius: var(--r-lg); min-width: 0; }

@@ -66,7 +66,7 @@ function dialog(t, initiallyOpen = true, status = null, saveResponse = null, pla
     '@/api/client': { api, http, errorMessage: (e) => e.message },
     '@/stores/toast': { toast: { error: (message) => errors.push(message), info: () => {}, success: () => {} } },
   }
-  const context = { exports: {}, URL, AbortController, require: (id) => {
+  const context = { exports: {}, URL, URLSearchParams, AbortController, require: (id) => {
     assert.ok(id in modules, `unmocked setup import: ${id}`)
     return modules[id]
   } }
@@ -201,7 +201,31 @@ test('低频字段默认折叠，人工确认与预览仍在折叠区外', () =>
   assert.match(options[0][1], /id="f-season"/)
   assert.match(options[1][1], /id="f-storage"/)
   assert.doesNotMatch(options.map(m => m[1]).join(''), /seasonConfirmed|class="pre-box"/)
-  assert.match(template, /v-if="!s\.feed\?\.from_discover" class="field">\s*<label for="f-url">/)
+  assert.match(template, /v-if="!s\.feed\?\.from_discover && !aggregate" class="field">\s*<label for="f-url">/)
+  assert.match(template, /v-if="s\.feed\?\.from_discover && !aggregate" class="field">\s*<label for="f-url">/)
+})
+
+test('聚合订阅预览不推断起始集，确认后保存并沿用同步入口', async (t) => {
+  const h = dialog(t, false, null, { id: 8 })
+  h.setItems([item(`magnet:?xt=urn:btih:${'a'.repeat(40)}`, '[字幕组] 动画 [07][1080p]')])
+  h.setOffset(0)
+  h.state.feed.feed = {
+    from_discover: true, requires_season_confirmation: true, name: '动画版本',
+    url: 'aggregate://subject/1?title=anime&group=group&quality=1080P&season=0&language=',
+    target_title: '动画', episode_offset: 0, season_filter: -1,
+  }
+  h.state.feed.open = true
+  await flush()
+  assert.equal(h.component.form.offset, 0)
+  assert.doesNotMatch(h.component.preview.value, /RSS|推断集数偏移/)
+  await h.component.save()
+  assert.equal(h.saved.length, 0)
+  h.component.seasonConfirmed.value = true
+  await h.component.save()
+  assert.equal(h.saved[0].url, '/api/feeds')
+  assert.equal(h.saved[0].body.episode_offset, 0)
+  assert.equal(h.saved[0].body.season_filter, -1)
+  assert.equal(h.saved[1].url, '/api/sync/8')
 })
 
 test('打开找番弹窗自动检测带参数的种子链接', async (t) => {

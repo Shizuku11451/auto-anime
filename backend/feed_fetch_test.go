@@ -23,6 +23,30 @@ func noFeedPageDelay(t *testing.T) {
 	t.Cleanup(func() { feedPageDelay = previous })
 }
 
+func TestFeedRejectsInvalidUpstreamResponses(t *testing.T) {
+	for _, mode := range []string{"http", "html", "size"} {
+		t.Run(mode, func(t *testing.T) {
+			old := discoverMaxBytes
+			discoverMaxBytes = 64
+			t.Cleanup(func() { discoverMaxBytes = old })
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch mode {
+				case "http":
+					w.WriteHeader(http.StatusServiceUnavailable)
+				case "html":
+					fmt.Fprint(w, "<html><body>Maintenance</body></html>")
+				case "size":
+					fmt.Fprint(w, strings.Repeat("x", 128))
+				}
+			}))
+			defer server.Close()
+			if _, err := fetchRSS(context.Background(), server.URL); err == nil {
+				t.Fatal("invalid upstream response accepted")
+			}
+		})
+	}
+}
+
 func pagedTestSource(t *testing.T, template string, pageSize int) {
 	t.Helper()
 	overrideDiscoverSource(t, template)
@@ -32,8 +56,8 @@ func pagedTestSource(t *testing.T, template string, pageSize int) {
 }
 
 // Reproduce the screenshot: 30 latest entries include only episodes 05–08;
-// the following page contains 01–04. All three entry points must see them.
-func TestSearchPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
+// the following page contains 01–04. Preview and sync must see them.
+func TestPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
 	testDatabase(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("term") != "夏日动画" {
@@ -72,17 +96,12 @@ func TestSearchPreviewAndSyncReadHistoricalEpisodes(t *testing.T) {
 		t.Fatalf("initial window: %d %v", n, err)
 	}
 	feedKnownSources[0].PageParam = "page"
-	search := discoverGet(t, "/api/discover/search?source=custom&keyword="+url.QueryEscape("夏日动画"))
-	var found struct {
-		Count, Pages     int
-		History, Limited bool
-		Items            []discoverItem
-	}
-	if err := json.Unmarshal(search.Body.Bytes(), &found); err != nil || search.Code != 200 || found.Count != 72 || found.Pages != 3 || !found.History || found.Limited {
-		t.Fatalf("historical search: %d %s, %v", search.Code, search.Body.String(), err)
+	found, err := fetchRSS(context.Background(), feedURL)
+	if err != nil || len(found.Entries) != 72 || found.Pages != 3 || !found.History || found.Limited {
+		t.Fatalf("historical RSS: %+v err=%v", found, err)
 	}
 	matched := 0
-	for _, item := range found.Items {
+	for _, item := range found.Entries {
 		if keywordfilter.Allowed(item.Title, words, "") {
 			matched++
 			if !strings.HasPrefix(item.Link, server.URL+"/topic/") || !strings.HasPrefix(item.Torrent, server.URL+"/dl/") {
@@ -185,13 +204,9 @@ func TestFeedDoesNotGuessPaginationForUnknownSources(t *testing.T) {
 	}))
 	defer server.Close()
 	overrideDiscoverSource(t, server.URL+"/rss?term={keyword}")
-	rec := discoverGet(t, "/api/discover/search?source=custom&keyword=anime")
-	var result struct {
-		Count, Pages     int
-		History, Limited bool
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || result.Count != 80 || result.Pages != 1 || result.History || result.Limited || requests.Load() != 1 {
-		t.Fatalf("single RSS must retain more than 60 results without guessing pages: %s", rec.Body.String())
+	result, err := fetchRSS(context.Background(), server.URL+"/rss?term=anime")
+	if err != nil || len(result.Entries) != 80 || result.Pages != 1 || result.History || result.Limited || requests.Load() != 1 {
+		t.Fatalf("single RSS must retain more than 60 results without guessing pages: %+v err=%v", result, err)
 	}
 }
 
@@ -221,9 +236,9 @@ func TestHistoryReadFailureKeepsItemsAndRetries(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO feeds(id,name,url,target_title) VALUES(1,'动画',?,'动画')`, feedURL); err != nil {
 		t.Fatal(err)
 	}
-	rec := discoverGet(t, "/api/discover/search?source=custom&keyword=anime")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"limited":true`) || !strings.Contains(rec.Body.String(), "503") {
-		t.Fatalf("partial search hidden: %d %s", rec.Code, rec.Body.String())
+	result, err := fetchRSS(context.Background(), feedURL)
+	if err != nil || !result.Limited || !strings.Contains(result.Warning, "503") {
+		t.Fatalf("partial RSS hidden: %+v err=%v", result, err)
 	}
 	if n, err := syncFeedContext(context.Background(), 1); n != 1 || err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("partial sync must store available items and report failure: %d %v", n, err)
