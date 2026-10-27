@@ -173,5 +173,10 @@ func fetchAggregateResources(ctx context.Context, id int) (aggregate.Result, err
 	if result.Warnings == nil {
 		result.Warnings = []string{}
 	}
+	for i := range result.Items {
+		if result.Items[i].Sources == nil {
+			result.Items[i].Sources = []string{}
+		}
+	}
 	return result, nil
 }

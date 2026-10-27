@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	"auto-anime/internal/aggregate"
 )
 
 func TestAggregateServiceDefaultsAndCredentialIsolation(t *testing.T) {
@@ -128,6 +131,27 @@ func TestDiscoverResourcesCredentialsStatusAndIdentity(t *testing.T) {
 		aggregateSearchURL = address
 		if aggregateConfigured() {
 			t.Fatal("unsafe service configuration accepted")
+		}
+	}
+}
+
+func TestDiscoverResourcesNormalizesMissingSources(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"subject_id":1,"items":[{"title":"Test Anime - 01","sources":null},{"title":"Test Anime - 02"}]}`)
+	}))
+	defer upstream.Close()
+	oldURL, oldToken := aggregateSearchURL, aggregateSearchToken
+	aggregateSearchURL, aggregateSearchToken = upstream.URL, "test-search-token-not-a-real-secret-123456"
+	t.Cleanup(func() { aggregateSearchURL, aggregateSearchToken = oldURL, oldToken })
+	w := httptest.NewRecorder()
+	discoverResourcesAPI(w, httptest.NewRequest(http.MethodGet, "/api/discover/resources?subject_id=1", nil))
+	var result aggregate.Result
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Items) != 2 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	for _, item := range result.Items {
+		if item.Sources == nil {
+			t.Fatal("missing sources must be an array for resource rendering and filters")
 		}
 	}
 }
