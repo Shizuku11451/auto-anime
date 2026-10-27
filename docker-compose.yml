@@ -23,7 +23,7 @@ services:
       NATIVE_BT_PORT: "6881"
       # true 保留下载源文件做种；改为 false 时仅在归档成功后删除源文件。
       KEEP_SOURCE_FILES: "true"
-      # 默认聚合服务；仍须配置令牌，仅后端持有。地址显式留空可禁用。
+      # 默认公共聚合服务无需令牌；自建私有服务需配置令牌。地址显式留空可禁用。
       AGGREGATE_SEARCH_URL: ${AGGREGATE_SEARCH_URL-https://search.115415.xyz}
       AGGREGATE_SEARCH_TOKEN: ${AGGREGATE_SEARCH_TOKEN:-}
     volumes:

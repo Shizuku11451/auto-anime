@@ -40,7 +40,7 @@ func configuredAggregateSearchToken(address string) string {
 	}
 	value, err := localAggregateSearchToken()
 	if err != nil {
-		log.Print("本机聚合服务凭据无法读取，资源聚合未启用")
+		log.Print("本机聚合服务凭据无法读取，将使用默认公共聚合服务")
 		return ""
 	}
 	return value
@@ -48,7 +48,10 @@ func configuredAggregateSearchToken(address string) string {
 
 func aggregateConfigured() bool {
 	u, err := url.Parse(aggregateSearchURL)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(aggregateSearchToken) < 32 {
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	if len(aggregateSearchToken) < 32 && !(aggregateSearchURL == defaultAggregateSearchURL && aggregateSearchToken == "") {
 		return false
 	}
 	return u.Scheme == "https" || (u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))
@@ -141,7 +144,9 @@ func fetchAggregateResources(ctx context.Context, id int) (aggregate.Result, err
 	if err != nil {
 		return result, fmt.Errorf("聚合服务配置无效")
 	}
-	req.Header.Set("Authorization", "Bearer "+aggregateSearchToken)
+	if aggregateSearchToken != "" {
+		req.Header.Set("Authorization", "Bearer "+aggregateSearchToken)
+	}
 	client := *httpClient
 	client.Timeout = 45 * time.Second
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

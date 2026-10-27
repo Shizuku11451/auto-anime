@@ -26,6 +26,7 @@ import (
 type Config struct {
 	Token, JackettURL, JackettKey, BangumiURL string
 	Indexers                                  []string
+	Public                                    bool
 }
 
 type cacheEntry struct {
@@ -100,7 +101,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expected, supplied := sha256.Sum256([]byte("Bearer "+s.config.Token)), sha256.Sum256([]byte(r.Header.Get("Authorization")))
-	if subtle.ConstantTimeCompare(expected[:], supplied[:]) != 1 {
+	if !(s.config.Public && r.Header.Get("Authorization") == "") && subtle.ConstantTimeCompare(expected[:], supplied[:]) != 1 {
 		http.Error(w, "认证失败", http.StatusUnauthorized)
 		return
 	}

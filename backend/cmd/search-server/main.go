@@ -23,6 +23,7 @@ func main() {
 	handler, err := aggregate.New(aggregate.Config{
 		Token: os.Getenv("SEARCH_API_TOKEN"), JackettURL: os.Getenv("JACKETT_URL"),
 		JackettKey: os.Getenv("JACKETT_API_KEY"), BangumiURL: os.Getenv("BANGUMI_API"), Indexers: indexers,
+		Public: os.Getenv("SEARCH_PUBLIC") == "true",
 	})
 	if err != nil {
 		log.Fatal(err)

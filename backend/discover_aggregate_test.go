@@ -62,6 +62,40 @@ func TestDiscoverSubjectsWithoutRSSOrDatabase(t *testing.T) {
 	}
 }
 
+func TestDefaultPublicAggregateService(t *testing.T) {
+	oldURL, oldToken, oldClient := aggregateSearchURL, aggregateSearchToken, httpClient
+	t.Cleanup(func() { aggregateSearchURL, aggregateSearchToken, httpClient = oldURL, oldToken, oldClient })
+	for _, tc := range []struct {
+		address, token string
+		configured     bool
+	}{
+		{defaultAggregateSearchURL, "", true},
+		{defaultAggregateSearchURL, "short", false},
+		{"https://custom.example", "", false},
+		{"https://custom.example", "test-private-token-not-a-real-secret-123456", true},
+		{"", "", false},
+	} {
+		aggregateSearchURL, aggregateSearchToken = tc.address, tc.token
+		if aggregateConfigured() != tc.configured {
+			t.Fatalf("unexpected configured state for %q", tc.address)
+		}
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.URL.Query().Get("subject_id") != "1" {
+			t.Error("public search must not send credentials or lose subject ID")
+		}
+		fmt.Fprint(w, `{"subject_id":1,"items":[],"warnings":[]}`)
+	}))
+	defer upstream.Close()
+	aggregateSearchURL, aggregateSearchToken = defaultAggregateSearchURL, ""
+	httpClient = &http.Client{Transport: rewriteTransport{target: upstream.URL}}
+	w := httptest.NewRecorder()
+	discoverResourcesAPI(w, httptest.NewRequest(http.MethodGet, "/api/discover/resources?subject_id=1", nil))
+	if w.Code != 200 {
+		t.Fatalf("default service must work without local secrets: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestDiscoverResourcesCredentialsStatusAndIdentity(t *testing.T) {
 	status, response := 200, `{"subject_id":1,"items":[],"warnings":[]}`
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

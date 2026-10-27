@@ -27,7 +27,7 @@
 | `BANGUMI_ENABLED` | `true` | 仅值为 `true` 时开启自动元数据获取；关闭可用 `false` |
 | `BANGUMI_API` | `https://api.bgm.tv` | Bangumi API 根地址 |
 | `AGGREGATE_SEARCH_URL` | `https://search.115415.xyz` | 聚合服务 HTTPS 根地址；自建可覆盖，显式空值禁用；仅回环地址可用 HTTP，不在网页设置中修改 |
-| `AGGREGATE_SEARCH_TOKEN` | 空；Windows 可读取本机加密凭据 | 聚合服务随机令牌（至少 32 字符），仅后端持有，不进入设置 API 或 JSON 备份；显式空值禁用凭据回退 |
+| `AGGREGATE_SEARCH_TOKEN` | 空；默认公共服务无需令牌 | 自建私有服务需至少 32 字符，仅后端持有；兼容已有 Windows 加密凭据，显式空值禁用凭据回退但不禁用默认公共服务 |
 | `WEB_USER` / `WEB_PASSWORD` | 空 | 同时配置启用认证，缺一项不算完整账户 |
 | `WEBHOOK_URL` | 空 | 事件 JSON POST 接收地址 |
 | `UPDATE_CHECK` | `1` | `0` / `false` / `off` / `no` 关闭联网版本检查和一键更新 |
@@ -41,9 +41,9 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 
 ## 在线聚合搜索
 
-「搜索」先查询 Bangumi，返回最多 8 个番剧候选，不要求配置 RSS。默认服务地址为 `https://search.115415.xyz`，有有效令牌后，用户展开条目才由 NAS 后端发送 Bangumi ID 到独立聚合服务，结果显示在该条目下面。Windows 未设置令牌变量时，会读取程序同级 `secrets/aggregate-token.dpapi` 中由当前 Windows 用户加密的已有凭据；仅默认地址可用此回退，更换地址必须显式提供对应令牌，防止向其他服务泄露默认凭据。加密文件不能跨电脑或 Windows 用户复用，也不随安装包或 JSON 备份分发；缺失或无法解密时只禁用资源聚合，不影响 Bangumi 或 RSS。启动变量更改后需重建容器或重启程序，不会写入数据库。自动元数据开关 `BANGUMI_ENABLED` 不禁用此用户主动搜索。
+「搜索」先查询 Bangumi，返回最多 8 个番剧候选，不要求配置 RSS。所有平台默认使用 `https://search.115415.xyz` 公共服务，无需令牌或额外凭据文件；用户展开条目才由 NAS 后端发送 Bangumi ID 到独立服务，结果显示在该条目下面。服务器会收到请求者 IP 和条目 ID，公共服务受限流与上游可用性约束。设置 `AGGREGATE_SEARCH_URL` 为空可禁用；改用自建私有地址时仍需配置至少 32 字符的 `AGGREGATE_SEARCH_TOKEN`。Windows 未设置令牌变量时继续兼容程序同级 `secrets/aggregate-token.dpapi`，文件缺失或无法解密时回退到默认公共访问；已有凭据不会发送到其他地址，也不随安装包或 JSON 备份分发。显式空令牌不再禁用默认公共服务，应使用空地址禁用。启动变量更改后需重建容器或重启程序，不会写入数据库。自动元数据开关 `BANGUMI_ENABLED` 不禁用此用户主动搜索。
 
-在线端使用 Jackett 聚合明确启用的来源，按 InfoHash 去重、保留来源；不把名称匹配当作已验证的季度或资源归属，所有结果需人工核对。第一版仅复制磁力、打开来源页，持续订阅仍使用实际 RSS，不自动创建订阅或下载。NAS 请求沿用 `PROXY_URL`，拒绝向非回环明文 HTTP 发送令牌，不跟随重定向；上游失败不回传包含密钥的原始错误。来源条款、鉴权、缓存、限流、隐私、独立 Compose 部署及服务端变量见[在线聚合搜索服务](SEARCH_SERVER.md)。
+在线端使用 Jackett 聚合明确启用的来源，按 InfoHash 去重、保留来源；不把名称匹配当作已验证的季度或资源归属，所有结果需人工核对。可复制磁力、打开来源页，或确认「订阅此版本」后持续追更；搜索本身不自动创建订阅或下载。NAS 请求沿用 `PROXY_URL`，拒绝向非回环明文 HTTP 发送令牌，不跟随重定向；上游失败不回传包含密钥的原始错误。来源条款、鉴权、缓存、限流、隐私、独立 Compose 部署及服务端变量见[在线聚合搜索服务](SEARCH_SERVER.md)。
 
 ## 下载模式
 

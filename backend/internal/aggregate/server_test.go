@@ -106,6 +106,38 @@ func TestValidationAuthenticationAndRateLimit(t *testing.T) {
 	}
 }
 
+func TestPublicSearchOptInAuthenticationAndLimits(t *testing.T) {
+	s := fixture(t, func(http.ResponseWriter, *http.Request) { t.Error("cached public test reached upstream") })
+	s.cache[1] = cacheEntry{result: Result{SubjectID: 1, Items: []Resource{}, Warnings: []string{}}, until: time.Now().Add(time.Minute)}
+	if request(s, "/v1/search?subject_id=1", "").Code != 401 {
+		t.Fatal("private search must require authentication by default")
+	}
+	s.config.Public = true
+	for _, tc := range []struct {
+		path, token string
+		code        int
+	}{
+		{"/v1/search?subject_id=1", "", 200},
+		{"/v1/search?subject_id=1", testToken, 200},
+		{"/v1/search?subject_id=1", "wrong", 401},
+		{"/v1/search?subject_id=0", "", 400},
+		{"/unknown", "", 404},
+	} {
+		if w := request(s, tc.path, tc.token); w.Code != tc.code {
+			t.Fatalf("public search %s: got %d want %d", tc.path, w.Code, tc.code)
+		}
+	}
+	s.minute, s.count = time.Now().Unix()/60, 60
+	if w := request(s, "/v1/search?subject_id=1", ""); w.Code != 429 || w.Header().Get("Retry-After") == "" {
+		t.Fatal("public searches must retain rate limiting, including cache hits")
+	}
+	config := s.config
+	config.Token = ""
+	if _, err := New(config); err == nil {
+		t.Fatal("public mode must not accept missing private configuration")
+	}
+}
+
 func TestPartialFailureNotCachedAndUpstreamErrorsRedacted(t *testing.T) {
 	var calls atomic.Int32
 	s := fixture(t, func(w http.ResponseWriter, r *http.Request) {

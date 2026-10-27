@@ -15,6 +15,8 @@ services:
     environment:
       # The search process validates these at startup; Jackett can be configured first.
       SEARCH_API_TOKEN: ${SEARCH_API_TOKEN:-}
+      # Public access is opt-in; retain HTTPS, per-IP ingress limits and global quotas.
+      SEARCH_PUBLIC: ${SEARCH_PUBLIC:-false}
       JACKETT_URL: http://jackett:9117
       JACKETT_API_KEY: ${JACKETT_API_KEY:-}
       JACKETT_INDEXERS: ${JACKETT_INDEXERS:-}
