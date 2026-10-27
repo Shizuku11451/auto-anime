@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useEventListener, useMediaQuery } from '@vueuse/core'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import { onBeforeRouteLeave } from 'vue-router'
 import { confirmDialog } from '@/stores/confirm'
-import { FolderTree, Globe, HardDrive, RefreshCw, Rocket, Save, UserRound } from '@lucide/vue'
+import { FolderTree, Globe, HardDrive, RefreshCw, Rocket, Save, Undo2, UserRound } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BangumiWishes from '@/components/discover/BangumiWishes.vue'
@@ -13,12 +13,11 @@ import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { useUpdateStore } from '@/stores/update'
 import { MODE_LABEL, type Settings, type SettingsInput, type SetupStorageResult, type StorageCheckInput } from '@/api/types'
-import { isWindows, storageDirExample } from '@/utils/platform'
+import { isAbsoluteStoragePath, isWindows, storageDirExample } from '@/utils/platform'
 
 const store = useAppStore()
 const update = useUpdateStore()
 const { openUpdate } = useDialogs()
-const narrow = useMediaQuery('(max-width: 1000px)')
 /* 运行平台（/api/settings）：Windows 桌面版没有 Docker 卷映射，文案与路径示例不同。 */
 const isWindowsOS = computed(() => isWindows(info.value?.os))
 const pathExample = computed(() => storageDirExample(info.value?.os))
@@ -105,9 +104,54 @@ async function checkStorage() {
 const msg = ref('')
 const loadErr = ref('')
 const section = ref('download')
-const sections = [{ id: 'download', title: '下载方式', icon: HardDrive }, { id: 'library', title: '媒体库', icon: FolderTree }, { id: 'network', title: '网络与同步', icon: Globe }, { id: 'account', title: '管理员账户', icon: UserRound }, { id: 'update', title: '版本更新', icon: Rocket }]
+const sections = [
+  { id: 'download', title: '下载方式', icon: HardDrive, fields: ['download_mode', 'aria2_url', 'aria2_token', 'aria2_dir', 'aria2_local_dir', 'qbit_url', 'qbit_user', 'qbit_password', 'qbit_save_path', 'qbit_local_dir', 'transmission_url', 'transmission_user', 'transmission_password', 'transmission_download_dir', 'transmission_local_dir'] },
+  { id: 'library', title: '媒体库', icon: FolderTree, fields: ['library_dir', 'auto_cleanup_empty_anime', 'keep_source_files'] },
+  { id: 'network', title: '网络与同步', icon: Globe, fields: ['proxy_url', 'proxy_clear_credentials', 'poll_minutes'] },
+  { id: 'account', title: '管理员账户', icon: UserRound, fields: ['web_user', 'web_password'] },
+  { id: 'update', title: '版本更新', icon: Rocket, fields: [] },
+] satisfies { id: string; title: string; icon: unknown; fields: (keyof typeof form)[] }[]
 const savedForm = ref('')
 const dirty = computed(() => !!savedForm.value && JSON.stringify(form) !== savedForm.value)
+const changedSections = computed(() => {
+  if (!savedForm.value) return []
+  const saved = JSON.parse(savedForm.value) as typeof form
+  return sections.filter(tab => tab.fields.some(key => form[key] !== saved[key])).map(tab => tab.id)
+})
+const changedTitles = computed(() => sections.filter(tab => changedSections.value.includes(tab.id)).map(tab => tab.title).join('、'))
+const validationAttempted = ref(false)
+const validationErrors = computed(() => {
+  const errors: { section: string; field: keyof typeof form; id: string; message: string }[] = []
+  if (!Number.isInteger(form.poll_minutes) || form.poll_minutes < 5 || form.poll_minutes > 1440) {
+    errors.push({ section: 'network', field: 'poll_minutes', id: 'st-poll', message: '请输入 5–1440 之间的整数' })
+  }
+  if (form.library_dir.trim() && !isAbsoluteStoragePath(form.library_dir.trim(), info.value?.os)) {
+    errors.push({ section: 'library', field: 'library_dir', id: 'st-library', message: '请填写绝对路径' })
+  }
+  if ((form.web_password || info.value?.web_user) && !form.web_user.trim()) {
+    errors.push({ section: 'account', field: 'web_user', id: 'st-user', message: '请填写用户名' })
+  }
+  if (form.web_user.trim() !== (info.value?.web_user || '') && !form.web_password) {
+    errors.push({ section: 'account', field: 'web_password', id: 'st-pass', message: '修改用户名时必须同时填写新密码' })
+  } else if (form.web_password && [...form.web_password].length < 6) {
+    errors.push({ section: 'account', field: 'web_password', id: 'st-pass', message: '密码至少 6 位' })
+  }
+  return errors
+})
+function fieldError(field: keyof typeof form) {
+  return validationAttempted.value ? validationErrors.value.find(error => error.field === field)?.message : undefined
+}
+watch(form, () => { msg.value = '' }, { flush: 'sync' })
+
+async function reset() {
+  if (loading.value || saving.value || loadErr.value || !dirty.value) return
+  if (!await confirmDialog('撤销所有未保存的更改？', `将恢复${changedTitles.value}的已保存设置。`, { okText: '撤销更改', cancelText: '继续编辑' })) return
+  if (loading.value || saving.value) return
+  Object.assign(form, JSON.parse(savedForm.value))
+  clearStorageCheck()
+  validationAttempted.value = false
+  msg.value = ''
+}
 onBeforeRouteLeave(async () => {
   if (saving.value) return false
   return !dirty.value || await confirmDialog('放弃未保存的更改？', '离开后，本次设置修改不会保存。', { okText: '放弃更改', cancelText: '继续编辑' })
@@ -115,8 +159,6 @@ onBeforeRouteLeave(async () => {
 useEventListener(window, 'beforeunload', (event: BeforeUnloadEvent) => {
   if (dirty.value) { event.preventDefault(); event.returnValue = '' }
 })
-
-const modeIndex = computed(() => Math.max(0, availableModes.value.indexOf(form.download_mode)))
 
 async function load() {
   loading.value = true
@@ -148,6 +190,7 @@ async function load() {
     form.auto_cleanup_empty_anime = s.auto_cleanup_empty_anime === true
     form.keep_source_files = s.keep_source_files !== false
     savedForm.value = JSON.stringify(form)
+    validationAttempted.value = false
   } catch (e) {
     loadErr.value = errorMessage(e)
   } finally {
@@ -163,6 +206,14 @@ onMounted(() => {
 async function save() {
   if (loading.value || saving.value || loadErr.value || !dirty.value) return
   msg.value = ''
+  validationAttempted.value = true
+  const invalid = validationErrors.value[0]
+  if (invalid) {
+    section.value = invalid.section
+    await nextTick()
+    document.getElementById(invalid.id)?.focus()
+    return
+  }
   const body: SettingsInput = {
     web_user: form.web_user.trim(),
     download_mode: form.download_mode,
@@ -179,7 +230,7 @@ async function save() {
     transmission_local_dir: form.transmission_local_dir.trim(),
     proxy_url: form.proxy_url.trim(),
     proxy_clear_credentials: form.proxy_clear_credentials,
-    poll_minutes: Number.parseInt(String(form.poll_minutes), 10) || 30,
+    poll_minutes: form.poll_minutes,
     library_dir: form.library_dir.trim(),
     auto_cleanup_empty_anime: form.auto_cleanup_empty_anime,
     keep_source_files: form.keep_source_files,
@@ -188,23 +239,18 @@ async function save() {
   if (form.aria2_token) body.aria2_token = form.aria2_token
   if (form.qbit_password) body.qbit_password = form.qbit_password
   if (form.transmission_password) body.transmission_password = form.transmission_password
-  if (form.web_password) {
-    if (!body.web_user) {
-      msg.value = '设置密码前请先填写用户名'
-      return
-    }
-    if (form.web_password.length < 6) {
-      msg.value = '密码至少 6 位'
-      return
-    }
-    body.web_password = form.web_password
-  }
+  if (form.web_password) body.web_password = form.web_password
   saving.value = true
   try {
     const r = await http.put<{ ok: boolean; reauth_required: boolean; cleaned_anime: number; cleanup_warning: string; library_warning: string }>('/api/settings', body)
+    // 保存已完成，即使随后读取失败也不能重复提交密码或清理操作。
+    form.web_password = ''
+    form.aria2_token = ''
+    form.qbit_password = ''
+    form.transmission_password = ''
+    form.proxy_clear_credentials = false
+    savedForm.value = JSON.stringify(form)
     if (r.reauth_required) {
-      form.web_password = ''
-      savedForm.value = JSON.stringify(form)
       toast.info('密码已更新，请重新登录')
       location.href = '/login'
       return
@@ -225,66 +271,68 @@ async function save() {
   <div class="page settings">
     <PageHeader title="设置" />
 
-    <div v-if="loadErr" class="form-msg" role="alert">读取设置失败：{{ loadErr }} <BaseButton @click="load">重新加载</BaseButton></div>
-    <nav class="settings-nav" aria-label="设置分类">
-      <button v-for="tab in sections" :key="tab.id" type="button" :aria-current="section === tab.id ? 'true' : undefined" :class="{ active: section === tab.id }" @click="section = tab.id"><component :is="tab.icon" aria-hidden="true" />{{ tab.title }}</button>
-    </nav>
+    <div v-if="loadErr" class="load-error" role="alert">
+      <span>读取设置失败：{{ loadErr }}</span>
+      <BaseButton :loading="loading" :disabled="saving" @click="load">重新加载</BaseButton>
+    </div>
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="设置分类">
+        <button v-for="tab in sections" :key="tab.id" type="button" :aria-current="section === tab.id ? 'true' : undefined" :aria-controls="`settings-${tab.id}`" :class="{ active: section === tab.id }" @click="section = tab.id">
+          <component :is="tab.icon" aria-hidden="true" />
+          <span>{{ tab.title }}</span>
+          <span v-if="changedSections.includes(tab.id)" class="change-dot" role="img" aria-label="未保存" />
+        </button>
+      </nav>
 
-    <fieldset class="groups" :class="{ loading }" :disabled="loading || saving || !!loadErr" :aria-busy="loading">
+    <div class="settings-content">
+    <form novalidate @submit.prevent="save">
+    <fieldset class="groups" :class="{ loading: loading && section !== 'update' }" :disabled="section !== 'update' && (loading || saving || !!loadErr)" :aria-busy="loading && section !== 'update'">
       <!-- 管理员账户 -->
-      <section v-show="section === 'account'" class="group card" style="--i: 0">
+      <section id="settings-account" v-show="section === 'account'" class="group card" aria-labelledby="settings-account-title">
         <header class="group-head">
           <span class="group-ico"><UserRound aria-hidden="true" /></span>
           <div>
-            <h2>管理员账户</h2>
+            <h2 id="settings-account-title">管理员账户</h2>
             <p>启用后访问面板需要登录；修改账户或密码后所有会话退出</p>
           </div>
         </header>
         <div class="field-row">
           <div class="field">
             <label for="st-user">用户名</label>
-            <input id="st-user" v-model="form.web_user" type="text" autocomplete="username" />
+            <input id="st-user" v-model="form.web_user" type="text" autocomplete="username" :aria-invalid="!!fieldError('web_user')" :aria-describedby="fieldError('web_user') ? 'st-user-error' : undefined" />
+            <p v-if="fieldError('web_user')" id="st-user-error" class="form-msg" role="alert">{{ fieldError('web_user') }}</p>
           </div>
           <div class="field">
             <label for="st-pass">新密码{{ info?.web_password_set ? '（留空保持不变）' : '' }}</label>
-            <input id="st-pass" v-model="form.web_password" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            <input id="st-pass" v-model="form.web_password" type="password" autocomplete="new-password" placeholder="至少 6 位" :aria-invalid="!!fieldError('web_password')" :aria-describedby="fieldError('web_password') ? 'st-pass-error' : undefined" />
+            <p v-if="fieldError('web_password')" id="st-pass-error" class="form-msg" role="alert">{{ fieldError('web_password') }}</p>
           </div>
         </div>
         <p class="field-hint">普通设置无需重填密码。设置过账户后无法在页面撤销登录；修改用户名时必须同时填写新密码。</p>
       </section>
 
       <!-- 下载方式 -->
-      <section v-show="section === 'download'" class="group card" style="--i: 1">
+      <section id="settings-download" v-show="section === 'download'" class="group card" aria-labelledby="settings-download-title">
         <header class="group-head">
           <span class="group-ico"><HardDrive aria-hidden="true" /></span>
           <div>
-            <h2>下载方式</h2>
-            <p>{{ MODE_DESC[form.download_mode] }}</p>
+            <h2 id="settings-download-title">下载方式</h2>
+            <p>切换仅影响新任务，不会更改已有下载任务</p>
           </div>
         </header>
 
-        <select v-if="narrow" v-model="form.download_mode" class="mode-select" aria-label="下载模式">
-          <option v-for="m in availableModes" :key="m" :value="m">{{ MODE_LABEL[m] }}</option>
-        </select>
-        <div v-else class="seg" role="radiogroup" aria-label="下载模式" :style="{ '--active': modeIndex, '--n': availableModes.length }">
-          <span class="seg-indicator" aria-hidden="true" />
-          <button
-            v-for="m in availableModes"
-            :key="m"
-            type="button"
-            role="radio"
-            class="seg-btn"
-            :class="{ active: form.download_mode === m }"
-            :aria-checked="form.download_mode === m"
-            @click="form.download_mode = m"
-          >
-            {{ MODE_LABEL[m] }}
-          </button>
-        </div>
+        <fieldset class="mode-options">
+          <legend>下载模式</legend>
+          <label v-for="m in availableModes" :key="m" class="mode-option" :class="{ active: form.download_mode === m }">
+            <input v-model="form.download_mode" type="radio" name="download-mode" :value="m" />
+            <span>{{ MODE_LABEL[m] || m }}</span>
+          </label>
+        </fieldset>
+        <p class="field-hint mode-description">{{ MODE_DESC[form.download_mode] || '当前下载方式已不受支持，请选择其他方式。' }}</p>
 
         <Transition name="fade" mode="out-in">
           <div v-if="form.download_mode === 'native'" key="native" class="mode-panel direct-note">
-            <p class="field-hint">程序内置 BT 引擎，无需安装 qBittorrent。磁力与种子由本程序下载，普通直链仍走本地下载；任务和续传数据保存在数据目录的 <code>bt</code> 子目录，重启后继续。</p>
+            <p class="field-hint">任务和续传数据保存在数据目录的 <code>bt</code> 子目录，重启后继续。</p>
             <p v-if="isWindowsOS" class="field-hint">首次使用时 Windows 防火墙可能询问网络访问，请允许专用网络；默认从 BT 端口 6881 开始监听。</p>
             <p v-else class="field-hint">容器需要把 BT 端口段映射进来（默认 6881-6890，一个任务占一个端口）；换端口时按部署说明同时改端口映射与 <code>NATIVE_BT_PORT</code>。</p>
           </div>
@@ -372,19 +420,22 @@ async function save() {
       </section>
 
       <!-- 媒体库 -->
-      <section v-show="section === 'library'" class="group card" style="--i: 2">
+      <section id="settings-library" v-show="section === 'library'" class="group card" aria-labelledby="settings-library-title">
         <header class="group-head">
           <span class="group-ico"><FolderTree aria-hidden="true" /></span>
           <div>
-            <h2>媒体库</h2>
+            <h2 id="settings-library-title">媒体库</h2>
             <p>一部番一个文件夹，按 Season 01 / 番名 - S01E07 组织，适配飞牛影视、Emby、Jellyfin</p>
           </div>
         </header>
         <div class="field">
           <label for="st-library">媒体库目录（番剧文件夹的根目录；留空使用下载目录）</label>
-          <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" :placeholder="`例如 ${pathExample}`" />
-          <BaseButton :icon="FolderTree" :loading="storageLoading" :disabled="loading || saving || !!loadErr" @click="checkStorage">检测保存目录</BaseButton>
-          <p v-if="storageResult" class="field-hint" role="status">{{ storageResult.message }}</p>
+          <div class="storage-control">
+            <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" :placeholder="`例如 ${pathExample}`" :aria-invalid="!!fieldError('library_dir')" :aria-describedby="fieldError('library_dir') ? 'st-library-error' : undefined" />
+            <BaseButton :icon="FolderTree" :loading="storageLoading" :disabled="loading || saving || !!loadErr" @click="checkStorage">检测目录</BaseButton>
+          </div>
+          <p v-if="fieldError('library_dir')" id="st-library-error" class="form-msg" role="alert">{{ fieldError('library_dir') }}</p>
+          <p v-if="storageResult" class="storage-result" :class="storageResult.writable && storageResult.mount_status !== 'unmapped' ? 'ok' : 'warning'" role="status">{{ storageResult.message }}</p>
           <p v-if="storageError" class="form-msg" role="alert">{{ storageError }}</p>
           <p v-if="isWindowsOS" class="field-hint">
             媒体服务器扫描该目录即可；网络共享请确认当前用户可以写入。当前下载目录：<code>{{ info?.download_dir || '未知' }}</code>
@@ -416,11 +467,11 @@ async function save() {
       </section>
 
       <!-- 版本更新 -->
-      <section v-show="section === 'update'" class="group card" style="--i: 3">
+      <section id="settings-update" v-show="section === 'update'" class="group card" aria-labelledby="settings-update-title">
         <header class="group-head">
           <span class="group-ico"><Rocket aria-hidden="true" /></span>
           <div>
-            <h2>版本更新</h2>
+            <h2 id="settings-update-title">版本更新</h2>
             <p>启动后自动检查新版本；有新版本时侧边栏会出现提醒，可一键更新并重启服务</p>
           </div>
         </header>
@@ -461,11 +512,11 @@ async function save() {
       </section>
 
       <!-- 网络与同步 -->
-      <section v-show="section === 'network'" class="group card" style="--i: 4">
+      <section id="settings-network" v-show="section === 'network'" class="group card" aria-labelledby="settings-network-title">
         <header class="group-head">
           <span class="group-ico"><Globe aria-hidden="true" /></span>
           <div>
-            <h2>网络与同步</h2>
+            <h2 id="settings-network-title">网络与同步</h2>
             <p>代理只作用于 RSS、番剧搜索、直链下载、封面与 Webhook；下载器 RPC 始终直连</p>
           </div>
         </header>
@@ -487,27 +538,60 @@ async function save() {
           </div>
           <div class="field">
             <label for="st-poll">RSS 同步周期（分钟）</label>
-            <input id="st-poll" v-model.number="form.poll_minutes" type="number" min="5" max="1440" />
+            <input id="st-poll" v-model.number="form.poll_minutes" type="number" min="5" max="1440" step="1" :aria-invalid="!!fieldError('poll_minutes')" :aria-describedby="fieldError('poll_minutes') ? 'st-poll-error' : undefined" />
+            <p v-if="fieldError('poll_minutes')" id="st-poll-error" class="form-msg" role="alert">{{ fieldError('poll_minutes') }}</p>
             <p class="field-hint">修改后从下一轮同步开始生效，最小 5 分钟。</p>
           </div>
         </div>
       </section>
     </fieldset>
 
-    <BangumiWishes v-if="section === 'network'" />
-    <div class="save-bar">
-      <span class="save-status" role="status">{{ loading ? '正在读取设置…' : loadErr ? '读取失败后无法保存' : dirty ? '有未保存的更改' : '设置已与服务同步' }}</span>
+    <div v-if="section !== 'update' || dirty" class="save-bar" :class="{ dirty }">
+      <div class="save-status" role="status" aria-live="polite">
+        <strong>{{ saving ? '正在保存…' : loading ? '正在读取设置…' : loadErr ? '读取失败，暂不能保存' : dirty ? '有未保存的更改' : '所有更改已保存' }}</strong>
+        <span v-if="dirty">{{ changedTitles }}</span>
+      </div>
       <Transition name="fade">
         <p v-if="msg" class="form-msg" role="alert">{{ msg }}</p>
       </Transition>
-      <BaseButton variant="primary" :icon="Save" :loading="saving" :disabled="loading || !!loadErr || !dirty" @click="save">保存设置</BaseButton>
+      <div class="save-actions">
+        <BaseButton v-if="dirty" variant="ghost" :icon="Undo2" :disabled="loading || saving || !!loadErr" @click="reset">撤销更改</BaseButton>
+        <BaseButton type="submit" variant="primary" :icon="Save" :loading="saving" :disabled="loading || !!loadErr || !dirty">保存设置</BaseButton>
+      </div>
+    </div>
+    </form>
+    <BangumiWishes v-if="section === 'network'" />
+    </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .settings {
-  max-width: 900px;
+  max-width: 1120px;
+}
+.settings-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.settings-content {
+  min-width: 0;
+}
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--red-border);
+  border-radius: var(--r-md);
+  background: var(--red-soft);
+  color: var(--red);
+  overflow-wrap: anywhere;
 }
 .groups {
   min-width: 0;
@@ -522,7 +606,7 @@ async function save() {
   opacity: 0.55;
   pointer-events: none;
 }
-.groups + .bangumi {
+.settings-content > .bangumi {
   margin-top: 16px;
 }
 .group {
@@ -561,51 +645,58 @@ async function save() {
   height: 17px;
 }
 
-.seg {
-  position: relative;
+.mode-options {
   display: grid;
-  grid-template-columns: repeat(var(--n), 1fr);
-  padding: 4px;
-  margin-bottom: 16px;
-  border-radius: var(--r-md);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-}
-.seg-indicator {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: calc((100% - 8px) / var(--n));
-  height: calc(100% - 8px);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--accent-border);
-  transform: translateX(calc(var(--active) * 100%));
-  transition: transform 420ms var(--ease-spring);
-  pointer-events: none;
-}
-.seg-btn {
-  position: relative;
-  z-index: 1;
-  height: 36px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  margin: 0 0 12px;
   border: 0;
-  background: transparent;
+}
+.mode-options legend {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-2);
-  font-weight: 550;
+}
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--text-2);
   font-size: 13.5px;
-  border-radius: 10px;
   cursor: pointer;
-  transition: color var(--t-med) var(--ease-out);
+  overflow-wrap: anywhere;
+  transition: border-color var(--t-fast), background var(--t-fast);
 }
-.seg-btn:hover {
-  color: var(--text);
+.mode-option:hover {
+  border-color: var(--line-strong);
 }
-.seg-btn.active {
+.mode-option.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
   color: var(--accent);
   font-weight: 650;
 }
-.mode-select {
-  margin-bottom: 16px;
+.mode-option input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+.mode-option:has(:disabled) {
+  cursor: not-allowed;
+}
+.mode-description {
+  margin-bottom: 18px;
 }
 .mode-panel {
   min-height: 24px;
@@ -639,24 +730,46 @@ async function save() {
 .save-bar {
   position: sticky;
   bottom: 18px;
+  z-index: 2;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
   margin-top: 18px;
 }
-.save-status { margin-right: auto; color: var(--text-2); font-size: 13px; }
-.settings-nav { display: flex; gap: 6px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 6px; }
-.settings-nav button { display: flex; align-items: center; gap: 8px; padding: 11px 14px; white-space: nowrap; background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text-2); cursor: pointer; }
+.save-bar.dirty { border-color: var(--accent-border); }
+.save-status { display: grid; gap: 2px; flex: 1; min-width: 150px; color: var(--text-2); font-size: 13px; }
+.save-status strong { font-weight: 550; }
+.save-status > span { color: var(--text-3); font-size: 12px; }
+.save-actions { display: flex; gap: 8px; }
+.settings-nav { position: sticky; top: 24px; display: grid; gap: 4px; }
+.settings-nav button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 11px 12px; text-align: left; white-space: nowrap; background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text-2); cursor: pointer; }
 .settings-nav button:hover { background: var(--surface-2); }
-.settings-nav button.active { background: var(--accent-soft); color: var(--accent); }
-.settings-nav svg { width: 16px; height: 16px; }
-@media (max-width: 900px) { .save-bar { bottom: calc(84px + env(safe-area-inset-bottom)); } }
+.settings-nav button.active { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent); font-weight: 600; }
+.settings-nav svg { width: 16px; height: 16px; flex: none; }
+.change-dot { width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--accent); flex: none; }
+.storage-control { display: flex; gap: 8px; }
+.storage-control input { flex: 1; }
+.storage-result { padding: 10px 12px; border-radius: var(--r-sm); font-size: 12px; overflow-wrap: anywhere; }
+.storage-result.ok { color: var(--green); background: var(--green-soft); }
+.storage-result.warning { color: var(--amber); background: var(--amber-soft); }
+.field-hint, .meta-line { overflow-wrap: anywhere; }
+input[aria-invalid="true"] { border-color: var(--red-border); }
+@media (max-width: 1100px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .settings-nav { position: static; display: flex; overflow-x: auto; padding-bottom: 6px; }
+  .settings-nav button { flex: none; }
+  .change-dot { margin-left: 0; }
+}
+@media (max-width: 900px) {
+  .save-bar { bottom: calc(84px + env(safe-area-inset-bottom)); }
+}
 .save-bar .form-msg {
   margin: 0;
 }
@@ -667,6 +780,12 @@ async function save() {
   .save-bar {
     flex-direction: column;
     align-items: stretch;
+    gap: 10px;
   }
+  .save-actions > :deep(.btn) { flex: 1; }
+}
+@media (max-width: 380px) {
+  .mode-options { grid-template-columns: minmax(0, 1fr); }
+  .storage-control { flex-direction: column; }
 }
 </style>

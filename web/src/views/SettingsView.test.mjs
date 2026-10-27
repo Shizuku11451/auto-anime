@@ -13,7 +13,9 @@ const compiled = ts.transpileModule(compileScript(descriptor, { id: 'settings-te
 
 function setup() {
   const writes = []
+  const focused = []
   let fail = false
+  let put = async (_url, body) => { Object.assign(data, body); return { ok: true, reauth_required: !!body.web_password } }
   let allowLeave = false
   let leave
   let beforeUnload
@@ -42,7 +44,7 @@ function setup() {
     '@/utils/platform': platform,
     '@/api/client': { api: (...args) => probe(...args), http: {
       get: async () => { if (fail) throw new Error('模拟读取失败'); return data },
-      put: async (_url, body) => { writes.push(body); Object.assign(data, body); return { ok: true, reauth_required: !!body.web_password } },
+      put: async (url, body) => { writes.push(body); return put(url, body) },
     }, errorMessage: e => e.message },
     '@/stores/app': { useAppStore: () => ({ refresh: async () => {} }) },
     '@/stores/dialogs': { useDialogs: () => ({ openUpdate: () => {} }) },
@@ -50,10 +52,10 @@ function setup() {
     '@/stores/toast': { toast: { success() {}, error() {}, info() {} } },
     '@/stores/confirm': { confirmDialog: async () => allowLeave },
   }
-  const context = { exports: {}, window: {}, location, AbortController, require: id => { assert.ok(id in modules, id); return modules[id] } }
+  const context = { exports: {}, window: {}, document: { getElementById: id => ({ focus: () => focused.push(id) }) }, location, AbortController, require: id => { assert.ok(id in modules, id); return modules[id] } }
   runInNewContext(compiled, context)
   const state = context.exports.default.setup({}, { expose() {} })
-  return { state, data, writes, location, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
+  return { state, data, writes, focused, location, put: value => { put = value }, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowLeave = value }, leave: () => leave(), unload: e => beforeUnload(e) }
 }
 
 test('内置 BT 下载器在所有平台都可选，已移除的内置 qBittorrent 不再列出，库里存的列表外旧值也不丢', async () => {
@@ -163,4 +165,117 @@ test('目录检测失败可重试，更换目录取消请求且旧结果不得�
   await h.state.checkStorage()
   assert.equal(h.state.storageResult.value.path, '/temporary/new-library')
   assert.equal(h.writes.length, 0)
+})
+
+test('分类标记跟随更改，撤销需要确认并恢复所有分类且不发起保存', async () => {
+  const h = setup()
+  await h.state.load()
+  h.state.form.aria2_token = 'test-only-token'
+  h.state.form.library_dir = '/temporary/edited'
+  h.state.form.poll_minutes = 45
+  assert.equal(h.state.changedSections.value.join(','), 'download,library,network')
+  h.state.form.poll_minutes = 30
+  assert.equal(h.state.changedSections.value.join(','), 'download,library')
+  await h.state.reset()
+  assert.equal(h.state.dirty.value, true)
+  h.allow(true)
+  await h.state.reset()
+  assert.equal(h.state.form.library_dir, '/temporary/library')
+  assert.equal(h.state.form.aria2_token, '')
+  assert.equal(h.state.changedSections.value.length, 0)
+  assert.equal(h.state.dirty.value, false)
+  assert.equal(h.writes.length, 0)
+})
+
+test('同步周期不能静默回退或截断，保存定位隐藏分类中的字段且修改后清除错误', async () => {
+  const h = setup()
+  await h.state.load()
+  for (const value of ['', 0, 4, 1441, 5.5, NaN]) {
+    h.state.form.poll_minutes = value
+    h.state.section.value = 'download'
+    await h.state.save()
+    assert.equal(h.state.section.value, 'network')
+    assert.equal(h.focused.at(-1), 'st-poll')
+    assert.ok(h.state.fieldError('poll_minutes'))
+  }
+  assert.equal(h.writes.length, 0)
+  h.state.form.poll_minutes = 1440
+  assert.equal(h.state.fieldError('poll_minutes'), undefined)
+  await h.state.save()
+  assert.equal(h.writes[0].poll_minutes, 1440)
+})
+
+test('目录与账户校验定位对应分类，密码长度按 Unicode 字符计算', async () => {
+  const h = setup()
+  h.data.web_user = 'existing-admin'
+  h.data.os = 'windows'
+  h.data.library_dir = 'D:/temporary/library'
+  await h.state.load()
+  h.state.form.library_dir = 'relative/library'
+  await h.state.save()
+  assert.equal(h.state.section.value, 'library')
+  assert.equal(h.focused.at(-1), 'st-library')
+  h.state.form.library_dir = 'D:/temporary/library'
+  h.state.form.web_user = 'renamed-admin'
+  await h.state.save()
+  assert.equal(h.state.section.value, 'account')
+  assert.equal(h.focused.at(-1), 'st-pass')
+  h.state.form.web_password = '😀😀😀'
+  await h.state.save()
+  assert.equal(h.writes.length, 0)
+  h.state.form.web_password = '测试密码六字符'
+  h.state.form.web_user = ' '
+  await h.state.save()
+  assert.equal(h.focused.at(-1), 'st-user')
+  h.state.form.web_user = 'renamed-admin'
+  await h.state.save()
+  assert.equal(h.writes.length, 1)
+  assert.equal(h.location.href, '/login')
+})
+
+test('保存失败保留输入并允许重试，保存中不能重复提交或撤销', async () => {
+  const h = setup()
+  await h.state.load()
+  h.state.form.qbit_password = 'test-only-secret'
+  h.put(async () => { throw new Error('模拟保存失败') })
+  await h.state.save()
+  assert.equal(h.state.msg.value, '模拟保存失败')
+  assert.equal(h.state.form.qbit_password, 'test-only-secret')
+  assert.equal(h.state.dirty.value, true)
+  h.state.form.poll_minutes = 45
+  assert.equal(h.state.msg.value, '')
+  let resolve
+  h.put(() => new Promise(done => { resolve = done }))
+  const pending = h.state.save()
+  await h.state.save()
+  h.allow(true)
+  await h.state.reset()
+  assert.equal(h.writes.length, 2)
+  assert.equal(h.state.form.poll_minutes, 45)
+  resolve({ ok: true })
+  await pending
+  assert.equal(h.state.form.qbit_password, '')
+  assert.equal(h.state.dirty.value, false)
+})
+
+test('保存成功但回读失败时不保留敏感输入或误报未保存', async () => {
+  const h = setup()
+  await h.state.load()
+  h.state.form.aria2_token = 'test-only-token'
+  h.fail(true)
+  await h.state.save()
+  assert.equal(h.writes.length, 1)
+  assert.equal(h.state.form.aria2_token, '')
+  assert.equal(h.state.dirty.value, false)
+  assert.equal(h.state.loadErr.value, '模拟读取失败')
+  await h.state.save()
+  assert.equal(h.writes.length, 1)
+})
+
+test('下载模式使用原生单选组，保存只走表单提交，Bangumi 操作不嵌入设置表单', () => {
+  const template = descriptor.template.content
+  assert.match(template, /type="radio" name="download-mode"/)
+  assert.match(template, /<form novalidate @submit\.prevent="save">/)
+  assert.match(template, /<BaseButton type="submit"/)
+  assert.ok(template.indexOf('<BangumiWishes') > template.indexOf('</form>'))
 })
