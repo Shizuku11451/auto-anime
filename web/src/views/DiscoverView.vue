@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { CloudOff, Compass, Copy, History, Search, SearchX, SlidersHorizontal, TriangleAlert, X } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -13,6 +14,7 @@ import { useAppStore } from '@/stores/app'
 import { discoveredSubscriptionWords, filterReleases, groupReleases, releaseField, releaseSeason, releaseSeasonLabel, seasonLabel, subscriptionTitle, type ReleaseField, type ReleaseFilters, type ReleaseSort } from '@/utils/discover'
 
 const { state, loadSources, search, cancelSearch, retry } = useDiscover()
+const route = useRoute()
 const dialogs = useDialogs()
 const store = useAppStore()
 const releases = computed(() => groupReleases(state.result?.items ?? []))
@@ -49,8 +51,18 @@ watch(() => state.result, () => {
   if (state.result?.requested_season) season.value = String(state.result.requested_season)
 }, { immediate: true })
 
-onMounted(loadSources)
-onUnmounted(cancelSearch)
+let active = true
+onMounted(async () => {
+  await loadSources()
+  if (!active) return
+  if (typeof route.query.keyword === 'string' && route.query.keyword.trim()) {
+    cancelSearch()
+    state.result = null
+    state.keyword = route.query.keyword.slice(0, 100)
+    submit()
+  }
+})
+onUnmounted(() => { active = false; cancelSearch() })
 
 const currentSource = computed(() => state.sources.find((s) => s.id === state.source))
 const noSources = computed(() => !state.sources.length)

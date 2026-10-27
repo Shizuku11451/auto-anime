@@ -37,6 +37,7 @@ function setup() {
     '@lucide/vue': new Proxy({}, { get: () => stub }),
     '@/components/ui/PageHeader.vue': stub,
     '@/components/ui/BaseButton.vue': stub,
+    '@/components/discover/BangumiWishes.vue': stub,
     '@/api/types': { MODE_LABEL: {} },
     '@/utils/platform': platform,
     '@/api/client': { api: (...args) => probe(...args), http: {

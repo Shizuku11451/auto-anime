@@ -1576,6 +1576,7 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	startMetaWorker()
 	go enqueueMissingMeta()
 	startAnimeCleanupWorker()
+	startBangumiWishSync(ctx)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			serveWebPage(w, r, "index.html")
@@ -1611,6 +1612,8 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	http.HandleFunc("/api/animes", animesAPI)
 	http.HandleFunc("/api/animes/", animeEntryAPI)
 	http.HandleFunc("/api/meta/search", metaSearchAPI)
+	http.HandleFunc("/api/bangumi/wishes", bangumiWishAPI)
+	http.HandleFunc("/api/bangumi/wishes/sync", bangumiWishSyncAPI)
 	http.HandleFunc("/api/discover/sources", discoverSourcesAPI)
 	http.HandleFunc("/api/discover/search", discoverSearchAPI)
 	http.HandleFunc("/api/discover/availability", discoverAvailabilityAPI)

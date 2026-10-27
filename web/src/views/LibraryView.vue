@@ -9,6 +9,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import AnimeCard from '@/components/library/AnimeCard.vue'
+import BangumiWishes from '@/components/discover/BangumiWishes.vue'
 import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
 import { localDate, weekdayOfDate, weekdays, effectiveWeekday } from '@/components/library/schedule'
@@ -60,6 +61,9 @@ const allSelected = computed(() => list.value.length > 0 && list.value.every(a =
 function selectVisible() {
   selected.value = allSelected.value ? selected.value.filter(id => !list.value.some(a => a.id === id)) : [...new Set([...selected.value, ...list.value.map(a => a.id)])]
 }
+function searchWish(keyword: string) {
+  void router.push({ path: '/discover', query: { keyword: keyword.slice(0, 100) } })
+}
 </script>
 
 <template>
@@ -72,6 +76,8 @@ function selectVisible() {
       <BaseButton :icon="ListChecks" :variant="selecting ? 'soft' : 'default'" :disabled="!store.animes.value.length" @click="toggleMode">{{ selecting ? '完成管理' : '批量管理' }}</BaseButton>
       <BaseButton :icon="Plus" variant="primary" @click="dialogs.openAnimeEdit()">新建番剧</BaseButton>
     </PageHeader>
+
+    <BangumiWishes @search="searchWish" />
 
     <section class="schedule-panel" aria-label="每周追番安排">
       <div class="schedule-heading"><CalendarDays aria-hidden="true" />每周追番</div>

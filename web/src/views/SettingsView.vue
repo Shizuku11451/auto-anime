@@ -6,6 +6,7 @@ import { confirmDialog } from '@/stores/confirm'
 import { FolderTree, Globe, HardDrive, RefreshCw, Rocket, Save, UserRound } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import BangumiWishes from '@/components/discover/BangumiWishes.vue'
 import { api, http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { useAppStore } from '@/stores/app'
@@ -507,6 +508,7 @@ async function save() {
       </section>
     </fieldset>
 
+    <BangumiWishes v-if="section === 'network'" settings />
     <div class="save-bar">
       <span class="save-status" role="status">{{ loading ? '正在读取设置…' : loadErr ? '读取失败后无法保存' : dirty ? '有未保存的更改' : '设置已与服务同步' }}</span>
       <Transition name="fade">

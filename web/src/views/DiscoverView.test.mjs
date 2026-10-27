@@ -12,6 +12,32 @@ const compiled = ts.transpileModule(source + '\nexport { subscribe, filters, fil
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 
+test('从番剧库进入时使用关键词搜索，离开后不触发迟到的搜索', async () => {
+  for (const scenario of ['source', 'no-source', 'unmounted']) {
+    let mount, unmount, finishLoading, searches = 0, cancellations = 0
+    const state = vue.reactive({ sources: scenario === 'no-source' ? [] : [{ id: 'source' }], source: 'source', keyword: '', result: { items: [] } })
+    const modules = {
+      vue: { ...vue, onMounted: fn => { mount = fn }, onUnmounted: fn => { unmount = fn } },
+      'vue-router': { useRoute: () => ({ query: { keyword: '测试动画' } }) },
+      '@/stores/discover': { useDiscover: () => ({ state, loadSources: () => new Promise(resolve => { finishLoading = resolve }), search: () => { searches++ }, cancelSearch: () => { cancellations++ } }) },
+      '@/stores/dialogs': { useDialogs: () => ({}) },
+      '@/stores/app': { useAppStore: () => ({ feeds: vue.ref([]) }) },
+      '@/utils/discover': discoverUtils,
+    }
+    const scope = vue.effectScope()
+    scope.run(() => runInNewContext(compiled, { exports: {}, require: id => modules[id] }))
+    const pending = mount()
+    if (scenario === 'unmounted') unmount()
+    finishLoading()
+    await pending
+    assert.equal(searches, scenario === 'source' ? 1 : 0)
+    assert.equal(cancellations, 1)
+    assert.equal(state.keyword, scenario === 'unmounted' ? '' : '测试动画')
+    if (scenario !== 'unmounted') assert.equal(state.result, null)
+    scope.stop()
+  }
+})
+
 test('输入框和来源修改后，订阅仍对应展示结果；新结果到达后清除旧筛选', async (t) => {
   const item = { title: '[字幕组] 夏日动画 [01][1080P][简中]', anime_title: '夏日动画', fansub_group: '字幕组', quality: '1080P', episode: '01', published: '', torrent: '', link: '' }
   const state = vue.reactive({ sources: [], keyword: '尚未搜索的番名', source: 'new-source', result: { keyword: '夏日', feed_url: 'https://example.test/old-feed', items: [item] } })
@@ -19,6 +45,7 @@ test('输入框和来源修改后，订阅仍对应展示结果；新结果到�
   let opened
   const modules = {
     vue: { ...vue, onMounted() {}, onUnmounted() {} },
+    'vue-router': { useRoute: () => ({ query: {} }) },
     '@/stores/discover': { useDiscover: () => ({ state }) },
     '@/stores/dialogs': { useDialogs: () => ({ openFeed: feed => { opened = feed } }) },
     '@/stores/app': { useAppStore: () => ({ feeds }) },
