@@ -319,32 +319,29 @@ function epNo(x: { episode: string }): number {
 .resource-status p { font-size: 13px; line-height: 1.7; color: var(--text-2); }
 .resource-status .resource-hint { font-size: 12px; color: var(--text-3); }
 .resource-error { color: var(--red); font-size: 13px; }
-/* 头图：封面放大模糊作背景，前景放清晰封面与标题；没有封面时退回主题色渐变。 */
+/* 清晰封面裁切为头图，渐变遮罩保证标题可读；没有封面时退回主题色渐变。 */
 .banner {
   position: relative;
   overflow: hidden;
   margin: -20px -24px 18px;
-  min-height: 240px;
+  min-height: 320px;
   display: flex;
   align-items: flex-end;
   background: linear-gradient(135deg, var(--accent-soft), var(--surface-2));
 }
 .banner-bg {
   position: absolute;
-  inset: -40px;
-  width: calc(100% + 80px);
-  height: calc(100% + 80px);
+  inset: 0;
+  width: 100%;
+  height: 100%;
   max-width: none;
   object-fit: cover;
-  object-position: center 25%;
-  filter: blur(22px) saturate(1.15);
-  transform: scale(1.1);
-  opacity: 0.85;
+  object-position: center 60%;
 }
 .banner-shade {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(8, 10, 16, 0.2) 0%, rgba(8, 10, 16, 0.7) 65%, #10151d 100%);
+  background: linear-gradient(to top, rgba(8, 10, 16, 0.94) 0%, rgba(8, 10, 16, 0.48) 38%, rgba(8, 10, 16, 0.08) 100%);
 }
 .banner:not(.has-cover) .banner-shade {
   background: linear-gradient(to bottom, transparent 40%, var(--surface) 100%);
@@ -546,6 +543,6 @@ function epNo(x: { episode: string }): number {
   .hero-cover { width: 92px; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .banner-bg { filter: none; opacity: 0.35; }
+  .has-cover .banner-shade { background: rgba(8, 10, 16, 0.8); }
 }
 </style>
