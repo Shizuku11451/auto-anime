@@ -56,13 +56,13 @@ const library = computed<LibraryAnime[]>(() => {
   }
   const local = store.animes.value.map(a => {
     const collected = collections.get(subjectOf.get(a.id) ?? 0)
-    return { ...a, cover: a.cover || collected?.cover || '', rating: collected?.rating || a.rating, collectionType: collected?.type }
+    return { ...a, cover: a.cover || collected?.cover || '', rating: collected?.rating || a.rating, summary: a.summary || collected?.summary || '', collectionType: collected?.type }
   })
   const bound = claimed
   const pending = (wishes.value?.items ?? []).filter(w => !bound.has(w.id)).map(w => ({
     id: -w.id, bangumi_id: w.id, title: w.name || w.name_cn, meta_name: w.name, meta_name_cn: w.name_cn,
     cover: w.cover || '', cloudOnly: true, collectionType: w.type, search_name: '', season: 1, storage_dir: '', include_rules: '', exclude_rules: '',
-    updated_at: '', update_weekday: 0, item_count: 0, saved_count: 0, episode_count: 0, rating: w.rating || 0, summary: '',
+    updated_at: '', update_weekday: 0, item_count: 0, saved_count: 0, episode_count: 0, rating: w.rating || 0, summary: w.summary || '',
   }))
   return [...local, ...pending]
 })
@@ -130,7 +130,7 @@ watch(() => route.query, query => {
 /* 展示方式是个人偏好，保存在本机浏览器。 */
 const LAYOUT_KEY = 'auto-anime:library-layout'
 function storedLayout(): 'compact' | 'poster' {
-  try { return globalThis.localStorage?.getItem(LAYOUT_KEY) === 'poster' ? 'poster' : 'compact' } catch { return 'compact' }
+  try { return globalThis.localStorage?.getItem(LAYOUT_KEY) === 'compact' ? 'compact' : 'poster' } catch { return 'poster' }
 }
 const layout = ref<'compact' | 'poster'>(storedLayout())
 watch(layout, value => {
@@ -248,8 +248,8 @@ useEventListener(window, 'keydown', onKeydown)
       <BaseButton size="sm" :icon="CalendarSearch" :variant="dateOpen || date ? 'soft' : 'ghost'" :aria-expanded="dateOpen" aria-controls="library-filters" @click="dateOpen = !dateOpen">按日期</BaseButton>
       <select v-model="sort" class="sort-select" aria-label="排序"><option value="recent">最近收录</option><option value="title">名称</option><option value="resources">资源数量</option><option value="rating">评分</option><option value="weekday">更新日</option></select>
       <div class="view-switch" role="group" aria-label="番剧展示方式">
-        <button type="button" :aria-pressed="layout === 'compact'" aria-label="信息卡片" title="信息卡片" @click="layout = 'compact'"><Rows3 aria-hidden="true" /></button>
         <button type="button" :aria-pressed="layout === 'poster'" aria-label="海报墙" title="海报墙" @click="layout = 'poster'"><LayoutGrid aria-hidden="true" /></button>
+        <button type="button" :aria-pressed="layout === 'compact'" aria-label="信息卡片" title="信息卡片" @click="layout = 'compact'"><Rows3 aria-hidden="true" /></button>
       </div>
     </div>
     <div v-if="collectionTabs.length > 1" class="collection-tabs" role="group" aria-label="按收藏状态筛选">

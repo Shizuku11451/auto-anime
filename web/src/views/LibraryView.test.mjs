@@ -270,16 +270,16 @@ test('日期参数优先于星期并展开日期面板，选今天时写入日�
   assert.match(other.date.value, /^\d{4}-\d{2}-\d{2}$/)
 })
 
-test('展示方式记在本机，读取异常值回退信息卡片', async t => {
+test('默认海报墙，展示方式记在本机，读取异常值回退海报墙', async t => {
   const storage = new Map()
   const first = fixture(t, { storage }).h
-  assert.equal(first.layout.value, 'compact')
-  first.layout.value = 'poster'
+  assert.equal(first.layout.value, 'poster')
+  first.layout.value = 'compact'
   await vue.nextTick()
-  assert.equal(storage.get('auto-anime:library-layout'), 'poster')
-  assert.equal(fixture(t, { storage }).h.layout.value, 'poster')
-  storage.set('auto-anime:library-layout', 'other')
+  assert.equal(storage.get('auto-anime:library-layout'), 'compact')
   assert.equal(fixture(t, { storage }).h.layout.value, 'compact')
+  storage.set('auto-anime:library-layout', 'other')
+  assert.equal(fixture(t, { storage }).h.layout.value, 'poster')
 })
 
 test('收藏标签带计数，只显示有内容的状态，无收藏时隐藏', t => {
@@ -385,4 +385,23 @@ test('自动识别的 Bangumi 条目也与收藏合并，手动绑定优先，�
   assert.equal(byId[-541285], undefined)
   assert.equal(byId[-700], undefined)
   assert.equal(byId[-800].cloudOnly, true)
+})
+
+test('未下载的收藏使用 Bangumi 简介，本地简介优先', t => {
+  const { h, store } = fixture(t)
+  store.animes.value = [
+    { id: 1, bangumi_id: 10, title: '本地有简介', summary: '本地简介', item_count: 0, saved_count: 0 },
+    { id: 2, bangumi_id: 20, title: '本地无简介', summary: '', item_count: 0, saved_count: 0 },
+  ]
+  h.wishes.value = { items: [
+    { id: 10, name: 'a', name_cn: '', type: 1, summary: '收藏简介甲' },
+    { id: 20, name: 'b', name_cn: '', type: 1, summary: '收藏简介乙' },
+    { id: 30, name: 'c', name_cn: '', type: 1, summary: '云端简介' },
+    { id: 40, name: 'd', name_cn: '', type: 1 },
+  ] }
+  const byId = Object.fromEntries(h.library.value.map(a => [a.id, a]))
+  assert.equal(byId[1].summary, '本地简介')
+  assert.equal(byId[2].summary, '收藏简介乙')
+  assert.equal(byId[-30].summary, '云端简介')
+  assert.equal(byId[-40].summary, '')
 })

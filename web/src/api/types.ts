@@ -85,6 +85,8 @@ export interface BangumiCollection {
   name_cn: string
   cover?: string
   rating?: number
+  /* 收藏接口的简短简介；旧缓存没有该字段。 */
+  summary?: string
   type: BangumiCollectionType
 }
 

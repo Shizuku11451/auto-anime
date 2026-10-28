@@ -23,6 +23,8 @@ type bangumiWish struct {
 	Cover  string  `json:"cover,omitempty"`
 	Type   int     `json:"type"`
 	Rating float64 `json:"rating"`
+	// Summary 来自收藏接口的简短简介，供未下载番剧的卡片预览；旧缓存没有该字段。
+	Summary string `json:"summary,omitempty"`
 }
 type bangumiWishState struct {
 	Username string        `json:"username"`
@@ -67,6 +69,9 @@ func saveBangumiWishSettings(values map[string]string) error {
 	return tx.Commit()
 }
 
+// bangumiWishSummaryLimit caps each cached summary so the settings row stays small.
+const bangumiWishSummaryLimit = 300
+
 // Serialize account changes and sync so old results cannot replace a new account.
 func syncBangumiWishes(ctx context.Context) error {
 	token, username := getSetting("bangumi_token"), getSetting("bangumi_username")
@@ -85,10 +90,11 @@ func syncBangumiWishes(ctx context.Context) error {
 				SubjectID int64 `json:"subject_id"`
 				Type      int   `json:"type"`
 				Subject   struct {
-					Name   string  `json:"name"`
-					NameCN string  `json:"name_cn"`
-					Score  float64 `json:"score"`
-					Images struct {
+					Name    string  `json:"name"`
+					NameCN  string  `json:"name_cn"`
+					Score   float64 `json:"score"`
+					Summary string  `json:"short_summary"`
+					Images  struct {
 						Large  string `json:"large"`
 						Medium string `json:"medium"`
 					} `json:"images"`
@@ -116,7 +122,11 @@ func syncBangumiWishes(ctx context.Context) error {
 			if score < 0 || score > 10 {
 				score = 0
 			}
-			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score})
+			summary := strings.TrimSpace(row.Subject.Summary)
+			if r := []rune(summary); len(r) > bangumiWishSummaryLimit {
+				summary = string(r[:bangumiWishSummaryLimit]) + "…"
+			}
+			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score, Summary: summary})
 		}
 		if offset+len(page.Data) >= total {
 			break
