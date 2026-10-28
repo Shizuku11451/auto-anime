@@ -189,6 +189,10 @@ function epNo(x: { episode: string }): number {
     <template v-else-if="d">
       <section class="banner" :class="{ 'has-cover': !!cover }">
         <img v-if="cover" class="banner-bg" :src="cover" alt="" aria-hidden="true" />
+        <template v-if="cover">
+          <div class="banner-blur top" aria-hidden="true" />
+          <div class="banner-blur bottom" aria-hidden="true" />
+        </template>
         <div class="banner-shade" aria-hidden="true" />
         <div class="banner-content">
           <CoverImage :src="cover" :alt="displayName" class="hero-cover" radius="var(--r-md)" />
@@ -319,7 +323,7 @@ function epNo(x: { episode: string }): number {
 .resource-status p { font-size: 13px; line-height: 1.7; color: var(--text-2); }
 .resource-status .resource-hint { font-size: 12px; color: var(--text-3); }
 .resource-error { color: var(--red); font-size: 13px; }
-/* 清晰封面裁切为头图，渐变遮罩保证标题可读；没有封面时退回主题色渐变。 */
+/* 清晰封面裁切为头图，上下边缘模糊并渐隐到弹窗背景，中间保持清晰；没有封面时退回主题色渐变。 */
 .banner {
   position: relative;
   overflow: hidden;
@@ -338,10 +342,34 @@ function epNo(x: { episode: string }): number {
   object-fit: cover;
   object-position: center 60%;
 }
+/* 模糊层用遮罩渐变控制强度，边缘最模糊，向中间逐渐清晰，避免出现硬边。 */
+.banner-blur {
+  position: absolute;
+  left: 0;
+  right: 0;
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+  pointer-events: none;
+}
+.banner-blur.top {
+  top: 0;
+  height: 32%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+}
+.banner-blur.bottom {
+  bottom: 0;
+  height: 62%;
+  -webkit-mask-image: linear-gradient(to top, #000 35%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 35%, transparent 100%);
+}
+/* 上下渐隐到弹窗背景色，跟随明暗主题；文字区域背景足够接近主题底色以保证可读。 */
 .banner-shade {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(8, 10, 16, 0.94) 0%, rgba(8, 10, 16, 0.48) 38%, rgba(8, 10, 16, 0.08) 100%);
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--surface) 75%, transparent) 0%, transparent 24%),
+    linear-gradient(to top, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, transparent) 20%, color-mix(in srgb, var(--surface) 55%, transparent) 42%, transparent 68%);
 }
 .banner:not(.has-cover) .banner-shade {
   background: linear-gradient(to bottom, transparent 40%, var(--surface) 100%);
@@ -375,11 +403,11 @@ function epNo(x: { episode: string }): number {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.has-cover .banner-title { color: var(--text); }
 .has-cover .banner-title,
 .has-cover .banner-sub,
 .has-cover .banner-facts {
-  color: #f4f6fa;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 0 12px var(--surface), 0 0 4px var(--surface);
 }
 .banner-facts {
   display: flex;
@@ -391,7 +419,6 @@ function epNo(x: { episode: string }): number {
   font-size: 13px;
 }
 .banner-rating { color: var(--amber); }
-.has-cover .banner-rating { color: #ffc95c; }
 .banner-rating b { font-size: 20px; font-weight: 750; }
 .hero {
   display: flex;
@@ -543,6 +570,7 @@ function epNo(x: { episode: string }): number {
   .hero-cover { width: 92px; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .has-cover .banner-shade { background: rgba(8, 10, 16, 0.8); }
+  .banner-blur { display: none; }
+  .has-cover .banner-shade { background: linear-gradient(to top, var(--surface) 0%, color-mix(in srgb, var(--surface) 85%, transparent) 100%); }
 }
 </style>
