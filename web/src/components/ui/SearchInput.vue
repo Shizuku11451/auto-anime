@@ -7,6 +7,7 @@ const model = defineModel<string>({ default: '' })
 const emit = defineEmits<{ enter: [] }>()
 const input = ref<HTMLInputElement | null>(null)
 function clear() { model.value = ''; input.value?.focus() }
+defineExpose({ focus: () => input.value?.focus() })
 </script>
 
 <template>

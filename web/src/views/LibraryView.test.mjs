@@ -10,35 +10,48 @@ const compile = source => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
 const source = parse(readFileSync(new URL('./LibraryView.vue', import.meta.url), 'utf8')).descriptor.scriptSetup.content
-const compiled = compile(source + '\nexport { weekdayList, weekdayIndicator, chooseDay, date, clearFilters, library, list, matching, filter, scope, collection, hasFilters, sort, selected, chosen, selectVisible, allSelected, openAnime, loadWishes, wishes, wishError };')
+const compiled = compile(source + '\nexport { weekdayList, weekdayIndicator, chooseDay, date, weekday, clearFilters, library, list, matching, filter, scope, collection, hasFilters, sort, selected, chosen, selectVisible, allSelected, openAnime, loadWishes, wishes, wishError, layout, dateOpen, showToday, collectionTabs, collectionCounts, collectionLabel, selecting, toggleMode, search, onKeydown };')
 const schedule = { exports: {} }
 runInNewContext(compile(readFileSync(new URL('../components/library/schedule.ts', import.meta.url), 'utf8')), schedule)
 const types = { exports: {} }
 runInNewContext(compile(readFileSync(new URL('../api/types.ts', import.meta.url), 'utf8')), types)
 
-function fixture(t) {
+function fixture(t, { query = {}, storage = new Map(), dialogOpen = false } = {}) {
   let resize
   let unmount
-  const requests = [], opened = [], routes = []
+  let keydown
+  const requests = [], opened = [], routes = [], replaced = []
   const store = { animes: vue.ref([]), loaded: vue.ref(false) }
+  const route = vue.reactive({ query })
+  const localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)) }
   const modules = {
     vue: { ...vue, onMounted() {}, onBeforeUnmount(fn) { unmount = fn } },
-    '@vueuse/core': { useResizeObserver(_target, callback) { resize = callback }, useIntervalFn() {} },
-    'vue-router': { useRouter: () => ({ push: route => routes.push(route) }) },
+    '@vueuse/core': { useResizeObserver(_target, callback) { resize = callback }, useIntervalFn() {}, useEventListener(_target, _event, fn) { keydown = fn } },
+    'vue-router': {
+      useRoute: () => route,
+      useRouter: () => ({ push: next => routes.push(next), replace: next => { replaced.push(next.query); route.query = next.query; return Promise.resolve() } }),
+    },
     '@/api/client': { http: { get: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })) }, errorMessage: e => e.message },
     '@/stores/app': { useAppStore: () => store },
     '@/stores/dialogs': { useDialogs: () => ({ openAnimeDetail: (id, entry) => opened.push({ id, entry }) }) },
     '@/components/library/schedule': schedule.exports,
+    '@/composables/dialogStack': { hasOpenDialog: () => dialogOpen },
     '@/api/types': types.exports,
   }
-  const context = { exports: {}, AbortController, require: id => {
+  const context = { exports: {}, AbortController, window: {}, globalThis: { localStorage }, require: id => {
     assert.ok(id in modules, `unexpected import: ${id}`)
     return modules[id]
   } }
   const scope = vue.effectScope()
   scope.run(() => runInNewContext(compiled, context))
   t.after(() => scope.stop())
-  return { h: context.exports, store, requests, opened, routes, resize: () => resize(), unmount: () => unmount() }
+  return { h: context.exports, store, requests, opened, routes, replaced, route, storage, keydown: event => keydown(event), resize: () => resize(), unmount: () => unmount() }
+}
+
+function key(name, target = { tagName: 'BODY' }) {
+  const event = { key: name, target, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false, prevented: false }
+  event.preventDefault = () => { event.prevented = true }
+  return event
 }
 
 test('星期滑块跟随按钮、日期和清除筛选，尺寸变化与数据刷新后重新对齐', async t => {
@@ -192,4 +205,139 @@ test('想看请求忽略旧响应、旧错误和离开页面后的响应，失�
   unmount()
   requests[5].resolve({ items: [{ id: 3, name: '迟到结果', type: 1 }] }); await leaving
   assert.equal(h.library.value.length, 0)
+})
+
+test('筛选从地址恢复，修改后写回地址，非法参数回退默认值', async t => {
+  const { h, replaced, route } = fixture(t, { query: { q: '测试', collection: '3', scope: 'saved', sort: 'rating', day: '5' } })
+  assert.equal(h.filter.value, '测试')
+  assert.equal(h.collection.value, '3')
+  assert.equal(h.scope.value, 'saved')
+  assert.equal(h.sort.value, 'rating')
+  assert.equal(h.weekday.value, 5)
+  assert.equal(h.hasFilters.value, true)
+  h.collection.value = 'all'
+  h.filter.value = '  新关键词  '
+  await vue.nextTick()
+  assert.deepEqual({ ...route.query }, { q: '新关键词', scope: 'saved', sort: 'rating', day: '5' })
+  h.clearFilters()
+  h.sort.value = 'recent'
+  await vue.nextTick()
+  assert.deepEqual({ ...route.query }, {})
+  const count = replaced.length
+  h.filter.value = ''
+  await vue.nextTick()
+  assert.equal(replaced.length, count)
+
+  const bad = fixture(t, { query: { collection: '9', scope: 'x', sort: 'drop', day: '8', date: '2026-02-30' } }).h
+  assert.equal(bad.collection.value, 'all')
+  assert.equal(bad.scope.value, 'all')
+  assert.equal(bad.sort.value, 'recent')
+  assert.equal(bad.weekday.value, -1)
+  assert.equal(bad.date.value, '')
+  assert.equal(bad.hasFilters.value, false)
+})
+
+test('日期参数优先于星期并展开日期面板，选今天时写入日期', async t => {
+  const { h, route } = fixture(t, { query: { day: '2', date: '2026-10-28' } })
+  assert.equal(h.date.value, '2026-10-28')
+  assert.equal(h.weekday.value, -1)
+  assert.equal(h.dateOpen.value, true)
+  h.chooseDay(4)
+  await vue.nextTick()
+  assert.deepEqual({ ...route.query }, { day: '4' })
+  const other = fixture(t).h
+  assert.equal(other.dateOpen.value, false)
+  other.showToday()
+  assert.equal(other.dateOpen.value, true)
+  assert.match(other.date.value, /^\d{4}-\d{2}-\d{2}$/)
+})
+
+test('展示方式记在本机，读取异常值回退信息卡片', async t => {
+  const storage = new Map()
+  const first = fixture(t, { storage }).h
+  assert.equal(first.layout.value, 'compact')
+  first.layout.value = 'poster'
+  await vue.nextTick()
+  assert.equal(storage.get('auto-anime:library-layout'), 'poster')
+  assert.equal(fixture(t, { storage }).h.layout.value, 'poster')
+  storage.set('auto-anime:library-layout', 'other')
+  assert.equal(fixture(t, { storage }).h.layout.value, 'compact')
+})
+
+test('收藏标签带计数，只显示有内容的状态，无收藏时隐藏', t => {
+  const { h, store } = fixture(t)
+  store.loaded.value = true
+  store.animes.value = [
+    { id: 7, bangumi_id: 101, title: '在看本地', item_count: 1, saved_count: 1, update_weekday: 2 },
+    { id: 8, bangumi_id: 0, title: '未关联', item_count: 0, saved_count: 0, update_weekday: 3 },
+  ]
+  assert.deepEqual([...h.collectionTabs.value], [])
+  h.wishes.value = { items: [
+    { id: 101, name: '在看本地', name_cn: '', type: 3 },
+    { id: 102, name: '想看甲', name_cn: '', type: 1 },
+    { id: 103, name: '想看乙', name_cn: '', type: 1 },
+  ] }
+  assert.deepEqual([...h.collectionTabs.value], ['all', '1', '3', 'none'])
+  assert.equal(h.collectionCounts.value.all, 4)
+  assert.equal(h.collectionCounts.value['1'], 2)
+  assert.equal(h.collectionCounts.value['3'], 1)
+  assert.equal(h.collectionCounts.value.none, 1)
+  assert.equal(h.collectionLabel('1'), '想看')
+  assert.equal(h.collectionLabel('none'), '未收藏')
+  // 计数不受当前收藏标签影响，但跟随搜索与星期。
+  h.collection.value = '1'
+  assert.equal(h.collectionCounts.value.all, 4)
+  assert.equal(h.list.value.length, 2)
+  h.chooseDay(2)
+  assert.equal(h.collectionCounts.value.all, 1)
+  assert.equal(h.collectionCounts.value['3'], 1)
+  // 当前选中的标签即使为空也保留，方便切回。
+  assert.deepEqual([...h.collectionTabs.value], ['all', '1', '3'])
+  assert.equal(h.list.value.length, 0)
+})
+
+test('评分与更新日排序，名称排序优先中文名', t => {
+  const { h, store } = fixture(t)
+  store.animes.value = [
+    { id: 1, bangumi_id: 0, title: 'b-title', meta_name_cn: '乙', item_count: 0, saved_count: 0, rating: 6.5, update_weekday: 0 },
+    { id: 2, bangumi_id: 0, title: 'a-title', meta_name_cn: '丙', item_count: 0, saved_count: 0, rating: 8.2, update_weekday: 5 },
+    { id: 3, bangumi_id: 0, title: 'c-title', meta_name_cn: '', item_count: 0, saved_count: 0, rating: 0, update_weekday: 1 },
+  ]
+  h.sort.value = 'rating'
+  assert.deepEqual([...h.list.value.map(a => a.id)], [2, 1, 3])
+  h.sort.value = 'weekday'
+  assert.deepEqual([...h.list.value.map(a => a.id)], [3, 2, 1])
+  h.sort.value = 'title'
+  assert.equal(h.list.value.at(-1).id, 3)
+})
+
+test('「/」聚焦搜索，Esc 退出批量管理；输入中或弹窗打开时不拦截', t => {
+  const { h, store, keydown } = fixture(t)
+  store.animes.value = [{ id: 7, bangumi_id: 0, title: '本地', item_count: 0, saved_count: 0 }]
+  let focused = 0
+  h.search.value = { focus: () => { focused++ } }
+  const slash = key('/')
+  keydown(slash)
+  assert.equal(focused, 1)
+  assert.equal(slash.prevented, true)
+  const typing = key('/', { tagName: 'INPUT' })
+  keydown(typing)
+  assert.equal(focused, 1)
+  assert.equal(typing.prevented, false)
+  h.toggleMode()
+  h.selectVisible()
+  assert.equal(h.selecting.value, true)
+  keydown(key('Escape', { tagName: 'INPUT' }))
+  assert.equal(h.selecting.value, true)
+  keydown(key('Escape'))
+  assert.equal(h.selecting.value, false)
+  assert.equal(h.selected.value.length, 0)
+
+  const blocked = fixture(t, { dialogOpen: true })
+  blocked.h.search.value = { focus: () => { focused++ } }
+  blocked.h.toggleMode()
+  blocked.keydown(key('/'))
+  blocked.keydown(key('Escape'))
+  assert.equal(focused, 1)
+  assert.equal(blocked.h.selecting.value, true)
 })

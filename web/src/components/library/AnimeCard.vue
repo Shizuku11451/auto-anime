@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { CircleCheck, Film, Star, ChevronDown, CalendarDays, Info } from '@lucide/vue'
+import { computed } from 'vue'
+import { CircleCheck, Film, Star, CalendarDays, Info } from '@lucide/vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
 import { BANGUMI_COLLECTION_LABELS, type AnimeSummary, type BangumiCollectionType } from '@/api/types'
 import { scheduleLabel } from '@/components/library/schedule'
@@ -10,10 +10,12 @@ const emit = defineEmits<{ open: [id: number]; toggle: [id: number] }>()
 
 const displayName = computed(() => props.anime.meta_name_cn || props.anime.title)
 const showSub = computed(() => displayName.value !== props.anime.title)
-const expanded = ref(false)
-const ratio = computed(() =>
-  props.anime.item_count ? Math.round((props.anime.saved_count / props.anime.item_count) * 100) : 0,
-)
+/* 有正篇集数时按集数计算进度，否则按资源数；只是已保存比例，不是观看进度。 */
+const total = computed(() => Math.max(props.anime.episode_count || 0, props.anime.item_count))
+const ratio = computed(() => total.value ? Math.min(100, Math.round((props.anime.saved_count / total.value) * 100)) : 0)
+const progressLabel = computed(() => props.anime.episode_count
+  ? `已保存 ${props.anime.saved_count} / ${props.anime.episode_count} 集`
+  : `已保存 ${ratio.value}%`)
 </script>
 
 <template>
@@ -44,19 +46,14 @@ const ratio = computed(() =>
         <span v-if="cloudOnly"><Info aria-hidden="true" />查看详情与资源</span>
         <template v-else>
           <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
-          <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>
+          <span><CircleCheck aria-hidden="true" />{{ anime.episode_count ? `${anime.saved_count}/${anime.episode_count} 集已保存` : `${anime.saved_count} 已保存` }}</span>
         </template>
       </div>
-      <div v-if="!cloudOnly" class="ratio" :title="`已保存 ${ratio}%`" aria-hidden="true">
+      <div v-if="!cloudOnly" class="ratio" :title="progressLabel" aria-hidden="true">
         <i :style="{ width: ratio + '%' }" />
       </div>
     </div>
     </button>
-    <button v-if="anime.summary" type="button" class="summary-toggle" :aria-expanded="expanded" @click="expanded = !expanded">
-      <span>简介</span>
-      <ChevronDown aria-hidden="true" class="chev" :class="{ open: expanded }" />
-    </button>
-    <div v-if="anime.summary" v-show="expanded" class="summary-panel">{{ anime.summary }}</div>
     <div v-if="selecting && !cloudOnly" class="card-actions">
       <label class="select-label"><input type="checkbox" :checked="selected" :aria-label="`选择 ${displayName}`" @change="emit('toggle', anime.id)" />{{ selected ? '已选择' : '选择' }}</label>
     </div>
@@ -97,8 +94,6 @@ const ratio = computed(() =>
 .compact .rating-badge { top: 5px; right: 5px; padding: 3px 5px; font-size: 10px; }
 .compact .poster-tags { left: 5px; right: 5px; bottom: 5px; }
 .compact .poster-tags .tag { font-size: 9px; }
-.compact .summary-toggle { margin-top: 8px; padding: 4px 0 0; border: 0; justify-content: flex-end; gap: 6px; }
-.compact .summary-panel { padding: 10px 0 0; margin-top: 8px; }
 .compact .card-actions { padding: 8px 0 0; margin-top: 8px; min-height: 32px; }
 .compact .ratio { margin-top: 2px; }
 .anime-card:hover,
@@ -215,36 +210,6 @@ const ratio = computed(() =>
   height: 12px;
   color: var(--amber);
   fill: var(--amber);
-}
-.summary-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 8px 13px;
-  border: 0;
-  border-top: 1px solid var(--line);
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12px;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
-}
-.summary-toggle:hover { color: var(--text); background: var(--surface-2); }
-.summary-toggle:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
-.summary-toggle .chev { width: 14px; height: 14px; flex: none; transition: transform var(--t-med) var(--ease-out); }
-.summary-toggle .chev.open { transform: rotate(180deg); }
-.summary-panel {
-  padding: 10px 13px 12px;
-  border-top: 1px dashed var(--line);
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.65;
-  white-space: pre-line;
-  max-height: 180px;
-  overflow: auto;
 }
 .body {
   padding: 12px 13px 13px;

@@ -56,28 +56,31 @@ function card(extra = {}) {
   return { events, bound }
 }
 
-test('编译后的卡片包含评分徽章与简介展开结构', () => {
+test('编译后的卡片包含评分徽章与悬停简介，不再有卡内展开面板', () => {
   const template = descriptor.template.content.replace(/\r\n/g, '\n')
   assert.match(template, /v-if="anime\.rating > 0"/)
   assert.match(template, /class="rating-badge"/)
   assert.match(template, /Bangumi 评分 \$\{anime\.rating\.toFixed\(1\)\}/)
   assert.match(template, /v-if="anime\.summary" class="poster-veil" aria-hidden="true"/)
   assert.match(template, /class="veil-text"/)
-  assert.match(template, /v-if="anime\.summary" type="button" class="summary-toggle"/)
-  assert.match(template, /:aria-expanded="expanded"/)
-  assert.match(template, /@click="expanded = !expanded"/)
-  assert.match(template, /v-if="anime\.summary" v-show="expanded" class="summary-panel"/)
-  assert.match(template, /\{\{ anime\.summary \}\}/)
+  assert.doesNotMatch(template, /summary-toggle|summary-panel|aria-expanded/)
 })
 
-test('评分与简介齐全时 setup 暴露展开状态，默认收起可切换', async () => {
+test('有正篇集数时按集数计算已保存进度，否则按资源数', () => {
   const h = card()
-  assert.equal(vue.unref(h.bound.expanded), false)
-  assert.equal(vue.unref(h.bound.ratio), 100)
   assert.equal(vue.unref(h.bound.displayName), '无职转生 第三季')
-  h.bound.expanded.value = !h.bound.expanded.value
-  await vue.nextTick()
-  assert.equal(vue.unref(h.bound.expanded), true)
+  assert.equal(vue.unref(h.bound.ratio), 100)
+  assert.equal(vue.unref(h.bound.progressLabel), '已保存 8 / 8 集')
+  const airing = card({ episode_count: 12, item_count: 6, saved_count: 3 })
+  assert.equal(vue.unref(airing.bound.ratio), 25)
+  assert.equal(vue.unref(airing.bound.progressLabel), '已保存 3 / 12 集')
+  const unknown = card({ episode_count: 0, item_count: 4, saved_count: 1 })
+  assert.equal(vue.unref(unknown.bound.ratio), 25)
+  assert.equal(vue.unref(unknown.bound.progressLabel), '已保存 25%')
+  // 资源多于正篇集数（合集、多版本）时按资源数计算，进度不超过 100%。
+  const extra = card({ episode_count: 2, item_count: 5, saved_count: 5 })
+  assert.equal(vue.unref(extra.bound.ratio), 100)
+  assert.equal(vue.unref(card({ episode_count: 0, item_count: 0, saved_count: 0 }).bound.ratio), 0)
 })
 
 test('未绑定元数据的番剧标题回退且无展开内容', () => {
@@ -87,7 +90,7 @@ test('未绑定元数据的番剧标题回退且无展开内容', () => {
   assert.equal(vue.unref(h.bound.ratio), 100)
 })
 
-test('模板渲染：评分徽章随评分出现，简介面板默认收起', async () => {
+test('模板渲染：评分徽章随评分出现，简介只在封面悬停层显示', async () => {
   const { compileTemplate } = await import('@vue/compiler-sfc')
   const { renderToString } = await import('vue/server-renderer')
   const tpl = compileTemplate({
@@ -108,24 +111,21 @@ test('模板渲染：评分徽章随评分出现，简介面板默认收起', as
   assert.match(withMeta, /rating-badge/)
   assert.match(withMeta, /7\.9/)
   assert.match(withMeta, /Bangumi 评分 7\.9/)
-  assert.match(withMeta, /aria-expanded="false"/)
-  assert.match(withMeta, /summary-panel/)
-  assert.match(withMeta, /display:none/)
+  assert.doesNotMatch(withMeta, /summary-toggle|summary-panel|aria-expanded/)
   assert.match(withMeta, /poster-veil/)
   assert.match(withMeta, /veil-text/)
   assert.match(withMeta, /class="veil-text">[^<]*这是第一行简介。/)
   const withoutMeta = await html({ ...anime, rating: 0, summary: '', bangumi_id: 0 })
   assert.doesNotMatch(withoutMeta, /rating-badge/)
-  assert.doesNotMatch(withoutMeta, /summary-toggle/)
-  assert.doesNotMatch(withoutMeta, /summary-panel/)
   assert.doesNotMatch(withoutMeta, /poster-veil/)
   for (const [type, label] of Object.entries(typesContext.exports.BANGUMI_COLLECTION_LABELS)) {
     const local = await html(anime, { collectionType: Number(type), selecting: true })
     assert.match(local, new RegExp(`>${label}</span>`))
     assert.match(local, /8 资源/)
-    assert.match(local, /8 已保存/)
+    assert.match(local, /8\/8 集已保存/)
     assert.match(local, /type="checkbox"/)
     assert.match(local, /class="ratio"/)
+    assert.match(local, /title="已保存 8 \/ 8 集"/)
     assert.match(local, /不代表本地下载或播放进度/)
   }
   const cloud = await html(anime, { collectionType: 3, cloudOnly: true, selecting: true })
@@ -133,6 +133,9 @@ test('模板渲染：评分徽章随评分出现，简介面板默认收起', as
   assert.match(cloud, /打开详情/)
   assert.match(cloud, /查看详情与资源/)
   assert.match(cloud, /disabled/)
-  assert.doesNotMatch(cloud, /type="checkbox"|class="ratio"|8 资源|8 已保存/)
+  assert.doesNotMatch(cloud, /type="checkbox"|class="ratio"|8 资源|已保存/)
+  const unknownTotal = await html({ ...anime, episode_count: 0, item_count: 4, saved_count: 1 })
+  assert.match(unknownTotal, /1 已保存/)
+  assert.match(unknownTotal, /title="已保存 25%"/)
   assert.doesNotMatch(withMeta, /class="collection-state"/)
 })

@@ -16,6 +16,10 @@ export function isTopDialog(id: symbol): boolean {
   return stack[stack.length - 1] === id
 }
 
+export function hasOpenDialog(): boolean {
+  return stack.length > 0
+}
+
 function sync() {
   document.body.style.overflow = stack.length ? 'hidden' : ''
 }
