@@ -237,6 +237,24 @@ test('筛选从地址恢复，修改后写回地址，非法参数回退默认�
   assert.equal(bad.hasFilters.value, false)
 })
 
+test('页面复用时地址从外部改变，筛选跟随地址且不来回写入', async t => {
+  const { h, route, replaced } = fixture(t, { query: { collection: '1', sort: 'rating' } })
+  assert.equal(h.collection.value, '1')
+  route.query = {}
+  await vue.nextTick()
+  assert.equal(h.collection.value, 'all')
+  assert.equal(h.sort.value, 'recent')
+  assert.equal(h.hasFilters.value, false)
+  route.query = { q: '甲', date: '2026-10-28', day: '3' }
+  await vue.nextTick()
+  assert.equal(h.filter.value, '甲')
+  assert.equal(h.date.value, '2026-10-28')
+  assert.equal(h.weekday.value, -1)
+  assert.equal(h.dateOpen.value, true)
+  await vue.nextTick()
+  assert.equal(replaced.length, 0)
+})
+
 test('日期参数优先于星期并展开日期面板，选今天时写入日期', async t => {
   const { h, route } = fixture(t, { query: { day: '2', date: '2026-10-28' } })
   assert.equal(h.date.value, '2026-10-28')

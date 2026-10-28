@@ -92,9 +92,24 @@ const sort = ref(initial.sort)
 const weekday = ref(initial.date ? -1 : initial.day)
 const date = ref(initial.date)
 const dateOpen = ref(!!initial.date)
+function currentQuery() {
+  return writeQuery({ q: filter.value.trim(), collection: collection.value, scope: scope.value, sort: sort.value, day: weekday.value, date: date.value })
+}
 watch([filter, collection, scope, sort, weekday, date], () => {
-  const next = writeQuery({ q: filter.value.trim(), collection: collection.value, scope: scope.value, sort: sort.value, day: weekday.value, date: date.value })
+  const next = currentQuery()
   if (JSON.stringify(next) !== JSON.stringify(writeQuery(readQuery(route.query)))) void router.replace({ query: next })
+})
+/* 页面复用时地址可能从外部改变（侧栏再次点击番剧库、浏览器前进后退），以地址为准同步筛选。 */
+watch(() => route.query, query => {
+  const state = readQuery(query)
+  if (JSON.stringify(writeQuery(state)) === JSON.stringify(currentQuery())) return
+  filter.value = state.q
+  collection.value = state.collection
+  scope.value = state.scope
+  sort.value = state.sort
+  date.value = state.date
+  weekday.value = state.date ? -1 : state.day
+  if (state.date) dateOpen.value = true
 })
 
 /* 展示方式是个人偏好，保存在本机浏览器。 */
