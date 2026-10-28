@@ -14,8 +14,10 @@ const props = withDefaults(
     closable?: boolean
     /** 点击遮罩不关闭 */
     persistent?: boolean
+    /** 内容顶到面板顶部：头部变为透明浮层，只保留关闭按钮，标题仅供读屏（由内容自行展示标题） */
+    bleed?: boolean
   }>(),
-  { size: 'md', closable: true, persistent: false },
+  { size: 'md', closable: true, persistent: false, bleed: false },
 )
 
 const emit = defineEmits<{ close: [] }>()
@@ -76,11 +78,11 @@ function onBackdrop(e: MouseEvent) {
   <Teleport to="body">
     <Transition name="dlg">
       <div v-if="open" class="overlay" role="presentation" @mousedown.self="onBackdrop">
-        <div ref="panel" class="dialog" :class="`size-${size}`" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" @keydown="trapFocus">
+        <div ref="panel" class="dialog" :class="[`size-${size}`, { bleed }]" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" @keydown="trapFocus">
           <header v-if="title || $slots.header || closable" class="dialog-head">
             <div class="dialog-head-main">
               <slot name="header">
-                <h2 class="dialog-title">{{ title }}</h2>
+                <h2 class="dialog-title" :class="{ 'sr-only': bleed }">{{ title }}</h2>
               </slot>
             </div>
             <BaseButton v-if="closable" variant="ghost" size="sm" icon-only :icon="X" aria-label="关闭" @click="emit('close')" />
@@ -171,6 +173,40 @@ function onBackdrop(e: MouseEvent) {
 }
 .dialog-foot :deep(.spacer) {
   flex: 1;
+}
+/* bleed：头部浮在内容之上，内容从面板顶边开始，避免头部横条把头图截断。 */
+.dialog.bleed {
+  position: relative;
+}
+.bleed .dialog-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  padding: 12px 12px 0;
+  border-bottom: 0;
+  pointer-events: none;
+}
+.bleed .dialog-head :deep(.btn) {
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.bleed .dialog-body {
+  padding-top: 0;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* 入场：遮罩淡入 + 面板弹性上浮；离场：快速缩回 */

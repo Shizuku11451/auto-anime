@@ -172,8 +172,8 @@ function epNo(x: { episode: string }): number {
 </script>
 
 <template>
-  <BaseDialog :open="s.open" :title="displayName || '番剧详情'" size="xl" @close="close">
-    <div v-if="!d && s.loading" class="hero" aria-busy="true">
+  <BaseDialog :open="s.open" :title="displayName || '番剧详情'" size="xl" bleed @close="close">
+    <div v-if="!d && s.loading" class="hero top-gap" aria-busy="true">
       <SkeletonBlock width="112px" height="168px" radius="var(--r-md)" />
       <div class="hero-lines">
         <SkeletonBlock height="14px" width="60%" />
@@ -182,7 +182,7 @@ function epNo(x: { episode: string }): number {
       </div>
     </div>
 
-    <EmptyState v-else-if="!d && s.error" :icon="Inbox" title="加载失败" :hint="s.error" tone="error" compact>
+    <EmptyState v-else-if="!d && s.error" class="top-gap" :icon="Inbox" title="加载失败" :hint="s.error" tone="error" compact>
       <BaseButton @click="dialogs.reloadAnimeDetail()">重试</BaseButton>
     </EmptyState>
 
@@ -324,10 +324,12 @@ function epNo(x: { episode: string }): number {
 .resource-error { color: var(--red); font-size: 13px; }
 /* 头图分三层，过渡连续无分界：底层是同一封面的模糊版；上层清晰封面用遮罩从中间向上下渐隐，
    露出底下的模糊版；最上层再把上下边缘平滑淡入弹窗背景色。没有封面时退回主题色渐变。 */
+/* 弹窗为 bleed 模式：正文无上内边距，头图直接贴到面板顶边，没有头部横条打断。 */
+.top-gap { margin-top: 56px; }
 .banner {
   position: relative;
   overflow: hidden;
-  margin: -20px -24px 18px;
+  margin: 0 -24px 18px;
   min-height: 320px;
   display: flex;
   align-items: flex-end;
@@ -348,18 +350,16 @@ function epNo(x: { episode: string }): number {
   filter: blur(20px) saturate(1.1);
 }
 .banner-bg.sharp {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.6) 8%, #000 18%, #000 48%, rgba(0, 0, 0, 0.6) 64%, transparent 84%);
-  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.6) 8%, #000 18%, #000 48%, rgba(0, 0, 0, 0.6) 64%, transparent 84%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.75) 10%, #000 22%, #000 48%, rgba(0, 0, 0, 0.6) 64%, transparent 84%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.75) 10%, #000 22%, #000 48%, rgba(0, 0, 0, 0.6) 64%, transparent 84%);
 }
 /* 多个停靠点让淡入曲线接近缓动，比两点线性渐变更不容易看出一条带子。 */
 .banner-shade {
   position: absolute;
   inset: 0;
+  /* 顶部只轻微压暗以衬托关闭按钮；头图直接延伸到面板圆角，不再淡入头部横条。 */
   background:
-    linear-gradient(to bottom,
-      color-mix(in srgb, var(--surface) 70%, transparent) 0%,
-      color-mix(in srgb, var(--surface) 30%, transparent) 10%,
-      transparent 22%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 0%, transparent 18%),
     linear-gradient(to top,
       var(--surface) 0%,
       color-mix(in srgb, var(--surface) 92%, transparent) 12%,
@@ -377,7 +377,7 @@ function epNo(x: { episode: string }): number {
   align-items: flex-end;
   gap: 20px;
   width: 100%;
-  padding: 36px 24px 18px;
+  padding: 64px 24px 18px;
 }
 .banner-text {
   flex: 1;
@@ -561,8 +561,8 @@ function epNo(x: { episode: string }): number {
 }
 
 @media (max-width: 640px) {
-  .banner { margin: -18px -18px 16px; min-height: 200px; }
-  .banner-content { gap: 14px; padding: 28px 18px 14px; }
+  .banner { margin: 0 -18px 16px; min-height: 200px; }
+  .banner-content { gap: 14px; padding: 56px 18px 14px; }
   .banner-title { font-size: 19px; }
   .hero-cover { width: 92px; }
 }
