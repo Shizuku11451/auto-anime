@@ -13,6 +13,7 @@ function setup() {
   const writes = []
   const focused = []
   let fail = false
+  let dialogOpen = false
   let put = async (_url, body) => { Object.assign(data, body); return { ok: true, reauth_required: !!body.web_password } }
   let allowConfirm = false
   let probe = async () => ({ path: '/temporary/library', writable: true, mount_status: 'mapped', message: '已映射，可以写入' })
@@ -33,11 +34,12 @@ function setup() {
     '@/stores/app': { useAppStore: () => ({ refresh: async () => {} }) },
     '@/stores/toast': { toast: { success() {}, error() {}, info() {} } },
     '@/stores/confirm': { confirmDialog: async () => allowConfirm },
+    '@/composables/dialogStack': { hasOpenDialog: () => dialogOpen },
   }
   const context = { exports: {}, document: { getElementById: id => ({ focus: () => focused.push(id) }) }, location, AbortController, require: id => { assert.ok(id in modules, id); return modules[id] } }
   runInNewContext(compiled, context)
   const state = context.exports.useSettingsForm()
-  return { state, data, writes, focused, location, put: value => { put = value }, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowConfirm = value } }
+  return { state, data, writes, focused, location, dialog: value => { dialogOpen = value }, put: value => { put = value }, probe: value => { probe = value }, fail: value => { fail = value }, allow: value => { allowConfirm = value } }
 }
 
 test('设置未读取或读取失败时不得提交默认值，重试成功后才允许保存', async () => {
@@ -296,5 +298,22 @@ test('Ctrl+S 保存当前可编辑分类，只读分类不拦截', async () => {
   h.state.active.value = 'update'
   prevented = false
   h.state.onKeydown({ ctrlKey: true, key: 's', preventDefault: () => { prevented = true } })
+  assert.equal(prevented, false)
+})
+
+test('弹窗打开、输入法组合或事件已处理时不触发快捷保存', async () => {
+  const h = setup()
+  await h.state.load()
+  h.state.active.value = 'network'
+  h.state.form.poll_minutes = 60
+  let prevented = false
+  const event = { ctrlKey: true, key: 's', preventDefault: () => { prevented = true } }
+  h.dialog(true)
+  h.state.onKeydown(event)
+  h.dialog(false)
+  h.state.onKeydown({ ...event, isComposing: true })
+  h.state.onKeydown({ ...event, defaultPrevented: true })
+  await vue.nextTick()
+  assert.equal(h.writes.length, 0)
   assert.equal(prevented, false)
 })

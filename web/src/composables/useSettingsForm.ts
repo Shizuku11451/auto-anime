@@ -6,6 +6,7 @@ import { toast } from '@/stores/toast'
 import { useAppStore } from '@/stores/app'
 import type { Settings, SettingsInput, SetupStorageResult, StorageCheckInput } from '@/api/types'
 import { isAbsoluteStoragePath } from '@/utils/platform'
+import { hasOpenDialog } from '@/composables/dialogStack'
 
 function emptyForm() {
   return {
@@ -323,6 +324,7 @@ export function useSettingsForm() {
 
   /* Ctrl/⌘+S 保存当前分类 */
   function onKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.isComposing || hasOpenDialog()) return
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 's') return
     if (!isEditableSection(active.value)) return
     event.preventDefault()

@@ -188,7 +188,7 @@ function epNo(x: { episode: string }): number {
 
     <template v-else-if="d">
       <section class="banner" :class="{ 'has-cover': !!cover }">
-        <div v-if="cover" class="banner-bg" :style="{ backgroundImage: `url(&quot;${cover}&quot;)` }" aria-hidden="true" />
+        <img v-if="cover" class="banner-bg" :src="cover" alt="" aria-hidden="true" />
         <div class="banner-shade" aria-hidden="true" />
         <div class="banner-content">
           <CoverImage :src="cover" :alt="displayName" class="hero-cover" radius="var(--r-md)" />
@@ -332,8 +332,11 @@ function epNo(x: { episode: string }): number {
 .banner-bg {
   position: absolute;
   inset: -40px;
-  background-size: cover;
-  background-position: center 25%;
+  width: calc(100% + 80px);
+  height: calc(100% + 80px);
+  max-width: none;
+  object-fit: cover;
+  object-position: center 25%;
   filter: blur(22px) saturate(1.15);
   transform: scale(1.1);
   opacity: 0.85;
@@ -341,7 +344,7 @@ function epNo(x: { episode: string }): number {
 .banner-shade {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(8, 10, 16, 0.12) 0%, rgba(8, 10, 16, 0.45) 55%, var(--surface) 100%);
+  background: linear-gradient(to bottom, rgba(8, 10, 16, 0.2) 0%, rgba(8, 10, 16, 0.7) 65%, #10151d 100%);
 }
 .banner:not(.has-cover) .banner-shade {
   background: linear-gradient(to bottom, transparent 40%, var(--surface) 100%);
