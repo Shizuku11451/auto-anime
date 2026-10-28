@@ -10,12 +10,11 @@ const emit = defineEmits<{ open: [id: number]; toggle: [id: number] }>()
 
 const displayName = computed(() => props.anime.meta_name_cn || props.anime.title)
 const showSub = computed(() => displayName.value !== props.anime.title)
-/* 有正篇集数时按集数计算进度，否则按资源数；只是已保存比例，不是观看进度。 */
-const total = computed(() => Math.max(props.anime.episode_count || 0, props.anime.item_count))
-const ratio = computed(() => total.value ? Math.min(100, Math.round((props.anime.saved_count / total.value) * 100)) : 0)
-const progressLabel = computed(() => props.anime.episode_count
-  ? `已保存 ${props.anime.saved_count} / ${props.anime.episode_count} 集`
-  : `已保存 ${ratio.value}%`)
+/* 已保存资源占全部资源的比例，不是观看进度；episode_count 是本地资源覆盖的集数，不是官方总集数。 */
+const ratio = computed(() =>
+  props.anime.item_count ? Math.min(100, Math.round((props.anime.saved_count / props.anime.item_count) * 100)) : 0,
+)
+const progressLabel = computed(() => `已保存 ${props.anime.saved_count} / ${props.anime.item_count} 个资源`)
 </script>
 
 <template>
@@ -46,7 +45,7 @@ const progressLabel = computed(() => props.anime.episode_count
         <span v-if="cloudOnly"><Info aria-hidden="true" />查看详情与资源</span>
         <template v-else>
           <span><Film aria-hidden="true" />{{ anime.item_count }} 资源</span>
-          <span><CircleCheck aria-hidden="true" />{{ anime.episode_count ? `${anime.saved_count}/${anime.episode_count} 集已保存` : `${anime.saved_count} 已保存` }}</span>
+          <span><CircleCheck aria-hidden="true" />{{ anime.saved_count }} 已保存</span>
         </template>
       </div>
       <div v-if="!cloudOnly" class="ratio" :title="progressLabel" aria-hidden="true">

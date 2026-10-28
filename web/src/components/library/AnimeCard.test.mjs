@@ -66,20 +66,15 @@ test('编译后的卡片包含评分徽章与悬停简介，不再有卡内展�
   assert.doesNotMatch(template, /summary-toggle|summary-panel|aria-expanded/)
 })
 
-test('有正篇集数时按集数计算已保存进度，否则按资源数', () => {
+test('进度按已保存资源占全部资源计算，不把本地覆盖集数当作总集数', () => {
   const h = card()
   assert.equal(vue.unref(h.bound.displayName), '无职转生 第三季')
   assert.equal(vue.unref(h.bound.ratio), 100)
-  assert.equal(vue.unref(h.bound.progressLabel), '已保存 8 / 8 集')
-  const airing = card({ episode_count: 12, item_count: 6, saved_count: 3 })
-  assert.equal(vue.unref(airing.bound.ratio), 25)
-  assert.equal(vue.unref(airing.bound.progressLabel), '已保存 3 / 12 集')
-  const unknown = card({ episode_count: 0, item_count: 4, saved_count: 1 })
-  assert.equal(vue.unref(unknown.bound.ratio), 25)
-  assert.equal(vue.unref(unknown.bound.progressLabel), '已保存 25%')
-  // 资源多于正篇集数（合集、多版本）时按资源数计算，进度不超过 100%。
-  const extra = card({ episode_count: 2, item_count: 5, saved_count: 5 })
-  assert.equal(vue.unref(extra.bound.ratio), 100)
+  assert.equal(vue.unref(h.bound.progressLabel), '已保存 8 / 8 个资源')
+  // episode_count 是本地资源覆盖的集数，与进度无关。
+  const partial = card({ episode_count: 3, item_count: 4, saved_count: 1 })
+  assert.equal(vue.unref(partial.bound.ratio), 25)
+  assert.equal(vue.unref(partial.bound.progressLabel), '已保存 1 / 4 个资源')
   assert.equal(vue.unref(card({ episode_count: 0, item_count: 0, saved_count: 0 }).bound.ratio), 0)
 })
 
@@ -122,10 +117,10 @@ test('模板渲染：评分徽章随评分出现，简介只在封面悬停层�
     const local = await html(anime, { collectionType: Number(type), selecting: true })
     assert.match(local, new RegExp(`>${label}</span>`))
     assert.match(local, /8 资源/)
-    assert.match(local, /8\/8 集已保存/)
+    assert.match(local, /8 已保存/)
     assert.match(local, /type="checkbox"/)
     assert.match(local, /class="ratio"/)
-    assert.match(local, /title="已保存 8 \/ 8 集"/)
+    assert.match(local, /title="已保存 8 \/ 8 个资源"/)
     assert.match(local, /不代表本地下载或播放进度/)
   }
   const cloud = await html(anime, { collectionType: 3, cloudOnly: true, selecting: true })
@@ -136,6 +131,6 @@ test('模板渲染：评分徽章随评分出现，简介只在封面悬停层�
   assert.doesNotMatch(cloud, /type="checkbox"|class="ratio"|8 资源|已保存/)
   const unknownTotal = await html({ ...anime, episode_count: 0, item_count: 4, saved_count: 1 })
   assert.match(unknownTotal, /1 已保存/)
-  assert.match(unknownTotal, /title="已保存 25%"/)
+  assert.match(unknownTotal, /title="已保存 1 \/ 4 个资源"/)
   assert.doesNotMatch(withMeta, /class="collection-state"/)
 })
