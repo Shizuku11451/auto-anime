@@ -188,10 +188,9 @@ function epNo(x: { episode: string }): number {
 
     <template v-else-if="d">
       <section class="banner" :class="{ 'has-cover': !!cover }">
-        <img v-if="cover" class="banner-bg" :src="cover" alt="" aria-hidden="true" />
         <template v-if="cover">
-          <div class="banner-blur top" aria-hidden="true" />
-          <div class="banner-blur bottom" aria-hidden="true" />
+          <img class="banner-bg blurred" :src="cover" alt="" aria-hidden="true" />
+          <img class="banner-bg sharp" :src="cover" alt="" aria-hidden="true" />
         </template>
         <div class="banner-shade" aria-hidden="true" />
         <div class="banner-content">
@@ -323,7 +322,8 @@ function epNo(x: { episode: string }): number {
 .resource-status p { font-size: 13px; line-height: 1.7; color: var(--text-2); }
 .resource-status .resource-hint { font-size: 12px; color: var(--text-3); }
 .resource-error { color: var(--red); font-size: 13px; }
-/* 清晰封面裁切为头图，上下边缘模糊并渐隐到弹窗背景，中间保持清晰；没有封面时退回主题色渐变。 */
+/* 头图分三层，过渡连续无分界：底层是同一封面的模糊版；上层清晰封面用遮罩从中间向上下渐隐，
+   露出底下的模糊版；最上层再把上下边缘平滑淡入弹窗背景色。没有封面时退回主题色渐变。 */
 .banner {
   position: relative;
   overflow: hidden;
@@ -342,34 +342,31 @@ function epNo(x: { episode: string }): number {
   object-fit: cover;
   object-position: center 60%;
 }
-/* 模糊层用遮罩渐变控制强度，边缘最模糊，向中间逐渐清晰，避免出现硬边。 */
-.banner-blur {
-  position: absolute;
-  left: 0;
-  right: 0;
-  -webkit-backdrop-filter: blur(18px) saturate(1.1);
-  backdrop-filter: blur(18px) saturate(1.1);
-  pointer-events: none;
+/* 模糊版与清晰版必须完全对齐（不能缩放），否则交界处会出现错位重影；
+   边缘的模糊羽化被顶部与底部的背景淡入盖住。 */
+.banner-bg.blurred {
+  filter: blur(20px) saturate(1.1);
 }
-.banner-blur.top {
-  top: 0;
-  height: 32%;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+.banner-bg.sharp {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.6) 8%, #000 18%, #000 48%, rgba(0, 0, 0, 0.6) 64%, transparent 84%);
+  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.6) 8%, #000 18%, #000 48%, rgba(0, 0, 0, 0.6) 64%, transparent 84%);
 }
-.banner-blur.bottom {
-  bottom: 0;
-  height: 62%;
-  -webkit-mask-image: linear-gradient(to top, #000 35%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 35%, transparent 100%);
-}
-/* 上下渐隐到弹窗背景色，跟随明暗主题；文字区域背景足够接近主题底色以保证可读。 */
+/* 多个停靠点让淡入曲线接近缓动，比两点线性渐变更不容易看出一条带子。 */
 .banner-shade {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(to bottom, color-mix(in srgb, var(--surface) 75%, transparent) 0%, transparent 24%),
-    linear-gradient(to top, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, transparent) 20%, color-mix(in srgb, var(--surface) 55%, transparent) 42%, transparent 68%);
+    linear-gradient(to bottom,
+      color-mix(in srgb, var(--surface) 70%, transparent) 0%,
+      color-mix(in srgb, var(--surface) 30%, transparent) 10%,
+      transparent 22%),
+    linear-gradient(to top,
+      var(--surface) 0%,
+      color-mix(in srgb, var(--surface) 92%, transparent) 12%,
+      color-mix(in srgb, var(--surface) 74%, transparent) 26%,
+      color-mix(in srgb, var(--surface) 46%, transparent) 40%,
+      color-mix(in srgb, var(--surface) 20%, transparent) 54%,
+      transparent 70%);
 }
 .banner:not(.has-cover) .banner-shade {
   background: linear-gradient(to bottom, transparent 40%, var(--surface) 100%);
@@ -570,7 +567,7 @@ function epNo(x: { episode: string }): number {
   .hero-cover { width: 92px; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .banner-blur { display: none; }
+  .banner-bg.blurred { display: none; }
   .has-cover .banner-shade { background: linear-gradient(to top, var(--surface) 0%, color-mix(in srgb, var(--surface) 85%, transparent) 100%); }
 }
 </style>
