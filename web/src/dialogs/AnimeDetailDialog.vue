@@ -187,34 +187,44 @@ function epNo(x: { episode: string }): number {
     </EmptyState>
 
     <template v-else-if="d">
-      <section class="hero">
-        <CoverImage :src="cover" :alt="displayName" class="hero-cover" radius="var(--r-md)" />
-        <div class="hero-info">
-          <div class="hero-meta">
-            <template v-for="(b, i) in metaBits" :key="i">
-              <span class="dot" v-if="i > 0" aria-hidden="true">·</span>
-              <span>{{ b }}</span>
-            </template>
+      <section class="banner" :class="{ 'has-cover': !!cover }">
+        <div v-if="cover" class="banner-bg" :style="{ backgroundImage: `url(&quot;${cover}&quot;)` }" aria-hidden="true" />
+        <div class="banner-shade" aria-hidden="true" />
+        <div class="banner-content">
+          <CoverImage :src="cover" :alt="displayName" class="hero-cover" radius="var(--r-md)" />
+          <div class="banner-text">
+            <p class="banner-title">{{ displayName }}</p>
+            <p v-if="d.meta_name && d.meta_name !== displayName" class="banner-sub">{{ d.meta_name }}</p>
+            <div class="banner-facts">
+              <span v-if="rating > 0" class="banner-rating" :aria-label="`Bangumi 评分 ${rating.toFixed(1)} 分`"><b>{{ rating.toFixed(1) }}</b> / 10<template v-if="subject?.rating_total"> · {{ subject.rating_total }} 人评分</template></span>
+              <span v-if="s.collectionType" class="tag accent" title="只读收藏状态，不代表本地下载或播放进度">{{ BANGUMI_COLLECTION_LABELS[s.collectionType] }}</span>
+              <span v-if="subject?.date">{{ subject.date }}</span>
+              <span v-if="subject && subject.eps > 0">正篇 {{ subject.eps }} 集</span>
+              <span v-if="subject && subject.rank > 0">排名 #{{ subject.rank }}</span>
+            </div>
           </div>
-          <p v-if="s.collectionType" class="collection-status"><span class="tag accent">Bangumi · {{ BANGUMI_COLLECTION_LABELS[s.collectionType] }}</span><span>只读收藏状态，不代表本地下载或播放进度</span></p>
+        </div>
+      </section>
+      <section class="hero">
+        <div class="hero-info">
           <div v-if="!cloudOnly" class="hero-stats">
             <div class="stat"><b>{{ d.item_count }}</b><span>资源</span></div>
             <div class="stat"><b>{{ d.saved_count }}</b><span>已保存</span></div>
             <div class="stat"><b>{{ totalEpisodes }}</b><span>集</span></div>
             <div class="stat"><b>{{ d.seasons.length }}</b><span>季</span></div>
           </div>
-          <div v-if="rating > 0" class="rating" :aria-label="`Bangumi 评分 ${rating.toFixed(1)} 分`">Bangumi 评分 <b>{{ rating.toFixed(1) }}</b> / 10 <span v-if="subject?.rating_total">· {{ subject.rating_total }} 人评分</span></div>
-          <div v-if="subject" class="hero-meta">
-            <span v-if="subject.date">放送日期 {{ subject.date }}</span>
-            <span v-if="subject.eps > 0">正篇 {{ subject.eps }} 集</span>
-            <span v-if="subject.rank > 0">排名 #{{ subject.rank }}</span>
-            <span v-if="!subject.rating">暂无评分</span>
-            <a :href="`https://bgm.tv/subject/${subject.id}`" target="_blank" rel="noopener noreferrer">Bangumi 条目</a>
-          </div>
           <p v-if="summary" class="summary">{{ summary }}</p>
           <p v-else-if="subject" class="hero-meta">Bangumi 暂无简介</p>
           <p v-if="s.subjectLoading" class="hero-meta" role="status">正在加载 Bangumi 详情…</p>
           <p v-if="s.subjectError" class="resource-error" role="alert">{{ s.subjectError }} <BaseButton size="sm" @click="dialogs.reloadBangumiSubject()">重试资料</BaseButton></p>
+          <div v-if="metaBits.length || subject" class="hero-meta">
+            <template v-for="(b, i) in metaBits" :key="i">
+              <span class="dot" v-if="i > 0" aria-hidden="true">·</span>
+              <span>{{ b }}</span>
+            </template>
+            <span v-if="subject && !subject.rating">暂无评分</span>
+            <a v-if="subject" :href="`https://bgm.tv/subject/${subject.id}`" target="_blank" rel="noopener noreferrer">Bangumi 条目</a>
+          </div>
           <p v-if="!cloudOnly" class="hero-rules">
             <template v-if="d.include_rules">
               多来源规则：包含 <code>{{ d.include_rules }}</code>
@@ -309,18 +319,91 @@ function epNo(x: { episode: string }): number {
 .resource-status p { font-size: 13px; line-height: 1.7; color: var(--text-2); }
 .resource-status .resource-hint { font-size: 12px; color: var(--text-3); }
 .resource-error { color: var(--red); font-size: 13px; }
+/* 头图：封面放大模糊作背景，前景放清晰封面与标题；没有封面时退回主题色渐变。 */
+.banner {
+  position: relative;
+  overflow: hidden;
+  margin: -20px -24px 18px;
+  min-height: 240px;
+  display: flex;
+  align-items: flex-end;
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface-2));
+}
+.banner-bg {
+  position: absolute;
+  inset: -40px;
+  background-size: cover;
+  background-position: center 25%;
+  filter: blur(22px) saturate(1.15);
+  transform: scale(1.1);
+  opacity: 0.85;
+}
+.banner-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(8, 10, 16, 0.12) 0%, rgba(8, 10, 16, 0.45) 55%, var(--surface) 100%);
+}
+.banner:not(.has-cover) .banner-shade {
+  background: linear-gradient(to bottom, transparent 40%, var(--surface) 100%);
+}
+.banner-content {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  width: 100%;
+  padding: 36px 24px 18px;
+}
+.banner-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+.banner-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.banner-sub {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.has-cover .banner-title,
+.has-cover .banner-sub,
+.has-cover .banner-facts {
+  color: #f4f6fa;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+}
+.banner-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.banner-rating { color: var(--amber); }
+.has-cover .banner-rating { color: #ffc95c; }
+.banner-rating b { font-size: 20px; font-weight: 750; }
 .hero {
   display: flex;
   gap: 20px;
-  padding: 6px 0 20px;
+  padding: 0 0 20px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 18px;
 }
 .hero-cover {
-  width: 112px;
-  /* hero 是 flex 布局：禁止交叉轴拉伸，否则封面被拉到与右侧信息区同高，2:3 比例失真 */
-  align-self: flex-start;
-  box-shadow: var(--shadow-md);
+  width: 132px;
+  flex: none;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 .hero-lines {
   flex: 1;
@@ -454,11 +537,12 @@ function epNo(x: { episode: string }): number {
 }
 
 @media (max-width: 640px) {
-  .hero {
-    gap: 14px;
-  }
-  .hero-cover {
-    width: 86px;
-  }
+  .banner { margin: -18px -18px 16px; min-height: 200px; }
+  .banner-content { gap: 14px; padding: 28px 18px 14px; }
+  .banner-title { font-size: 19px; }
+  .hero-cover { width: 92px; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .banner-bg { filter: none; opacity: 0.35; }
 }
 </style>
