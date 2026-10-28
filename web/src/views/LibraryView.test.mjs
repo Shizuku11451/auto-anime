@@ -359,3 +359,30 @@ test('「/」聚焦搜索，Esc 退出批量管理；输入中或弹窗打开时
   assert.equal(focused, 1)
   assert.equal(blocked.h.selecting.value, true)
 })
+
+test('自动识别的 Bangumi 条目也与收藏合并，手动绑定优先，同一条目只合并一次', t => {
+  const { h, store } = fixture(t)
+  store.animes.value = [
+    // 资料自动识别为 541285，未手动绑定：应与收藏合并为一张卡片。
+    { id: 1, bangumi_id: 0, meta_subject_id: 541285, title: '自动识别', item_count: 9, saved_count: 9 },
+    // 手动绑定到 700，资料曾识别为别的条目：以手动绑定为准。
+    { id: 2, bangumi_id: 700, meta_subject_id: 0, title: '手动绑定', item_count: 1, saved_count: 0 },
+    // 自动识别也指向 700：已被手动绑定占用，不再合并。
+    { id: 3, bangumi_id: 0, meta_subject_id: 700, title: '重复识别', item_count: 1, saved_count: 0 },
+  ]
+  h.wishes.value = { items: [
+    { id: 541285, name: 'きみが死ぬまで恋をしたい', name_cn: '与你相恋到生命尽头', type: 3, rating: 6.6, cover: '/remote.jpg' },
+    { id: 700, name: 'Manual', name_cn: '', type: 1 },
+    { id: 800, name: 'Cloud', name_cn: '', type: 2 },
+  ] }
+  const byId = Object.fromEntries(h.library.value.map(a => [a.id, a]))
+  assert.equal(h.library.value.length, 4)
+  assert.equal(byId[1].collectionType, 3)
+  assert.equal(byId[1].cover, '/remote.jpg')
+  assert.equal(byId[1].rating, 6.6)
+  assert.equal(byId[2].collectionType, 1)
+  assert.equal(byId[3].collectionType, undefined)
+  assert.equal(byId[-541285], undefined)
+  assert.equal(byId[-700], undefined)
+  assert.equal(byId[-800].cloudOnly, true)
+})

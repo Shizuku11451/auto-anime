@@ -131,6 +131,8 @@ export interface AnimeSummary {
   episode_count: number
   rating: number
   summary: string
+  /* 资料实际对应的 Bangumi 条目（含自动识别），只用于番剧库与收藏合并；与手动绑定冲突时为 0。 */
+  meta_subject_id?: number
 }
 
 export interface LibraryAnime extends AnimeSummary {

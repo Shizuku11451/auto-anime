@@ -157,6 +157,8 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(animes.update_weekday,0),
 		CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0 AND anime_meta.broadcast_subject_id=anime_meta.subject_id
 		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN COALESCE(anime_meta.broadcast_weekday,0) ELSE 0 END,
+		CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0
+		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN anime_meta.subject_id ELSE 0 END,
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id),
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id AND items.status='已保存'),
 		(SELECT COUNT(DISTINCT
@@ -182,13 +184,16 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		SavedCount       int     `json:"saved_count"`
 		Episodes         int     `json:"episode_count"`
 		BroadcastWeekday int     `json:"broadcast_weekday"`
+		// MetaSubjectID 是资料实际对应的 Bangumi 条目（含自动识别），只用于展示时与收藏合并；
+		// 与手动绑定冲突时为 0，不会替代 bangumi_id。
+		MetaSubjectID int64 `json:"meta_subject_id"`
 	}
 	out := []animeCard{}
 	for rows.Next() {
 		var c animeCard
 		var coverFile string
 		if err := rows.Scan(&c.ID, &c.Title, &c.SearchName, &c.BangumiID, &c.Season, &c.StorageDir, &c.IncludeRules, &c.ExcludeRules,
-			&coverFile, &c.MetaName, &c.MetaNameCN, &c.Rating, &c.Summary, &c.UpdateWeekday, &c.BroadcastWeekday, &c.ItemCount, &c.SavedCount, &c.Episodes); err != nil {
+			&coverFile, &c.MetaName, &c.MetaNameCN, &c.Rating, &c.Summary, &c.UpdateWeekday, &c.BroadcastWeekday, &c.MetaSubjectID, &c.ItemCount, &c.SavedCount, &c.Episodes); err != nil {
 			http.Error(w, "查询失败", 500)
 			return
 		}

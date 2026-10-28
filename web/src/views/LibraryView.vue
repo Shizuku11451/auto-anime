@@ -42,8 +42,23 @@ useIntervalFn(loadWishes, 30000)
 onBeforeUnmount(() => wishController?.abort())
 const library = computed<LibraryAnime[]>(() => {
   const collections = new Map((wishes.value?.items ?? []).map(w => [w.id, w]))
-  const local = store.animes.value.map(a => ({ ...a, cover: a.cover || collections.get(a.bangumi_id)?.cover || '', rating: collections.get(a.bangumi_id)?.rating || a.rating, collectionType: collections.get(a.bangumi_id)?.type }))
-  const bound = new Set(local.map(a => a.bangumi_id).filter(Boolean))
+  /* 与收藏合并时，手动绑定优先，其次是资料自动识别到的条目；同一条目只合并到一部本地番剧，
+     手动绑定的番剧先占用，避免一条收藏同时标在多张卡片上。 */
+  const claimed = new Set<number>()
+  const subjectOf = new Map<number, number>()
+  for (const pass of [true, false]) {
+    for (const a of store.animes.value) {
+      const subject = pass ? a.bangumi_id : (a.bangumi_id ? 0 : a.meta_subject_id || 0)
+      if (!subject || subjectOf.has(a.id) || claimed.has(subject)) continue
+      claimed.add(subject)
+      subjectOf.set(a.id, subject)
+    }
+  }
+  const local = store.animes.value.map(a => {
+    const collected = collections.get(subjectOf.get(a.id) ?? 0)
+    return { ...a, cover: a.cover || collected?.cover || '', rating: collected?.rating || a.rating, collectionType: collected?.type }
+  })
+  const bound = claimed
   const pending = (wishes.value?.items ?? []).filter(w => !bound.has(w.id)).map(w => ({
     id: -w.id, bangumi_id: w.id, title: w.name || w.name_cn, meta_name: w.name, meta_name_cn: w.name_cn,
     cover: w.cover || '', cloudOnly: true, collectionType: w.type, search_name: '', season: 1, storage_dir: '', include_rules: '', exclude_rules: '',
