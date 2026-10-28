@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -78,7 +79,7 @@ func resolveBroadcastWeekday(subject *bangumiSubject) int {
 	if day := subjectBroadcastWeekday(subject); day != 0 {
 		return day
 	}
-	return calendarWeekdayLookup(int64(subject.ID))
+	return calendarWeekdayLookup(context.Background(), int64(subject.ID))
 }
 
 // 测试替换为离线实现，避免依赖真实放送表。
@@ -94,15 +95,21 @@ var bangumiCalendarCache struct {
 const bangumiCalendarTTL = 6 * time.Hour
 
 // 放送表获取失败只是少一个补充来源，不影响资料保存；失败后同样等待一段时间再试。
-func calendarWeekday(subjectID int64) int {
+func calendarWeekday(ctx context.Context, subjectID int64) int {
 	if subjectID <= 0 {
 		return 0
 	}
 	c := &bangumiCalendarCache
 	c.Lock()
 	defer c.Unlock()
+	if ctx.Err() != nil {
+		return 0
+	}
 	if c.api != bangumiAPI || time.Since(c.fetched) > bangumiCalendarTTL {
-		days, err := fetchBangumiCalendar()
+		days, err := fetchBangumiCalendar(ctx)
+		if ctx.Err() != nil {
+			return 0
+		}
 		if err != nil {
 			log.Printf("Bangumi 放送表获取失败: %v", err)
 		}
@@ -111,8 +118,8 @@ func calendarWeekday(subjectID int64) int {
 	return c.days[subjectID]
 }
 
-func fetchBangumiCalendar() (map[int64]int, error) {
-	req, err := http.NewRequest("GET", bangumiAPI+"/calendar", nil)
+func fetchBangumiCalendar(ctx context.Context) (map[int64]int, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", bangumiAPI+"/calendar", nil)
 	if err != nil {
 		return nil, err
 	}

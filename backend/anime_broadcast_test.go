@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -209,7 +210,7 @@ func TestBroadcastCalendarFallback(t *testing.T) {
 	if day != 4 {
 		t.Fatalf("calendar fallback: got %d", day)
 	}
-	if calendarWeekday(9) != 0 {
+	if calendarWeekday(context.Background(), 9) != 0 {
 		t.Fatal("subject listed on several days must stay unknown")
 	}
 	if calendarHits != 1 {

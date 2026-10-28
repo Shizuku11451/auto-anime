@@ -8,7 +8,70 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestBangumiWishCalendarFallback(t *testing.T) {
+	for _, scenario := range []string{"success", "unavailable", "cancelled"} {
+		t.Run(scenario, func(t *testing.T) {
+			testDatabase(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			calendarHits := 0
+			scheduleTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/calendar" {
+					if scenario == "cancelled" {
+						fmt.Fprint(w, `{"total":1,"data":[{"subject_id":123,"type":3,"subject":{"name":"airing"}}]}`)
+					} else {
+						fmt.Fprint(w, `{"total":2,"data":[{"subject_id":123,"type":3,"subject":{"name":"airing"}},{"subject_id":456,"type":1,"subject":{"name":"unknown"}}]}`)
+					}
+					return
+				}
+				calendarHits++
+				if scenario == "cancelled" && calendarHits == 1 {
+					cancel()
+					select {
+					case <-r.Context().Done():
+					case <-time.After(time.Second):
+						t.Error("calendar request did not inherit sync cancellation")
+					}
+					return
+				}
+				if scenario == "unavailable" {
+					http.Error(w, "unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				fmt.Fprint(w, `[{"weekday":{"id":4},"items":[{"id":123}]}]`)
+			})
+			calendarWeekdayLookup = calendarWeekday
+			const previous = `[{"id":7,"name":"previous","type":1}]`
+			if err := saveBangumiWishSettings(map[string]string{"bangumi_token": "test-token", "bangumi_username": "tester", "bangumi_wishes": previous, "bangumi_last_sync": "previous-sync"}); err != nil {
+				t.Fatal(err)
+			}
+			err := bangumiWishSync(ctx)
+			if scenario == "cancelled" {
+				if err == nil || getSetting("bangumi_wishes") != previous || getSetting("bangumi_last_sync") != "previous-sync" {
+					t.Fatalf("cancelled sync replaced previous cache: %v", err)
+				}
+				if day := calendarWeekday(context.Background(), 123); day != 4 || calendarHits != 2 {
+					t.Fatalf("cancelled request poisoned calendar cache: day=%d, requests=%d", day, calendarHits)
+				}
+				return
+			}
+			var items []bangumiWish
+			if err != nil || json.Unmarshal([]byte(getSetting("bangumi_wishes")), &items) != nil || len(items) != 2 {
+				t.Fatalf("optional calendar blocked collection sync: %v", err)
+			}
+			want := 0
+			if scenario == "success" {
+				want = 4
+			}
+			if items[0].BroadcastWeekday != want || items[1].BroadcastWeekday != 0 || calendarHits != 1 {
+				t.Fatalf("incorrect calendar fallback: %+v, requests=%d", items, calendarHits)
+			}
+		})
+	}
+}
 
 func TestBangumiWishSyncPreservesPreviousListOnPageFailure(t *testing.T) {
 	testDatabase(t)

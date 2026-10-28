@@ -405,3 +405,19 @@ test('未下载的收藏使用 Bangumi 简介，本地简介优先', t => {
   assert.equal(byId[-30].summary, '云端简介')
   assert.equal(byId[-40].summary, '')
 })
+
+test('云端收藏的放送星期参与筛选，旧缓存仍归入待补充', t => {
+  const { h, store } = fixture(t)
+  store.animes.value = [{ id: 1, bangumi_id: 10, title: '手动周二', update_weekday: 2, broadcast_weekday: 4, item_count: 0, saved_count: 0 }]
+  h.wishes.value = { items: [
+    { id: 10, name: 'local', type: 3, broadcast_weekday: 4 },
+    { id: 20, name: 'airing', type: 3, broadcast_weekday: 4 },
+    { id: 30, name: 'legacy', type: 1 },
+  ] }
+  h.chooseDay(4)
+  assert.deepEqual([...h.list.value.map(a => a.id)], [-20])
+  h.chooseDay(2)
+  assert.deepEqual([...h.list.value.map(a => a.id)], [1])
+  h.chooseDay(0)
+  assert.deepEqual([...h.list.value.map(a => a.id)], [-30])
+})

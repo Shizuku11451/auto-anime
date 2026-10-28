@@ -112,6 +112,9 @@ func syncBangumiWishes(ctx context.Context) error {
 		}
 		total = *page.Total
 		for _, row := range page.Data {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if row.SubjectID <= 0 || row.Type < 1 || row.Type > 5 || (strings.TrimSpace(row.Subject.Name) == "" && strings.TrimSpace(row.Subject.NameCN) == "") || seen[row.SubjectID] {
 				return errors.New("Bangumi 收藏数据不完整，请稍后重试")
 			}
@@ -128,7 +131,7 @@ func syncBangumiWishes(ctx context.Context) error {
 			if r := []rune(summary); len(r) > bangumiWishSummaryLimit {
 				summary = string(r[:bangumiWishSummaryLimit]) + "…"
 			}
-			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score, Summary: summary, BroadcastWeekday: calendarWeekdayLookup(row.SubjectID)})
+			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score, Summary: summary, BroadcastWeekday: calendarWeekdayLookup(ctx, row.SubjectID)})
 		}
 		if offset+len(page.Data) >= total {
 			break
@@ -139,6 +142,9 @@ func syncBangumiWishes(ctx context.Context) error {
 	}
 	data, err := json.Marshal(items)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return saveBangumiWishSettings(map[string]string{"bangumi_wishes": string(data), "bangumi_last_sync": time.Now().UTC().Format(time.RFC3339), "bangumi_sync_error": ""})

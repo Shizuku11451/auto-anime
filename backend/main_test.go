@@ -98,7 +98,7 @@ func testDatabase(t *testing.T) {
 	mountInfoPath = filepath.Join(t.TempDir(), "mountinfo")
 	downloadDir, downloadMode = t.TempDir(), "direct"
 	oldCalendar := calendarWeekdayLookup
-	calendarWeekdayLookup = func(int64) int { return 0 }
+	calendarWeekdayLookup = func(context.Context, int64) int { return 0 }
 	t.Cleanup(func() {
 		calendarWeekdayLookup = oldCalendar
 		db.Close()
