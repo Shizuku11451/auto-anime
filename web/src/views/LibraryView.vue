@@ -113,7 +113,7 @@ function openAnime(id: number) {
       <BaseButton :icon="Plus" variant="primary" @click="dialogs.openAnimeEdit()">新建番剧</BaseButton>
     </PageHeader>
 
-    <p v-if="wishError || wishes?.error" class="wish-error" role="alert">Bangumi 收藏同步异常：{{ wishError || wishes?.error }}；已有番剧不受影响。<button type="button" class="reset-button" @click="loadWishes">重新读取</button><RouterLink to="/settings">前往设置</RouterLink></p>
+    <p v-if="wishError || wishes?.error" class="wish-error" role="alert">Bangumi 收藏同步异常：{{ wishError || wishes?.error }}；已有番剧不受影响。<button type="button" class="reset-button" @click="loadWishes">重新读取</button><RouterLink to="/settings?tab=bangumi">前往设置</RouterLink></p>
 
     <section class="schedule-panel" aria-label="每周追番安排">
       <div class="schedule-heading"><CalendarDays aria-hidden="true" />每周追番</div>
