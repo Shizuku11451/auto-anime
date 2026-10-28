@@ -183,3 +183,46 @@ func TestBroadcastFailuresAndLateResponses(t *testing.T) {
 		})
 	}
 }
+
+func TestBroadcastCalendarFallback(t *testing.T) {
+	testDatabase(t)
+	withMetaTestEnv(t)
+	seedBroadcastAnime(t)
+	calendarHits := 0
+	scheduleTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/calendar":
+			calendarHits++
+			fmt.Fprint(w, `[{"weekday":{"id":4},"items":[{"id":123},{"id":9}]},{"weekday":{"id":5},"items":[{"id":9}]}]`)
+		case "/v0/subjects/123":
+			// 多日字段不可靠，退回放送表。
+			fmt.Fprint(w, `{"id":123,"infobox":[{"key":"放送星期","value":"星期四、星期日"}]}`)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	})
+	calendarWeekdayLookup = calendarWeekday
+	bangumiCalendarCache.api = ""
+	refreshBroadcastWeekday("自动周更测试")
+	var day int
+	db.QueryRow("SELECT broadcast_weekday FROM anime_meta").Scan(&day)
+	if day != 4 {
+		t.Fatalf("calendar fallback: got %d", day)
+	}
+	if calendarWeekday(9) != 0 {
+		t.Fatal("subject listed on several days must stay unknown")
+	}
+	if calendarHits != 1 {
+		t.Fatalf("calendar not cached: %d", calendarHits)
+	}
+}
+
+func TestUnknownBroadcastRetriedDaily(t *testing.T) {
+	now := time.Now().UTC()
+	if !broadcastWeekdayFresh(now.Add(-2*time.Hour).Format(time.RFC3339), 0) || broadcastWeekdayFresh(now.Add(-25*time.Hour).Format(time.RFC3339), 0) {
+		t.Fatal("unknown weekday should be retried after a day")
+	}
+	if !broadcastWeekdayFresh(now.Add(-3*24*time.Hour).Format(time.RFC3339), 3) || broadcastWeekdayFresh(now.Add(-8*24*time.Hour).Format(time.RFC3339), 3) {
+		t.Fatal("known weekday should be kept for a week")
+	}
+}

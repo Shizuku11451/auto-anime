@@ -133,7 +133,7 @@ func enqueueMissingMeta() {
 	rows, err := db.Query(`SELECT DISTINCT items.anime_title,
 		COALESCE(anime_meta.source,''),COALESCE(anime_meta.updated_at,''),
 		COALESCE(anime_meta.match_key,''),COALESCE(animes.search_name,''),
-		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(anime_meta.subject_id,0),COALESCE(anime_meta.broadcast_subject_id,0),COALESCE(anime_meta.broadcast_checked_at,''),COALESCE(anime_meta.episode_subject_id,0),
+		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(anime_meta.subject_id,0),COALESCE(anime_meta.broadcast_subject_id,0),COALESCE(anime_meta.broadcast_checked_at,''),COALESCE(anime_meta.episode_subject_id,0),COALESCE(anime_meta.broadcast_weekday,0),
 		EXISTS(SELECT 1 FROM items i JOIN feeds f ON f.id=i.feed_id WHERE i.anime_title=items.anime_title AND f.enabled=1)
 		FROM (SELECT anime_title FROM items UNION SELECT title AS anime_title FROM animes) AS items
 		LEFT JOIN anime_meta ON anime_meta.anime_title = items.anime_title
@@ -149,10 +149,11 @@ func enqueueMissingMeta() {
 		var rating float64
 		var subjectID, cachedID, episodeID int64
 		var checked string
+		var day int
 		var subscribed bool
-		if rows.Scan(&t, &source, &updated, &key, &searchName, &rating, &summary, &subjectID, &cachedID, &checked, &episodeID, &subscribed) == nil && strings.TrimSpace(t) != "" &&
+		if rows.Scan(&t, &source, &updated, &key, &searchName, &rating, &summary, &subjectID, &cachedID, &checked, &episodeID, &day, &subscribed) == nil && strings.TrimSpace(t) != "" &&
 			(subscribed || !metaCacheFresh(source, updated, key, metaLookupKey(t, searchName), rating, summary) ||
-				((source == "bangumi" || source == "manual") && subjectID > 0 && (cachedID != subjectID || episodeID != subjectID || !broadcastCacheFresh(checked)))) {
+				((source == "bangumi" || source == "manual") && subjectID > 0 && (cachedID != subjectID || episodeID != subjectID || !broadcastWeekdayFresh(checked, day)))) {
 			titles = append(titles, t)
 		}
 	}
@@ -290,7 +291,7 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source, matchK
 		ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at,rating=excluded.rating,summary=excluded.summary,voices=excluded.voices,match_key=excluded.match_key
 		,broadcast_weekday=excluded.broadcast_weekday,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at
 		WHERE excluded.source='manual' OR COALESCE(anime_meta.source,'')!='manual'`,
-		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices, matchKey, subjectBroadcastWeekday(subject), checkedID, checked)
+		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices, matchKey, resolveBroadcastWeekday(subject), checkedID, checked)
 	if err == nil && changed {
 		if err = cacheSubjectEpisodes(animeTitle, subject); err != nil {
 			return err

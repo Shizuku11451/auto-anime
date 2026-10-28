@@ -97,7 +97,10 @@ func testDatabase(t *testing.T) {
 	oldMountInfo := mountInfoPath
 	mountInfoPath = filepath.Join(t.TempDir(), "mountinfo")
 	downloadDir, downloadMode = t.TempDir(), "direct"
+	oldCalendar := calendarWeekdayLookup
+	calendarWeekdayLookup = func(int64) int { return 0 }
 	t.Cleanup(func() {
+		calendarWeekdayLookup = oldCalendar
 		db.Close()
 		downloadDir, downloadMode, aria2URL, aria2Token = oldDir, oldMode, oldURL, oldToken
 		libraryDir = oldLibrary

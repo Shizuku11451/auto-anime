@@ -87,6 +87,8 @@ export interface BangumiCollection {
   rating?: number
   /* 收藏接口的简短简介；旧缓存没有该字段。 */
   summary?: string
+  /* 每日放送表中的星期，仅当季在播条目有值。 */
+  broadcast_weekday?: number
   type: BangumiCollectionType
 }
 

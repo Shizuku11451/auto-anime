@@ -62,7 +62,7 @@ const library = computed<LibraryAnime[]>(() => {
   const pending = (wishes.value?.items ?? []).filter(w => !bound.has(w.id)).map(w => ({
     id: -w.id, bangumi_id: w.id, title: w.name || w.name_cn, meta_name: w.name, meta_name_cn: w.name_cn,
     cover: w.cover || '', cloudOnly: true, collectionType: w.type, search_name: '', season: 1, storage_dir: '', include_rules: '', exclude_rules: '',
-    updated_at: '', update_weekday: 0, item_count: 0, saved_count: 0, episode_count: 0, rating: w.rating || 0, summary: w.summary || '',
+    updated_at: '', update_weekday: 0, broadcast_weekday: w.broadcast_weekday || 0, item_count: 0, saved_count: 0, episode_count: 0, rating: w.rating || 0, summary: w.summary || '',
   }))
   return [...local, ...pending]
 })

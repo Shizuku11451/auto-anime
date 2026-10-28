@@ -662,7 +662,7 @@ func animeMetadataBind(w http.ResponseWriter, r *http.Request, id int64) {
 			rating=excluded.rating,summary=excluded.summary,voices=excluded.voices,
 			broadcast_weekday=excluded.broadcast_weekday,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at`,
 			a.Title, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, "manual", time.Now().UTC().Format(time.RFC3339),
-			subject.Rating.Score, subject.Summary, voices, subjectBroadcastWeekday(subject), subject.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			subject.Rating.Score, subject.Summary, voices, resolveBroadcastWeekday(subject), subject.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
 			http.Error(w, "保存元数据失败", 500)
 			return
 		}

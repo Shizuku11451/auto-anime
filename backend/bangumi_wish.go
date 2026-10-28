@@ -25,6 +25,8 @@ type bangumiWish struct {
 	Rating float64 `json:"rating"`
 	// Summary 来自收藏接口的简短简介，供未下载番剧的卡片预览；旧缓存没有该字段。
 	Summary string `json:"summary,omitempty"`
+	// BroadcastWeekday 来自每日放送表，仅当季在播条目有值。
+	BroadcastWeekday int `json:"broadcast_weekday,omitempty"`
 }
 type bangumiWishState struct {
 	Username string        `json:"username"`
@@ -126,7 +128,7 @@ func syncBangumiWishes(ctx context.Context) error {
 			if r := []rune(summary); len(r) > bangumiWishSummaryLimit {
 				summary = string(r[:bangumiWishSummaryLimit]) + "…"
 			}
-			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score, Summary: summary})
+			items = append(items, bangumiWish{ID: row.SubjectID, Name: row.Subject.Name, NameCN: row.Subject.NameCN, Cover: cover, Type: row.Type, Rating: score, Summary: summary, BroadcastWeekday: calendarWeekdayLookup(row.SubjectID)})
 		}
 		if offset+len(page.Data) >= total {
 			break
