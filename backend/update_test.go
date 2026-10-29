@@ -891,3 +891,38 @@ func TestApplyUpdateRejectsChecksumMismatch(t *testing.T) {
 		t.Fatal("校验失败时不应留下更新包")
 	}
 }
+
+func TestUpdateHandlerRefreshQueriesSource(t *testing.T) {
+	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "新版本", map[string]string{
+		"auto-anime_v1.2.0_" + platformPair() + exeSuffix(): "binary",
+	})
+	defer server.Close()
+	withUpdateGlobals(t, "", "1.1.0")
+	useRewriteTransport(t, server)
+	lastManualCheck = time.Time{}
+	t.Cleanup(func() { lastManualCheck = time.Time{} })
+	// 后台检查发生在新版本发布之前：缓存里没有更新。
+	setVersionState(versionCheck{Current: "1.1.0", Latest: "v1.1.0", State: "ok"})
+
+	read := func(target string) updateResponse {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		updateHandler(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+		var payload updateResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload
+	}
+	if payload := read("/api/update"); payload.UpdateAvailable {
+		t.Fatalf("plain read should keep cached result: %+v", payload)
+	}
+	if payload := read("/api/update?refresh=1"); !payload.UpdateAvailable || payload.Latest != "v1.2.0" {
+		t.Fatalf("refresh did not query source: %+v", payload)
+	}
+	// 间隔过短的重复检查沿用上次结果，不再请求更新源。
+	setVersionState(versionCheck{Current: "1.1.0", Latest: "cached", State: "ok"})
+	if payload := read("/api/update?refresh=1"); payload.Latest != "cached" {
+		t.Fatalf("rapid refresh should be throttled: %+v", payload)
+	}
+}

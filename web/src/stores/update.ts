@@ -65,12 +65,12 @@ async function fetchVersion(): Promise<UpdateInfo | null> {
   }
 }
 
-/** 主动检查：把失败原因显示给用户，供设置页按钮使用 */
+/** 主动检查：让服务端立即查询更新源，并把失败原因显示给用户 */
 async function checkNow(): Promise<void> {
   checkError.value = ''
   checking.value = true
   try {
-    info.value = await http.get<UpdateInfo>('/api/update')
+    info.value = await http.get<UpdateInfo>('/api/update?refresh=1')
   } catch (e) {
     checkError.value = errorMessage(e)
   } finally {

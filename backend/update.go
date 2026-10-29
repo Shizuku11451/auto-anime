@@ -398,6 +398,23 @@ func currentRelease() *releaseInfo {
 	return latestRelease
 }
 
+var updateCheckMu sync.Mutex
+var lastManualCheck time.Time
+
+// 手动检查的最短间隔，避免连续点击耗尽 GitHub 匿名 API 限额。
+const updateManualCheckGap = 10 * time.Second
+
+// refreshUpdateCheck 立即查询一次更新源；并发请求共用同一次查询，间隔过短时沿用上次结果。
+func refreshUpdateCheck() {
+	updateCheckMu.Lock()
+	defer updateCheckMu.Unlock()
+	if !lastManualCheck.IsZero() && time.Since(lastManualCheck) < updateManualCheckGap {
+		return
+	}
+	runUpdateCheck()
+	lastManualCheck = time.Now()
+}
+
 // startUpdateChecker runs one check at startup and then on an interval.
 func startUpdateChecker() {
 	if !updateEnabled {
@@ -408,7 +425,9 @@ func startUpdateChecker() {
 	logUpdate("当前版本 %s（%s/%s），更新源 %s", versionLabel(), runtime.GOOS, runtime.GOARCH, sourceHost())
 	reportPendingUpdate()
 	go func() {
+		updateCheckMu.Lock()
 		runUpdateCheck()
+		updateCheckMu.Unlock()
 		if check := currentVersionCheck(); check.UpdateAvailable {
 			logUpdate("发现新版本 %s，可在设置页一键更新", check.Latest)
 		} else if check.Error != "" {
@@ -417,7 +436,9 @@ func startUpdateChecker() {
 		ticker := time.NewTicker(updateCheckInterval)
 		defer ticker.Stop()
 		for range ticker.C {
+			updateCheckMu.Lock()
 			runUpdateCheck()
+			updateCheckMu.Unlock()
 		}
 	}()
 }
@@ -1430,6 +1451,10 @@ func updateHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
 	case http.MethodGet:
+		// refresh=1 由「检查更新」按钮发起，立即查询更新源；默认只读后台定时检查的结果。
+		if r.URL.Query().Get("refresh") == "1" {
+			refreshUpdateCheck()
+		}
 		check := currentVersionCheck()
 		if check.Current == "" {
 			check.Current = strings.TrimSpace(version)
