@@ -101,6 +101,13 @@ docker compose up -d
 | 自建聚合搜索服务 | [在线聚合搜索服务](docs/SEARCH_SERVER.md) |
 | 源码开发与参与贡献 | [贡献指南](CONTRIBUTING.md) |
 
+## 贡献者
+
+| 贡献者 | 角色 |
+| --- | --- |
+| [Pixe1（Shizuku11451）](https://github.com/Shizuku11451) | 作者与维护者 |
+| [Claude](https://www.anthropic.com/claude)（Anthropic） | AI 编程助手，参与功能开发、问题修复与文档编写 |
+
 ---
 
 [MIT License](LICENSE) · 第三方软件保留各自许可，见 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) · 请仅下载你有权访问和保存的内容。
