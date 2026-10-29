@@ -13,7 +13,7 @@ import { http, errorMessage } from '@/api/client'
 import { BANGUMI_COLLECTION_LABELS, type LibraryAnime, type BangumiCollectionState, type BangumiCollectionType } from '@/api/types'
 import { useAppStore } from '@/stores/app'
 import { useDialogs } from '@/stores/dialogs'
-import { localDate, weekdayOfDate, weekdays, effectiveWeekday } from '@/components/library/schedule'
+import { localDate, weekdayOfDate, dayLabels, effectiveWeekday, FINISHED } from '@/components/library/schedule'
 import { hasOpenDialog } from '@/composables/dialogStack'
 
 const store = useAppStore()
@@ -83,7 +83,7 @@ function readQuery(query: LocationQuery) {
     collection: COLLECTIONS.includes(pick(query, 'collection')) ? pick(query, 'collection') : 'all',
     scope: SCOPES.includes(pick(query, 'scope')) ? pick(query, 'scope') : 'all',
     sort: SORTS.includes(pick(query, 'sort')) ? pick(query, 'sort') : 'recent',
-    day: /^[0-7]$/.test(day) ? Number(day) : -1,
+    day: /^[0-8]$/.test(day) ? Number(day) : -1,
     date: weekdayOfDate(date) ? date : '',
   }
 }
@@ -137,7 +137,7 @@ watch(layout, value => {
   try { globalThis.localStorage?.setItem(LAYOUT_KEY, value) } catch { /* 无法写入时只在本次生效 */ }
 })
 const hasFilters = computed(() => !!filter.value || scope.value !== 'all' || collection.value !== 'all' || activeWeekday.value !== -1)
-const resultTitle = computed(() => activeWeekday.value === -1 ? '全部番剧' : activeWeekday.value === 0 ? '更新日待补充' : `${weekdays[activeWeekday.value]}追番`)
+const resultTitle = computed(() => activeWeekday.value === -1 ? '全部番剧' : activeWeekday.value === 0 ? '更新日待补充' : activeWeekday.value === FINISHED ? '已完结' : `${dayLabels[activeWeekday.value]}追番`)
 const activeWeekday = computed(() => date.value ? weekdayOfDate(date.value) ?? -1 : weekday.value)
 const weekdayList = ref<HTMLElement | null>(null)
 const weekdayIndicator = ref<{ transform: string; width: string; height: string }>()
@@ -180,10 +180,10 @@ const matching = computed(() => {
   if (sort.value === 'title') all.sort((a, b) => name(a).localeCompare(name(b), 'zh-CN'))
   if (sort.value === 'resources') all.sort((a, b) => b.item_count - a.item_count)
   if (sort.value === 'rating') all.sort((a, b) => (b.rating || 0) - (a.rating || 0))
-  if (sort.value === 'weekday') all.sort((a, b) => (effectiveWeekday(a) || 8) - (effectiveWeekday(b) || 8))
+  if (sort.value === 'weekday') all.sort((a, b) => (effectiveWeekday(a) || 9) - (effectiveWeekday(b) || 9))
   return all
 })
-const dayCounts = computed(() => weekdays.map((_, day) => matching.value.filter(a => effectiveWeekday(a) === day).length))
+const dayCounts = computed(() => dayLabels.map((_, day) => matching.value.filter(a => effectiveWeekday(a) === day).length))
 watch([activeWeekday, dayCounts, store.loaded, weekdayList], updateWeekdayIndicator, { flush: 'post' })
 const list = computed(() => matching.value.filter(a => activeWeekday.value === -1 || effectiveWeekday(a) === activeWeekday.value))
 watch(list, all => { selected.value = selected.value.filter(id => all.some(a => a.id === id && !a.cloudOnly)) })
@@ -233,7 +233,7 @@ useEventListener(window, 'keydown', onKeydown)
       <div ref="weekdayList" class="weekday-list" role="group" aria-label="按更新日筛选">
         <span v-show="weekdayIndicator" class="weekday-indicator" :style="weekdayIndicator" aria-hidden="true" />
         <button type="button" :aria-pressed="activeWeekday === -1" @click="chooseDay(-1)">全部<span>{{ store.loaded.value ? matching.length : '—' }}</span></button>
-        <button v-for="day in [1, 2, 3, 4, 5, 6, 7, 0]" :key="day" type="button" :aria-pressed="activeWeekday === day" @click="chooseDay(day)">{{ weekdays[day] }}<span>{{ store.loaded.value ? dayCounts[day] : '—' }}</span></button>
+        <button v-for="day in [1, 2, 3, 4, 5, 6, 7, 0, FINISHED]" :key="day" type="button" :aria-pressed="activeWeekday === day" @click="chooseDay(day)">{{ dayLabels[day] }}<span>{{ store.loaded.value ? dayCounts[day] : '—' }}</span></button>
       </div>
       <button type="button" class="today-button" @click="showToday">今天</button>
     </section>

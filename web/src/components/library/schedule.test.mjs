@@ -8,7 +8,7 @@ const source = readFileSync(new URL('./schedule.ts', import.meta.url), 'utf8')
 const ctx = { exports: {}, Date }
 runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, ctx)
 const { localDate, weekdayOfDate } = ctx.exports
-const { effectiveWeekday, scheduleLabel } = ctx.exports
+const { effectiveWeekday, scheduleLabel, isFinished, FINISHED } = ctx.exports
 
 test('自动放送星期参与筛选，手动设置优先且可恢复自动', () => {
   const anime = { update_weekday: 0, broadcast_weekday: 7 }
@@ -31,4 +31,15 @@ test('本地日期和周日、周一、跨年、闰日的星期正确', () => {
 })
 test('清空或无效日期不会错误地对应某个星期', () => {
   for (const date of ['', '2026-02-29', '2026-13-01', '2026-04-31', '2026-00-01', 'invalid']) assert.equal(weekdayOfDate(date), null)
+})
+
+test('播放结束日期早于今天归入已完结，手动更新日优先', () => {
+  const anime = { update_weekday: 0, broadcast_weekday: 6, broadcast_end: '2024-09-28' }
+  assert.equal(effectiveWeekday(anime, '2026-10-29'), FINISHED)
+  assert.equal(scheduleLabel(anime, '2026-10-29'), '已完结 · 2024-09-28')
+  assert.equal(effectiveWeekday(anime, '2024-09-28'), 6)
+  assert.equal(isFinished({ broadcast_end: '' }, '2026-10-29'), false)
+  assert.equal(isFinished({ broadcast_end: 'bad' }, '2026-10-29'), false)
+  anime.update_weekday = 2
+  assert.equal(effectiveWeekday(anime, '2026-10-29'), 2)
 })

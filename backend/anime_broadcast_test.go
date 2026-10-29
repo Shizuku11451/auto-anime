@@ -227,3 +227,38 @@ func TestUnknownBroadcastRetriedDaily(t *testing.T) {
 		t.Fatal("known weekday should be kept for a week")
 	}
 }
+
+func TestSubjectAirEnd(t *testing.T) {
+	for _, tc := range []struct{ value, want string }{
+		{`"2024年9月28日"`, "2024-09-28"}, {`"2024-09-28"`, "2024-09-28"}, {`"2024/9/8"`, "2024-09-08"},
+		{`"2024年9月"`, ""}, {`"未定"`, ""}, {`"2024年2月30日"`, ""}, {`[{"v":"2024年9月28日"}]`, ""},
+	} {
+		subject := &bangumiSubject{Infobox: json.RawMessage(`[{"key":"播放结束","value":` + tc.value + `}]`)}
+		if got := subjectAirEnd(subject); got != tc.want {
+			t.Errorf("%s: got %q want %q", tc.value, got, tc.want)
+		}
+	}
+	if got := subjectAirEnd(&bangumiSubject{Infobox: json.RawMessage(`[{"key":"放送开始","value":"2024年7月13日"}]`)}); got != "" {
+		t.Errorf("start date treated as end: %q", got)
+	}
+}
+
+func TestBroadcastEndStoredAndListed(t *testing.T) {
+	testDatabase(t)
+	withMetaTestEnv(t)
+	id := seedBroadcastAnime(t)
+	scheduleTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":123,"infobox":[{"key":"放送星期","value":"星期六"},{"key":"播放结束","value":"2024年9月28日"}]}`)
+	})
+	refreshBroadcastWeekday("自动周更测试")
+	list := httptest.NewRecorder()
+	animesAPI(list, httptest.NewRequest("GET", "/api/animes", nil))
+	if !strings.Contains(list.Body.String(), `"broadcast_end":"2024-09-28"`) {
+		t.Fatalf("list: %s", list.Body.String())
+	}
+	detail := httptest.NewRecorder()
+	animeDetail(detail, id)
+	if !strings.Contains(detail.Body.String(), `"broadcast_end":"2024-09-28"`) {
+		t.Fatalf("detail: %s", detail.Body.String())
+	}
+}

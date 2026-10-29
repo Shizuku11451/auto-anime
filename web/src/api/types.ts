@@ -115,6 +115,8 @@ export interface BangumiCollectionState {
 export interface AnimeSummary {
 	/* Bangumi 明确标注的放送星期，0 表示未获取；手动 update_weekday 优先。 */
 	broadcast_weekday?: number
+	/* Bangumi「播放结束」日期 YYYY-MM-DD，未知为空；早于今天归入已完结。 */
+	broadcast_end?: string
 	update_weekday: number
   id: number
   title: string
@@ -177,6 +179,8 @@ export interface SeasonGroup {
 
 export interface AnimeDetail {
 	broadcast_weekday?: number
+	/* Bangumi「播放结束」日期 YYYY-MM-DD，未知为空；早于今天归入已完结。 */
+	broadcast_end?: string
 	update_weekday: number
   id: number
   title: string

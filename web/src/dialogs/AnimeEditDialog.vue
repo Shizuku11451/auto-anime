@@ -9,6 +9,7 @@ import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import type { AnimeSummary, AnimeUpdateInput } from '@/api/types'
 import { storageDirExample } from '@/utils/platform'
+import { localDate } from '@/components/library/schedule'
 
 const { state, reloadAnimeDetail } = useDialogs()
 const store = useAppStore()
@@ -141,7 +142,7 @@ async function apply() {
         <select id="ae-weekday" v-model.number="form.update_weekday">
           <option v-for="(day, index) in weekdays" :key="index" :value="index">{{ day }}</option>
         </select>
-        <p class="field-hint">{{ a?.broadcast_weekday ? `Bangumi 标注每${weekdays[a.broadcast_weekday]}放送。` : '尚未获取明确的放送星期，可绑定 Bangumi 资料或手动选择。' }}手动选择优先；改回自动后跟随资料。放送日不保证字幕组当天出片，不改变 RSS 同步或下载时间。</p>
+        <p class="field-hint">{{ a?.broadcast_end && a.broadcast_end < localDate() ? `Bangumi 标注已于 ${a.broadcast_end} 完结。` : a?.broadcast_weekday ? `Bangumi 标注每${weekdays[a.broadcast_weekday]}放送。` : '尚未获取明确的放送星期，可绑定 Bangumi 资料或手动选择。' }}手动选择优先；改回自动后跟随资料。放送日不保证字幕组当天出片，不改变 RSS 同步或下载时间。</p>
       </div>
       <div class="field">
         <label for="ae-dir">存储位置（留空使用默认位置）</label>

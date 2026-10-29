@@ -228,7 +228,7 @@ test('筛选从地址恢复，修改后写回地址，非法参数回退默认�
   await vue.nextTick()
   assert.equal(replaced.length, count)
 
-  const bad = fixture(t, { query: { collection: '9', scope: 'x', sort: 'drop', day: '8', date: '2026-02-30' } }).h
+  const bad = fixture(t, { query: { collection: '9', scope: 'x', sort: 'drop', day: '9', date: '2026-02-30' } }).h
   assert.equal(bad.collection.value, 'all')
   assert.equal(bad.scope.value, 'all')
   assert.equal(bad.sort.value, 'recent')

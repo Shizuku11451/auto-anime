@@ -73,6 +73,39 @@ func subjectBroadcastWeekday(subject *bangumiSubject) int {
 	return day
 }
 
+var airDatePattern = regexp.MustCompile(`^(\d{4})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})\s*日?$`)
+
+// subjectAirEnd 读取「播放结束」，返回 YYYY-MM-DD；缺失、多个或格式不明确时返回空。
+func subjectAirEnd(subject *bangumiSubject) string {
+	var fields []struct {
+		Key   string          `json:"key"`
+		Value json.RawMessage `json:"value"`
+	}
+	if json.Unmarshal(subject.Infobox, &fields) != nil {
+		return ""
+	}
+	end := ""
+	for _, field := range fields {
+		if strings.TrimSpace(field.Key) != "播放结束" {
+			continue
+		}
+		var value string
+		if end != "" || json.Unmarshal(field.Value, &value) != nil {
+			return ""
+		}
+		m := airDatePattern.FindStringSubmatch(strings.TrimSpace(value))
+		if m == nil {
+			return ""
+		}
+		at, err := time.Parse("2006-1-2", m[1]+"-"+m[2]+"-"+m[3])
+		if err != nil {
+			return ""
+		}
+		end = at.Format("2006-01-02")
+	}
+	return end
+}
+
 // resolveBroadcastWeekday 先用条目的放送星期字段；缺失或多日时退回每日放送表，
 // 放送表只列当季在播条目，每部只出现在一天。
 func resolveBroadcastWeekday(subject *bangumiSubject) int {
@@ -222,8 +255,8 @@ func refreshBroadcastWeekday(title string) {
 	}
 	// 元数据绑定、重识别、改名或手动编辑期间的迟到响应不能覆盖当前记录。
 	total, season := subjectEpisodes(subject)
-	_, err = writeMetaResult(title, &expected, `UPDATE anime_meta SET broadcast_weekday=?,broadcast_subject_id=?,broadcast_checked_at=?,episode_total=?,episode_season=?,episode_subject_id=?
-		WHERE anime_title=? AND subject_id=? AND source=?`, resolveBroadcastWeekday(subject), subjectID, time.Now().UTC().Format(time.RFC3339), total, season, subjectID, title, subjectID, source)
+	_, err = writeMetaResult(title, &expected, `UPDATE anime_meta SET broadcast_weekday=?,broadcast_end=?,broadcast_subject_id=?,broadcast_checked_at=?,episode_total=?,episode_season=?,episode_subject_id=?
+		WHERE anime_title=? AND subject_id=? AND source=?`, resolveBroadcastWeekday(subject), subjectAirEnd(subject), subjectID, time.Now().UTC().Format(time.RFC3339), total, season, subjectID, title, subjectID, source)
 	if err != nil {
 		log.Printf("更新日保存失败 %q: %v", title, err)
 	}

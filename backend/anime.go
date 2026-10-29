@@ -157,6 +157,8 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		COALESCE(anime_meta.rating,0),COALESCE(anime_meta.summary,''),COALESCE(animes.update_weekday,0),
 		CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0 AND anime_meta.broadcast_subject_id=anime_meta.subject_id
 		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN COALESCE(anime_meta.broadcast_weekday,0) ELSE 0 END,
+		CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0 AND anime_meta.broadcast_subject_id=anime_meta.subject_id
+		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN COALESCE(anime_meta.broadcast_end,'') ELSE '' END,
 		CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0
 		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN anime_meta.subject_id ELSE 0 END,
 		(SELECT COUNT(*) FROM items WHERE items.anime_id=animes.id),
@@ -184,6 +186,8 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		SavedCount       int     `json:"saved_count"`
 		Episodes         int     `json:"episode_count"`
 		BroadcastWeekday int     `json:"broadcast_weekday"`
+		// BroadcastEnd 是 Bangumi「播放结束」日期（YYYY-MM-DD），未知为空。
+		BroadcastEnd string `json:"broadcast_end"`
 		// MetaSubjectID 是资料实际对应的 Bangumi 条目（含自动识别），只用于展示时与收藏合并；
 		// 与手动绑定冲突时为 0，不会替代 bangumi_id。
 		MetaSubjectID int64 `json:"meta_subject_id"`
@@ -193,7 +197,7 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		var c animeCard
 		var coverFile string
 		if err := rows.Scan(&c.ID, &c.Title, &c.SearchName, &c.BangumiID, &c.Season, &c.StorageDir, &c.IncludeRules, &c.ExcludeRules,
-			&coverFile, &c.MetaName, &c.MetaNameCN, &c.Rating, &c.Summary, &c.UpdateWeekday, &c.BroadcastWeekday, &c.MetaSubjectID, &c.ItemCount, &c.SavedCount, &c.Episodes); err != nil {
+			&coverFile, &c.MetaName, &c.MetaNameCN, &c.Rating, &c.Summary, &c.UpdateWeekday, &c.BroadcastWeekday, &c.BroadcastEnd, &c.MetaSubjectID, &c.ItemCount, &c.SavedCount, &c.Episodes); err != nil {
 			http.Error(w, "查询失败", 500)
 			return
 		}
@@ -312,9 +316,11 @@ func animeDetail(w http.ResponseWriter, id int64) {
 	var rating float64
 	var summary, voices, metaSource string
 	var broadcastWeekday int
+	var broadcastEnd string
 	db.QueryRow(`SELECT COALESCE(cover_file,''),COALESCE(name,''),COALESCE(name_cn,''),COALESCE(rating,0),COALESCE(summary,''),COALESCE(voices,'[]'),COALESCE(source,''),
-		CASE WHEN source IN ('bangumi','manual') AND subject_id>0 AND broadcast_subject_id=subject_id AND (?=0 OR subject_id=?) THEN COALESCE(broadcast_weekday,0) ELSE 0 END FROM anime_meta WHERE anime_title=?`, a.BangumiID, a.BangumiID, a.Title).
-		Scan(&coverFile, &metaName, &metaNameCN, &rating, &summary, &voices, &metaSource, &broadcastWeekday)
+		CASE WHEN source IN ('bangumi','manual') AND subject_id>0 AND broadcast_subject_id=subject_id AND (?=0 OR subject_id=?) THEN COALESCE(broadcast_weekday,0) ELSE 0 END,
+		CASE WHEN source IN ('bangumi','manual') AND subject_id>0 AND broadcast_subject_id=subject_id AND (?=0 OR subject_id=?) THEN COALESCE(broadcast_end,'') ELSE '' END FROM anime_meta WHERE anime_title=?`, a.BangumiID, a.BangumiID, a.BangumiID, a.BangumiID, a.Title).
+		Scan(&coverFile, &metaName, &metaNameCN, &rating, &summary, &voices, &metaSource, &broadcastWeekday, &broadcastEnd)
 	if !json.Valid([]byte(voices)) {
 		voices = "[]"
 	}
@@ -411,6 +417,7 @@ func animeDetail(w http.ResponseWriter, id int64) {
 		"season": a.Season, "storage_dir": a.StorageDir, "include_rules": a.IncludeRules, "exclude_rules": a.ExcludeRules,
 		"update_weekday":    a.UpdateWeekday,
 		"broadcast_weekday": broadcastWeekday,
+		"broadcast_end":     broadcastEnd,
 		"cover":             coverPath(coverFile), "meta_name": metaName, "meta_name_cn": metaNameCN, "meta_source": metaSource,
 		"item_count": total, "saved_count": saved, "sources": feeds, "rating": rating, "summary": summary, "voices": json.RawMessage(voices),
 		"seasons": seasonList,
@@ -656,13 +663,13 @@ func animeMetadataBind(w http.ResponseWriter, r *http.Request, id int64) {
 			}
 		}
 		voices := fetchBangumiVoices(subject.ID)
-		if _, err := db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices,broadcast_weekday,broadcast_subject_id,broadcast_checked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		if _, err := db.Exec(`INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices,broadcast_weekday,broadcast_end,broadcast_subject_id,broadcast_checked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,
 			cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at,
 			rating=excluded.rating,summary=excluded.summary,voices=excluded.voices,
-			broadcast_weekday=excluded.broadcast_weekday,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at`,
+			broadcast_weekday=excluded.broadcast_weekday,broadcast_end=excluded.broadcast_end,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at`,
 			a.Title, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, "manual", time.Now().UTC().Format(time.RFC3339),
-			subject.Rating.Score, subject.Summary, voices, resolveBroadcastWeekday(subject), subject.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			subject.Rating.Score, subject.Summary, voices, resolveBroadcastWeekday(subject), subjectAirEnd(subject), subject.ID, time.Now().UTC().Format(time.RFC3339)); err != nil {
 			http.Error(w, "保存元数据失败", 500)
 			return
 		}

@@ -359,6 +359,7 @@ func initDB() {
 		{"broadcast_weekday", "broadcast_weekday INTEGER NOT NULL DEFAULT 0"},
 		{"broadcast_subject_id", "broadcast_subject_id INTEGER NOT NULL DEFAULT 0"},
 		{"broadcast_checked_at", "broadcast_checked_at TEXT NOT NULL DEFAULT ''"},
+		{"broadcast_end", "broadcast_end TEXT NOT NULL DEFAULT ''"},
 		{"episode_total", "episode_total INTEGER NOT NULL DEFAULT 0"},
 		{"episode_season", "episode_season INTEGER NOT NULL DEFAULT 0"},
 		{"episode_subject_id", "episode_subject_id INTEGER NOT NULL DEFAULT 0"},
@@ -367,6 +368,9 @@ func initDB() {
 		if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('anime_meta') WHERE name=?", spec.name).Scan(&exists); err == nil && exists == 0 {
 			if _, err := db.Exec("ALTER TABLE anime_meta ADD COLUMN " + spec.ddl); err != nil {
 				log.Printf("add anime_meta.%s: %v", spec.name, err)
+			} else if spec.name == "broadcast_end" {
+				// 旧缓存没有播放结束日期，让后台补全任务重新读取一次条目。
+				db.Exec("UPDATE anime_meta SET broadcast_checked_at=''")
 			}
 		}
 	}

@@ -286,12 +286,12 @@ func storeMetaSubject(animeTitle string, subject *bangumiSubject, source, matchK
 	if subject.DetailsFetched || len(subject.Infobox) > 0 {
 		checked, checkedID = time.Now().UTC().Format(time.RFC3339), subject.ID
 	}
-	changed, err := writeMetaResult(animeTitle, expected, `INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices,match_key,broadcast_weekday,broadcast_subject_id,broadcast_checked_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	changed, err := writeMetaResult(animeTitle, expected, `INSERT INTO anime_meta(anime_title,subject_id,name,name_cn,cover_url,cover_file,source,updated_at,rating,summary,voices,match_key,broadcast_weekday,broadcast_end,broadcast_subject_id,broadcast_checked_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(anime_title) DO UPDATE SET subject_id=excluded.subject_id,name=excluded.name,name_cn=excluded.name_cn,cover_url=excluded.cover_url,cover_file=excluded.cover_file,source=excluded.source,updated_at=excluded.updated_at,rating=excluded.rating,summary=excluded.summary,voices=excluded.voices,match_key=excluded.match_key
-		,broadcast_weekday=excluded.broadcast_weekday,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at
+		,broadcast_weekday=excluded.broadcast_weekday,broadcast_end=excluded.broadcast_end,broadcast_subject_id=excluded.broadcast_subject_id,broadcast_checked_at=excluded.broadcast_checked_at
 		WHERE excluded.source='manual' OR COALESCE(anime_meta.source,'')!='manual'`,
-		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices, matchKey, resolveBroadcastWeekday(subject), checkedID, checked)
+		animeTitle, subject.ID, subject.Name, subject.NameCN, coverURL, coverFile, source, time.Now().UTC().Format(time.RFC3339), subject.Rating.Score, subject.Summary, voices, matchKey, resolveBroadcastWeekday(subject), subjectAirEnd(subject), checkedID, checked)
 	if err == nil && changed {
 		if err = cacheSubjectEpisodes(animeTitle, subject); err != nil {
 			return err
