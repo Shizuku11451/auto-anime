@@ -106,6 +106,12 @@ python -m unittest discover -s tools -p 'test_*.py'
 git commit --author="Claude <noreply@anthropic.com>"
 ```
 
+Codex 使用：
+
+```bash
+git commit --author="Codex <codex@openai.com>"
+```
+
 `Co-Authored-By` 只会在提交页面显示，不计入 Contributors 统计，因此不单独使用。维护者本人的提交照常署名。
 
 ## 源码镜像构建
