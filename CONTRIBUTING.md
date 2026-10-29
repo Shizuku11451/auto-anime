@@ -98,6 +98,16 @@ python -m unittest discover -s tools -p 'test_*.py'
 
 请仅使用有权访问、保存和分发的测试资源。第三方代码、界面或素材须遵守相应授权。
 
+## AI 提交署名
+
+由 AI 编程助手完成的提交，以该助手作为 Git 作者，提交者保留维护者本人，便于在提交记录和 GitHub Contributors 中区分是哪个助手完成的修改。例如 Claude 使用：
+
+```bash
+git commit --author="Claude <noreply@anthropic.com>"
+```
+
+`Co-Authored-By` 只会在提交页面显示，不计入 Contributors 统计，因此不单独使用。维护者本人的提交照常署名。
+
 ## 源码镜像构建
 
 完整仓库根目录执行：
