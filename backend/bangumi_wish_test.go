@@ -245,3 +245,41 @@ func TestBangumiWishAccountDoesNotExposeToken(t *testing.T) {
 		t.Fatal("disconnect failed")
 	}
 }
+
+func TestWishSchedulesBackfillEndDate(t *testing.T) {
+	testDatabase(t)
+	oldDelay := wishScheduleDelay
+	wishScheduleDelay = 0
+	t.Cleanup(func() { wishScheduleDelay = oldDelay })
+	subjectHits := 0
+	scheduleTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v0/subjects/234":
+			subjectHits++
+			fmt.Fprint(w, `{"id":234,"infobox":[{"key":"放送星期","value":"星期四"},{"key":"播放结束","value":"2005年3月31日"}]}`)
+		case "/v0/subjects/604826":
+			subjectHits++
+			fmt.Fprint(w, `{"id":604826,"infobox":[{"key":"上映年度","value":"2026年1月22日"}]}`)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	})
+	items := `[{"id":234,"name":"AIR","type":1},{"id":604826,"name":"movie","type":1}]`
+	if err := saveBangumiWishSettings(map[string]string{"bangumi_wishes": items}); err != nil {
+		t.Fatal(err)
+	}
+	refreshWishSchedules(context.Background())
+	refreshWishSchedules(context.Background())
+	if subjectHits != 2 {
+		t.Fatalf("schedule cache not reused: %d", subjectHits)
+	}
+	r := httptest.NewRecorder()
+	bangumiWishAPI(r, httptest.NewRequest("GET", "/api/bangumi/wishes", nil))
+	var state bangumiWishState
+	if err := json.Unmarshal(r.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Items) != 2 || state.Items[0].BroadcastWeekday != 4 || state.Items[0].BroadcastEnd != "2005-03-31" || state.Items[1].BroadcastEnd != "" {
+		t.Fatalf("wishes: %s", r.Body.String())
+	}
+}

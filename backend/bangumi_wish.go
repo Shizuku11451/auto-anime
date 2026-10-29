@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,8 +26,10 @@ type bangumiWish struct {
 	Rating float64 `json:"rating"`
 	// Summary 来自收藏接口的简短简介，供未下载番剧的卡片预览；旧缓存没有该字段。
 	Summary string `json:"summary,omitempty"`
-	// BroadcastWeekday 来自每日放送表，仅当季在播条目有值。
-	BroadcastWeekday int `json:"broadcast_weekday,omitempty"`
+	// BroadcastWeekday 来自条目放送星期或每日放送表；BroadcastEnd 是「播放结束」日期。
+	// 两者由后台逐个读取条目补全，同步刚完成时可能为空。
+	BroadcastWeekday int    `json:"broadcast_weekday,omitempty"`
+	BroadcastEnd     string `json:"broadcast_end,omitempty"`
 }
 type bangumiWishState struct {
 	Username string        `json:"username"`
@@ -184,6 +187,10 @@ func bangumiWishAPI(w http.ResponseWriter, r *http.Request) {
 				state.Items[i].Type = 1
 			}
 		}
+		if err := applySubjectSchedules(state.Items); err != nil {
+			http.Error(w, "读取收藏失败", 500)
+			return
+		}
 		jsonOut(w, state)
 	case http.MethodPost:
 		var input struct {
@@ -242,14 +249,17 @@ func bangumiWishSyncAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	go refreshWishSchedules(wishScheduleCtx)
 	jsonOut(w, map[string]bool{"ok": true})
 }
 func startBangumiWishSync(ctx context.Context) {
+	wishScheduleCtx = ctx
 	go func() {
 		ticker := time.NewTicker(30 * time.Minute)
 		defer ticker.Stop()
 		for {
 			_ = bangumiWishSync(ctx)
+			refreshWishSchedules(ctx)
 			select {
 			case <-ctx.Done():
 				return
@@ -257,4 +267,108 @@ func startBangumiWishSync(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// wishScheduleCtx 随服务退出取消；手动同步触发的补全也使用它，而不是请求上下文。
+var wishScheduleCtx = context.Background()
+var wishScheduleMu sync.Mutex
+
+// 补全间隔，避免短时间内大量请求 Bangumi；测试中缩短。
+var wishScheduleDelay = 300 * time.Millisecond
+
+// 已完结的放送信息基本不再变化，缓存 30 天；其余沿用放送星期的缓存规则。
+func subjectScheduleFresh(checked string, weekday int, airEnd string) bool {
+	if airEnd != "" && airEnd < time.Now().Format("2006-01-02") {
+		at, err := time.Parse(time.RFC3339, checked)
+		return err == nil && at.After(time.Now().Add(-30*24*time.Hour))
+	}
+	return broadcastWeekdayFresh(checked, weekday)
+}
+
+// refreshWishSchedules 逐个读取收藏条目，补全放送星期与播放结束日期。
+// 单个条目失败只跳过，下次同步再试；同一时间只运行一轮。
+func refreshWishSchedules(ctx context.Context) {
+	if !bangumiEnabled || !wishScheduleMu.TryLock() {
+		return
+	}
+	defer wishScheduleMu.Unlock()
+	var items []bangumiWish
+	bangumiWishMu.Lock()
+	raw := getSetting("bangumi_wishes")
+	bangumiWishMu.Unlock()
+	if raw == "" || json.Unmarshal([]byte(raw), &items) != nil {
+		return
+	}
+	failed := 0
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		var weekday int
+		var airEnd, checked string
+		if err := db.QueryRow(`SELECT weekday,air_end,checked_at FROM subject_schedules WHERE subject_id=?`, item.ID).Scan(&weekday, &airEnd, &checked); err == nil && subjectScheduleFresh(checked, weekday, airEnd) {
+			continue
+		}
+		subject, err := fetchBangumiSubjectContext(ctx, item.ID)
+		if err != nil {
+			if ctx.Err() == nil {
+				failed++
+			}
+			continue
+		}
+		weekday = subjectBroadcastWeekday(subject)
+		if weekday == 0 {
+			weekday = calendarWeekdayLookup(ctx, item.ID)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := db.Exec(`INSERT INTO subject_schedules(subject_id,weekday,air_end,checked_at) VALUES(?,?,?,?)
+			ON CONFLICT(subject_id) DO UPDATE SET weekday=excluded.weekday,air_end=excluded.air_end,checked_at=excluded.checked_at`,
+			item.ID, weekday, subjectAirEnd(subject), time.Now().UTC().Format(time.RFC3339)); err != nil {
+			log.Printf("收藏放送信息保存失败: %v", err)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wishScheduleDelay):
+		}
+	}
+	if failed > 0 {
+		log.Printf("收藏放送信息有 %d 个条目获取失败，下次同步重试", failed)
+	}
+}
+
+// applySubjectSchedules 把缓存的放送信息并入收藏列表；条目没有星期时保留同步时放送表给出的值。
+func applySubjectSchedules(items []bangumiWish) error {
+	if len(items) == 0 {
+		return nil
+	}
+	index := make(map[int64]int, len(items))
+	for i, item := range items {
+		index[item.ID] = i
+	}
+	rows, err := db.Query(`SELECT subject_id,weekday,air_end FROM subject_schedules`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var weekday int
+		var airEnd string
+		if err := rows.Scan(&id, &weekday, &airEnd); err != nil {
+			return err
+		}
+		i, ok := index[id]
+		if !ok {
+			continue
+		}
+		if weekday >= 1 && weekday <= 7 {
+			items[i].BroadcastWeekday = weekday
+		}
+		items[i].BroadcastEnd = airEnd
+	}
+	return rows.Err()
 }

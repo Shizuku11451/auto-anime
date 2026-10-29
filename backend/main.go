@@ -302,6 +302,9 @@ func initDB() {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subject_schedules(subject_id INTEGER PRIMARY KEY,weekday INTEGER NOT NULL DEFAULT 0,air_end TEXT NOT NULL DEFAULT '',checked_at TEXT NOT NULL DEFAULT '')`); err != nil {
+		log.Fatal(err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS feed_episode_totals(anime_id INTEGER NOT NULL,season INTEGER NOT NULL,lookup_key TEXT NOT NULL,subject_id INTEGER NOT NULL,total INTEGER NOT NULL,checked_at TEXT NOT NULL,PRIMARY KEY(anime_id,season))`); err != nil {
 		log.Fatal(err)
 	}

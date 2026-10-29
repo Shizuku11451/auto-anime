@@ -421,3 +421,23 @@ test('云端收藏的放送星期参与筛选，旧缓存仍归入待补充', t 
   h.chooseDay(0)
   assert.deepEqual([...h.list.value.map(a => a.id)], [-30])
 })
+
+test('收藏的播放结束日期让云端条目和缺资料的本地番剧归入已完结', t => {
+  const { h, store } = fixture(t)
+  store.animes.value = [
+    { id: 1, bangumi_id: 10, title: '本地缺资料', update_weekday: 0, item_count: 1, saved_count: 0 },
+    { id: 2, bangumi_id: 20, title: '本地手动', update_weekday: 3, item_count: 1, saved_count: 0 },
+  ]
+  h.wishes.value = { items: [
+    { id: 10, name: 'local', type: 2, broadcast_end: '2005-03-31' },
+    { id: 20, name: 'manual', type: 2, broadcast_end: '2005-03-31' },
+    { id: 30, name: 'cloud', type: 1, broadcast_weekday: 4, broadcast_end: '2018-09-23' },
+    { id: 40, name: 'airing', type: 3, broadcast_weekday: 2, broadcast_end: '2999-01-01' },
+  ] }
+  h.chooseDay(8)
+  assert.deepEqual([...h.list.value.map(a => a.id)].sort(), [-30, 1])
+  h.chooseDay(2)
+  assert.deepEqual([...h.list.value.map(a => a.id)], [-40])
+  h.chooseDay(3)
+  assert.deepEqual([...h.list.value.map(a => a.id)], [2])
+})
