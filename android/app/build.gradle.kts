@@ -67,4 +67,5 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.navigation:navigation-testing:2.9.5")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.1.0")
 }

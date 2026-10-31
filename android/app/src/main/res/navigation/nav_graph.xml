@@ -10,5 +10,7 @@
         <action android:id="@+id/action_detail_to_player" app:destination="@id/playerFragment" />
         <action android:id="@+id/action_detail_logout" app:destination="@id/connectFragment" app:popUpTo="@id/nav_graph" app:popUpToInclusive="true" />
     </fragment>
-    <fragment android:id="@+id/playerFragment" android:name="com.autoanime.android.feature.PlayerFragment" android:label="Player" />
+    <fragment android:id="@+id/playerFragment" android:name="com.autoanime.android.feature.PlayerFragment" android:label="Player">
+        <action android:id="@+id/action_player_logout" app:destination="@id/connectFragment" app:popUpTo="@id/nav_graph" app:popUpToInclusive="true" />
+    </fragment>
 </navigation>

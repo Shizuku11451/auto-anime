@@ -271,7 +271,7 @@ class PlayerFragment : Fragment() {
                     if (status == 401) {
                         model.disconnectForExpiredSession(app)
                         _binding?.error?.setText(R.string.session_expired)
-                        findNavController().navigate(R.id.action_detail_logout)
+                        findNavController().navigate(R.id.action_player_logout)
                     } else _binding?.error?.setText(playbackErrorMessage(status, error))
                 }
             })

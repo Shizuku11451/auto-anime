@@ -11,7 +11,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NavigationBackStackTest {
-    @Test fun logoutActionClearsProtectedDestinationsFromBackStack() {
+    @Test fun playerLogoutActionClearsProtectedDestinationsFromBackStack() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
             val nav = TestNavHostController(instrumentation.targetContext)
@@ -21,8 +21,10 @@ class NavigationBackStackTest {
             assertEquals(R.id.libraryFragment, nav.currentDestination?.id)
             nav.navigate(R.id.action_library_to_detail)
             assertEquals(R.id.detailFragment, nav.currentDestination?.id)
+            nav.navigate(R.id.action_detail_to_player)
+            assertEquals(R.id.playerFragment, nav.currentDestination?.id)
 
-            nav.navigate(R.id.action_detail_logout)
+            nav.navigate(R.id.action_player_logout)
             assertEquals(R.id.connectFragment, nav.currentDestination?.id)
             assertNull("connect must be the only entry after logout", nav.previousBackStackEntry)
             assertFalse("root connect destination must not pop", nav.popBackStack())
