@@ -18,7 +18,7 @@ gradle.bat --no-daemon -Pkotlin.compiler.execution.strategy=in-process testDebug
 BUILD SUCCESSFUL
 ```
 
-The latest complete Gradle run passed 28 unit tests (15 API, 8 connection, 4 ViewModel and 1 playback-error test), app debug assemble, lint, app benchmark assemble, and the benchmark test module assemble; lint reported 28 warnings and 0 errors. The additional ViewModel duplicate-expiry regression test, generation-guard recheck, and instrumentation debug-signing edit need a final rerun. Benchmark metadata identifies the target app as `com.autoanime.android.benchmark` and instrumentation as `com.autoanime.android.benchmark.test`; instrumentation was assembled only, never run. No physical-device tests or performance measurements have been collected.
+The latest complete Gradle run passed 29 unit tests (15 API, 8 connection, 5 ViewModel and 1 playback-error test), app debug assemble, lint, app benchmark assemble, and the benchmark test module assemble; lint reported 28 warnings and 0 errors. Both benchmark APKs are debug-signed; metadata identifies the target app as `com.autoanime.android.benchmark` and instrumentation as `com.autoanime.android.benchmark.test`. Instrumentation was assembled only, never run. No physical-device tests or performance measurements have been collected.
 
 ## Dependency licenses
 
@@ -26,4 +26,4 @@ Direct dependencies are AndroidX (Apache-2.0), Kotlin/Kotlinx (Apache-2.0), OkHt
 
 ## Acceptance still required
 
-Build/test/lint and benchmark APK assembly after latest changes; verify merged benchmark manifest target and test package; run Back-stack logout and 401/session race instrumentation; install on supported physical Android hardware; verify real cookies, covers, stream authentication/range behavior, codecs/subtitles, lifecycle, accessibility, and startup/scroll metrics using isolated temporary server data and legal sample media. No NAS or real-device acceptance is implied by compilation.
+Still required: run Back-stack logout and 401/session race instrumentation; install on supported physical Android hardware; verify real cookies, covers, stream authentication/range behavior, codecs/subtitles, lifecycle, accessibility, and startup/scroll metrics using isolated temporary server data and legal sample media. No NAS or real-device acceptance is implied by compilation.
