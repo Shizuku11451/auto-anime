@@ -8,6 +8,7 @@ This prototype covers the M0/M1 scope in `ANDROID_PLAN.md`; M2-M4 are out of sco
 - HTTPS by default; HTTP requires explicit user confirmation. Requests preserve a reverse-proxy prefix, reject cross-origin redirects, and scope encrypted Keystore AES-GCM session cookies by origin and account. Passwords are not persisted.
 - Setup/login/logout, bounded library pagination, detail, covers and saved-item Media3 streaming are implemented. A server missing the bounded page response fails with an actionable server-update message; no full-array fallback is used. Retrofit is deliberately not used: the API is a small custom OkHttp coroutine client, so unused Retrofit/converter dependencies were removed.
 - Macrobenchmark module isolates the app under `com.autoanime.android.benchmark`, uses the dedicated minified/profileable build type and debug test signing. Startup and library-scroll scenarios are scaffolds, not measured results. Scroll requires fixed demo server data.
+- Debug builds enable logged StrictMode thread/VM diagnostics only. `MainActivity` calls `reportFullyDrawn()` on the first pre-draw of the navigation host; this is a UI-readiness marker and does not wait for connection restore, library data, or covers. It is not a separately validated fully-interactive benchmark metric; benchmark scenarios must measure that separately from first frame and network/data/cover completion.
 
 ## Verification evidence
 
