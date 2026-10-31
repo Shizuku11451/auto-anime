@@ -105,9 +105,9 @@ License and source columns are copied from each artifact's published POM when av
 | `androidx.window:window:1.0.0` | The Apache Software License, Version 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt)) | https://developer.android.com/jetpack/androidx/releases/window#1.0.0 |
 | `com.google.android.material:material:1.13.0` | The Apache Software License, Version 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt)) | https://github.com/material-components/material-components-android |
 | `com.google.errorprone:error_prone_annotations:2.15.0` | Apache 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt)) | Repository metadata does not declare a project URL |
-| `com.google.guava:failureaccess:1.0.2` | Unknown (no license in POM) | Repository metadata does not declare a project URL |
-| `com.google.guava:guava:33.3.1-android` | Unknown (no license in POM) | https://github.com/google/guava |
-| `com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava` | Unknown (no license in POM) | Repository metadata does not declare a project URL |
+| `com.google.guava:failureaccess:1.0.2` | The Apache Software License, Version 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt); inherited from `guava-parent:26.0-android`) | https://github.com/google/guava |
+| `com.google.guava:guava:33.3.1-android` | The Apache Software License, Version 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt); inherited from `guava-parent:33.3.1-android`) | https://github.com/google/guava |
+| `com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava` | The Apache Software License, Version 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt); inherited from `guava-parent:26.0-android`) | https://github.com/google/guava |
 | `com.squareup.okhttp3:okhttp:5.1.0` | The Apache Software License, Version 2.0 ([license](https://www.apache.org/licenses/LICENSE-2.0.txt)) | https://square.github.io/okhttp/ |
 | `com.squareup.okhttp3:okhttp-android:5.1.0` | The Apache Software License, Version 2.0 ([license](https://www.apache.org/licenses/LICENSE-2.0.txt)) | https://square.github.io/okhttp/ |
 | `com.squareup.okio:okio:3.15.0` | The Apache Software License, Version 2.0 ([license](http://www.apache.org/licenses/LICENSE-2.0.txt)) | https://github.com/square/okio/ |
@@ -146,3 +146,12 @@ License and source columns are copied from each artifact's published POM when av
 ## Maintenance evidence and limits
 
 The version snapshot proves only what Gradle resolved in this build environment. It does not establish whether any selected version is currently maintained, supported, vulnerability-free, or the latest available release. That requires a dated online advisory/release check; no such status is asserted here. Re-run the Gradle dependency report and refresh POM/license metadata when dependencies or repositories change.
+
+### Dated version and security check
+
+Checked 2026-11-01 against upstream release documentation. These links establish release and platform requirements, not that the version is the latest stable release as of the check date. No claim that the versions are free of known vulnerabilities is made: a complete advisory review across every transitive runtime and build-time artifact was not performed.
+
+- OkHttp `5.1.0`: [release](https://github.com/square/okhttp/releases/tag/parent-5.1.0), [changelog](https://square.github.io/okhttp/changelogs/changelog/). The project's Android minimum is API 21 ([README](https://github.com/square/okhttp#requirements)). Advisory status not independently confirmed.
+- Coil `3.3.0`: [release](https://github.com/coil-kt/coil/releases/tag/3.3.0), [README](https://github.com/coil-kt/coil#requirements). Android minimum is API 21. Advisory status not independently confirmed.
+- AndroidX Media3 `1.8.0`: [release notes](https://developer.android.com/jetpack/androidx/releases/media3#1.8.0). The library requires API 21 or later ([supported devices](https://developer.android.com/media/media3/exoplayer/supported-devices)). Advisory status not independently confirmed.
+- Android Gradle Plugin `8.13.2`: [release notes](https://developer.android.com/build/releases/gradle-plugin#8-13-2). AGP 8.13 requires Gradle 8.13 and JDK 17; the project uses Gradle Wrapper 8.13. AGP is build tooling and does not have an Android runtime minimum API. Advisory status not independently confirmed.
