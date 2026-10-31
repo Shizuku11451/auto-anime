@@ -2,6 +2,10 @@
 
 [文档索引](README.md) · [使用指南](USAGE.md) · [维护与备份](MAINTENANCE.md)
 
+## 媒体库分页 API
+
+`GET /api/animes` 保持原有完整 JSON 数组响应。客户端可使用 `GET /api/animes?page=1&limit=N&before=ID` 按 ID 倒序读取精简媒体库卡片：`limit` 默认为 30，范围为 1–100；省略 `before` 从最新记录开始，后续请求使用响应中的 `next_before`。响应为 `{ "items": [...], "next_before": ID }`，`next_before` 为 0 表示没有后续页。卡片字段为 `id`、`title`、`season`、`cover`、`meta_name`、`meta_name_cn` 和 `summary`；封面为服务端相对路径。非法分页大小或游标返回 HTTP 400。
+
 ## 配置方式与优先级
 
 环境变量提供启动值，网页可编辑的对应设置保存到数据库后优先于环境变量。修改 Compose 环境变量需重建容器；仅重启不会更新环境变量，也不会覆盖数据库中的旧选择。

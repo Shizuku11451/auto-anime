@@ -12,6 +12,78 @@ import (
 	"testing"
 )
 
+func TestAnimesPageIsBoundedAndLegacyShapeRemainsArray(t *testing.T) {
+	testDatabase(t)
+	for i := 1; i <= 5; i++ {
+		title := fmt.Sprintf("番剧%d", i)
+		if _, err := db.Exec("INSERT INTO animes(title) VALUES(?)", title); err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 {
+			if _, err := db.Exec("INSERT INTO anime_meta(anime_title,cover_file,source) VALUES(?,?,'manual')", title, "1234567890abcdef.jpg"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	seen := map[int64]bool{}
+	coverSeen := false
+	before := ""
+	for {
+		page := httptest.NewRecorder()
+		animesAPI(page, httptest.NewRequest("GET", "/api/animes?page=1&limit=2&before="+before, nil))
+		var got struct {
+			Items []struct {
+				ID    int64  `json:"id"`
+				Cover string `json:"cover"`
+			} `json:"items"`
+			Next int64 `json:"next_before"`
+		}
+		if page.Code != http.StatusOK || json.Unmarshal(page.Body.Bytes(), &got) != nil {
+			t.Fatalf("page contract: %d %s", page.Code, page.Body.String())
+		}
+		for _, item := range got.Items {
+			if seen[item.ID] {
+				t.Fatalf("duplicate ID %d", item.ID)
+			}
+			seen[item.ID] = true
+		}
+		for _, item := range got.Items {
+			coverSeen = coverSeen || item.Cover == "/api/covers/1234567890abcdef.jpg"
+		}
+		if got.Next == 0 {
+			break
+		}
+		before = fmt.Sprint(got.Next)
+	}
+	if len(seen) != 5 {
+		t.Fatalf("page traversal returned %d rows", len(seen))
+	}
+	if !coverSeen {
+		t.Fatal("cover path missing from paginated card")
+	}
+	empty := httptest.NewRecorder()
+	animesAPI(empty, httptest.NewRequest("GET", "/api/animes?page=1&before=1", nil))
+	if !strings.Contains(empty.Body.String(), `"items":[]`) || !strings.Contains(empty.Body.String(), `"next_before":0`) {
+		t.Fatalf("empty page: %s", empty.Body.String())
+	}
+	legacy := httptest.NewRecorder()
+	animesAPI(legacy, httptest.NewRequest("GET", "/api/animes", nil))
+	var rows []json.RawMessage
+	if legacy.Code != http.StatusOK || json.Unmarshal(legacy.Body.Bytes(), &rows) != nil || len(rows) != 5 {
+		t.Fatalf("legacy response changed: %d %s", legacy.Code, legacy.Body.String())
+	}
+	bad := httptest.NewRecorder()
+	animesAPI(bad, httptest.NewRequest("GET", "/api/animes?page=1&limit=101", nil))
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("expected bounded limit validation, got %d", bad.Code)
+	}
+	badCursor := httptest.NewRecorder()
+	animesAPI(badCursor, httptest.NewRequest("GET", "/api/animes?page=1&before=nope", nil))
+	if badCursor.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid cursor rejection, got %d", badCursor.Code)
+	}
+}
+
 // putAnime 通过 PUT /api/animes/{id} 更新番剧配置。
 func putAnime(t *testing.T, id int64, body string) *httptest.ResponseRecorder {
 	t.Helper()

@@ -151,6 +151,12 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
+	// The original endpoint remains an unbounded JSON array for existing Web
+	// clients. Mobile clients opt into a bounded, ID-descending cursor contract.
+	if r.URL.Query().Get("page") == "1" {
+		animesPageAPI(w, r)
+		return
+	}
 	rows, err := db.Query(`SELECT animes.id,animes.title,COALESCE(animes.search_name,''),COALESCE(animes.bangumi_id,0),
 		COALESCE(animes.season,0),COALESCE(animes.storage_dir,''),COALESCE(animes.include_rules,''),COALESCE(animes.exclude_rules,''),
 		COALESCE(anime_meta.cover_file,''),COALESCE(anime_meta.name,''),COALESCE(anime_meta.name_cn,''),
@@ -210,6 +216,68 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOut(w, out)
+}
+
+func animesPageAPI(w http.ResponseWriter, r *http.Request) {
+	limit := 30
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			http.Error(w, "分页大小无效", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	args := []any{}
+	query := `SELECT animes.id,animes.title,COALESCE(animes.season,0),COALESCE(anime_meta.cover_file,''),COALESCE(anime_meta.name,''),COALESCE(anime_meta.name_cn,''),COALESCE(anime_meta.summary,'') FROM animes LEFT JOIN anime_meta ON anime_meta.anime_title=animes.title`
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		before, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || before < 1 {
+			http.Error(w, "分页游标无效", http.StatusBadRequest)
+			return
+		}
+		query += ` WHERE animes.id<?`
+		args = append(args, before)
+	}
+	query += ` ORDER BY animes.id DESC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := db.QueryContext(r.Context(), query, args...)
+	if err != nil {
+		http.Error(w, "查询失败", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type card struct {
+		ID         int64  `json:"id"`
+		Title      string `json:"title"`
+		Season     int    `json:"season"`
+		Cover      string `json:"cover"`
+		MetaName   string `json:"meta_name"`
+		MetaNameCN string `json:"meta_name_cn"`
+		Summary    string `json:"summary"`
+	}
+	out := make([]card, 0, limit+1)
+	for rows.Next() {
+		var c card
+		var coverFile string
+		if err := rows.Scan(&c.ID, &c.Title, &c.Season, &coverFile, &c.MetaName, &c.MetaNameCN, &c.Summary); err != nil {
+			http.Error(w, "查询失败", http.StatusInternalServerError)
+			return
+		}
+		c.Cover = coverPath(coverFile)
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "查询失败", http.StatusInternalServerError)
+		return
+	}
+	next := int64(0)
+	if len(out) > limit {
+		out = out[:limit]
+		next = out[len(out)-1].ID
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	jsonOut(w, map[string]any{"items": out, "next_before": next})
 }
 
 // ---- /api/animes/{id}[/metadata|/apply-rules] ----
