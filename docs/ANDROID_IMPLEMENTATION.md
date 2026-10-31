@@ -11,19 +11,19 @@ This prototype covers the M0/M1 scope in `ANDROID_PLAN.md`; M2-M4 are out of sco
 
 ## Verification evidence
 
-The last recorded successful Android command (from an ASCII-path junction, Gradle 8.13/JDK 21, in-process Kotlin compiler) was:
+The latest full clean Android verification (from an ASCII-path junction, Gradle 8.13/JDK 21, in-process Kotlin compiler) ran:
 
 ```text
-gradle.bat --no-daemon -Pkotlin.compiler.execution.strategy=in-process testDebugUnitTest assembleDebug lintDebug assembleBenchmark :benchmark:assembleBenchmark
+gradle.bat --no-daemon -Pkotlin.compiler.execution.strategy=in-process clean testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug assembleBenchmark :benchmark:assembleBenchmark
 BUILD SUCCESSFUL
 ```
 
-The latest complete Gradle run passed 29 unit tests (15 API, 8 connection, 5 ViewModel and 1 playback-error test), app debug assemble, lint, app benchmark assemble, and benchmark test APK assemble; lint reported 28 warnings and 0 errors. Both benchmark APKs are debug-signed; metadata identifies target `com.autoanime.android.benchmark` and instrumentation `com.autoanime.android.benchmark.test`. `assembleDebugAndroidTest` also successfully compiled the navigation/back-stack and encrypted cookie-storage instrumentation sources (origin-bound ciphertext, fail-closed corruption and immediate-save behavior); no instrumentation was executed. No physical-device tests or performance measurements have been collected.
+All requested tasks passed after `clean` (160 tasks, 134 executed): 29 unit tests (15 API, 8 connection, 5 ViewModel and 1 playback-error test), app debug build, Android instrumentation APK build, lint, app benchmark build and benchmark test APK build. Lint reported 0 errors and 30 warnings. The instrumentation suite covering navigation graph back-stack behavior and encrypted cookie-storage behavior compiled but was not run; no connected device was available (`adb` reported no devices). Both benchmark APKs are debug-signed; metadata identifies target `com.autoanime.android.benchmark` and instrumentation `com.autoanime.android.benchmark.test`. No physical-device tests or performance measurements have been collected.
 
 ## Dependency licenses
 
-Direct dependencies are AndroidX (Apache-2.0), Kotlin/Kotlinx (Apache-2.0), OkHttp and MockWebServer (Apache-2.0), Coil (Apache-2.0), and Media3 (Apache-2.0); JUnit is EPL-1.0. Android SDK/Gradle tooling has separate terms. Confirm the resolved transitive license inventory and notices before distribution; this summary is not a generated SBOM.
+The resolved debug runtime dependency inventory (127 artifacts) and each artifact's published POM license/source metadata are recorded in [ANDROID_DEPENDENCIES.md](ANDROID_DEPENDENCIES.md). The inventory is not an SPDX/SBOM or a legal review, and excludes test-only and benchmark-only dependencies. Confirm notices and applicable distribution terms before release; Android SDK/Gradle tooling has separate terms.
 
 ## Acceptance still required
 
-Still required: run the compiled Android instrumentation suite on a device, install on supported physical Android hardware, verify real cookies, covers, stream authentication/range behavior, codecs/subtitles, lifecycle, accessibility, and startup/scroll metrics using isolated temporary server data and legal sample media. Confirm resolved transitive dependency licenses and notices before distribution; the direct-license list above is not an SBOM. No NAS or real-device acceptance is implied by compilation.
+Still required: run the compiled Android instrumentation suite on a device; install on supported physical Android hardware; verify real cookies, covers, stream authentication/range behavior, codecs/subtitles, lifecycle, accessibility, and startup/scroll metrics using isolated temporary server data and legal sample media. No NAS or real-device acceptance is implied by compilation.
