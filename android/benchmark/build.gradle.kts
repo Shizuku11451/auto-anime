@@ -4,6 +4,7 @@ plugins {
 }
 
 android {
+    experimentalProperties["android.experimental.self-instrumenting"] = true
     namespace = "com.autoanime.android.benchmark.test"
     compileSdk = 36
     targetProjectPath = ":app"
@@ -12,6 +13,7 @@ android {
             matchingFallbacks += listOf("release")
             isMinifyEnabled = true
             signingConfig = signingConfigs.getByName("debug")
+            testProguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), file("proguard-rules.pro"))
         }
     }
     defaultConfig {
@@ -35,6 +37,7 @@ dependencies {
     implementation("androidx.startup:startup-runtime:1.2.0")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation("androidx.test:runner:1.7.0")
+    implementation("androidx.tracing:tracing:1.2.0")
     implementation("androidx.test.uiautomator:uiautomator:2.3.0")
     implementation("androidx.benchmark:benchmark-macro-junit4:1.4.1")
 }

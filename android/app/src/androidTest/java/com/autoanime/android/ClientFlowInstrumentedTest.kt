@@ -11,16 +11,24 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.media3.common.Player
+import androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.Request
 import com.autoanime.android.core.ServerConnection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
@@ -37,6 +45,90 @@ class ClientFlowInstrumentedTest {
         0x00, 0x05, 0x00, 0x01, 0xa5.toByte(), 0xf6.toByte(), 0x45, 0x40,
         0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae.toByte(), 0x42, 0x60, 0x82.toByte()
     )
+    private val media by lazy { InstrumentationRegistry.getInstrumentation().context.assets.open("fixture.mp4").use { it.readBytes() } }
+    @Test fun playableFixtureRendersSeeksAndReleasesOnExit() {
+        val server = MockWebServer()
+        server.dispatcher = fixtureDispatcher(streamUnauthorized = false, playableFixture = true)
+        server.start()
+        try {
+            assertFreshTestApp()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                connect(server)
+                waitForPath(server, "/prefix/api/animes?page=1&limit=30")
+                onView(withText("Fixture Anime")).perform(click())
+                awaitDisplayed(withText("Play fixture"))
+                val playerRef = AtomicReference<Player>()
+                val playerViewRef = AtomicReference<androidx.media3.ui.PlayerView>()
+                val rendered = CountDownLatch(1)
+                val sought = CountDownLatch(1)
+                val released = AtomicBoolean(false)
+                scenario.onActivity { activity ->
+                    val host = activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment
+                    host.childFragmentManager.registerFragmentLifecycleCallbacks(object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+                        override fun onFragmentViewCreated(fm: androidx.fragment.app.FragmentManager, f: androidx.fragment.app.Fragment, v: android.view.View, savedInstanceState: android.os.Bundle?) {
+                            if (f !is com.autoanime.android.feature.PlayerFragment) return
+                            val playerView = v.findViewById<androidx.media3.ui.PlayerView>(R.id.player_view)
+                            playerViewRef.set(playerView)
+                            val player = playerView.player ?: throw AssertionError("PlayerView has no active player")
+                            playerRef.set(player)
+                            player.addListener(object : Player.Listener {
+                                override fun onRenderedFirstFrame() { rendered.countDown() }
+                                override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                                    if (reason == DISCONTINUITY_REASON_SEEK) sought.countDown()
+                                }
+                            })
+                        }
+                    }, true)
+                }
+                onView(withText("Play fixture")).perform(click())
+                awaitDisplayed(withId(R.id.player_view))
+                assertTrue("Expected Media3 to render a video frame", rendered.await(10, TimeUnit.SECONDS))
+
+                val stream = nextMediaRequest(server) ?: throw AssertionError("No authenticated stream request")
+                assertEquals("/prefix/api/items/77/stream", stream.path)
+                assertEquals("auto_anime_session=instrumented-session", stream.getHeader("Cookie"))
+                assertEquals("GET", stream.method)
+
+                val serverConnection = ServerConnection.parse("http://127.0.0.1:${server.port}/prefix/", allowHttp = true)
+                val head = rangeCall(serverConnection, "HEAD", includeSession = true, range = false).use { response ->
+                    assertEquals(200, response.code)
+                    response.header("Content-Length")
+                }
+                assertEquals(media.size.toString(), head)
+                val rangeResponse = rangeCall(serverConnection, "GET", includeSession = true).use { response ->
+                    assertEquals(206, response.code)
+                    assertEquals("bytes 100-199/${media.size}", response.header("Content-Range"))
+                    response.body.bytes()
+                }
+                assertEquals(100, rangeResponse.size)
+                val unauthorized = rangeCall(serverConnection, "GET", includeSession = false).use { it.code }
+                assertEquals(401, unauthorized)
+
+                scenario.onActivity { playerRef.get().pause() }
+                val before = AtomicReference(0L)
+                scenario.onActivity { before.set(playerRef.get().currentPosition) }
+                scenario.onActivity { playerRef.get().seekTo(2500) }
+                assertTrue("Expected Media3 seek discontinuity", sought.await(2, TimeUnit.SECONDS))
+                val after = AtomicReference(0L)
+                scenario.onActivity { after.set(playerRef.get().currentPosition) }
+                assertTrue("Seek target should change playback position: before=${before.get()} after=${after.get()}", after.get() >= 2000L)
+
+                val close = onView(withId(R.id.close)).check(matches(isDisplayed()))
+                scenario.onActivity { activity ->
+                    val button = activity.findViewById<android.view.View>(R.id.close)
+                    val visible = android.graphics.Rect()
+                    assertTrue("Close button must have a tappable area above system navigation bars", button.getGlobalVisibleRect(visible) && visible.height() >= button.height - 2)
+                }
+                close.perform(click())
+                waitForDestination(scenario, R.id.detailFragment)
+                scenario.onActivity { released.set(playerViewRef.get().player == null) }
+                assertTrue("Closed player view should detach its released player", released.get())
+            }
+        } finally {
+            clearTestConnection()
+            server.shutdown()
+        }
+    }
     @Test fun loginLibraryDetailCoverAndLogoutUsePrefixedAuthenticatedEndpoints() {
         val server = MockWebServer()
         server.dispatcher = fixtureDispatcher(streamUnauthorized = false)
@@ -123,7 +215,7 @@ class ClientFlowInstrumentedTest {
         if (expectLibrary) awaitDisplayed(withText("Fixture Anime"))
     }
 
-    private fun fixtureDispatcher(streamUnauthorized: Boolean, libraryUnauthorized: Boolean = false) = object : Dispatcher() {
+    private fun fixtureDispatcher(streamUnauthorized: Boolean, libraryUnauthorized: Boolean = false, playableFixture: Boolean = false) = object : Dispatcher() {
         override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
             "/prefix/api/setup/status" -> MockResponse().setBody("""{"required":false}""")
             "/prefix/api/login" -> MockResponse()
@@ -138,9 +230,12 @@ class ClientFlowInstrumentedTest {
             "/prefix/api/covers/cover.png" -> if (hasSession(request)) {
                 MockResponse().setHeader("Content-Type", "image/png").setBody(okio.Buffer().write(png1x1))
             } else MockResponse().setResponseCode(401)
-            "/prefix/api/items/77/stream" -> if (hasSession(request) && streamUnauthorized) {
-                MockResponse().setResponseCode(401)
-            } else MockResponse().setResponseCode(404)
+            "/prefix/api/items/77/stream" -> when {
+                streamUnauthorized && hasSession(request) -> MockResponse().setResponseCode(401)
+                hasSession(request) && playableFixture -> mediaResponse(request)
+                !hasSession(request) -> MockResponse().setResponseCode(401)
+                else -> MockResponse().setResponseCode(404)
+            }
             "/prefix/api/logout" -> MockResponse()
                 .addHeader("Set-Cookie", "auto_anime_session=; Path=/; Max-Age=0; HttpOnly")
                 .setBody("""{"ok":true}""")
@@ -149,6 +244,34 @@ class ClientFlowInstrumentedTest {
 
         private fun hasSession(request: RecordedRequest) =
             request.getHeader("Cookie")?.contains("auto_anime_session=instrumented-session") == true
+    }
+
+    private fun mediaResponse(request: RecordedRequest): MockResponse {
+        val response = MockResponse().addHeader("Content-Type", "video/mp4").addHeader("Accept-Ranges", "bytes")
+        if (request.method == "HEAD") return response.setBody(okio.Buffer()).setHeader("Content-Length", media.size)
+        val range = request.getHeader("Range")?.removePrefix("bytes=")
+        if (range == null) return response.setBody(okio.Buffer().write(media))
+        val start = range.substringBefore('-').toLongOrNull() ?: 0L
+        if (start >= media.size) return response.setResponseCode(416).addHeader("Content-Range", "bytes */${media.size}")
+        val end = range.substringAfter('-', "").toLongOrNull()?.coerceAtMost(media.size.toLong() - 1) ?: (media.size - 1).toLong()
+        val body = media.copyOfRange(start.toInt(), end.toInt() + 1)
+        return response.setResponseCode(206).addHeader("Content-Range", "bytes $start-$end/${media.size}").setBody(okio.Buffer().write(body))
+    }
+
+    private fun rangeCall(server: ServerConnection, method: String, includeSession: Boolean, range: Boolean = true): okhttp3.Response {
+        val request = Request.Builder().url(server.resolve("api/items/77/stream"))
+            .apply { if (includeSession) header("Cookie", "auto_anime_session=instrumented-session") }
+        if (range) request.header("Range", "bytes=100-199")
+        if (method == "HEAD") request.head()
+        return server.newHttpClient(okhttp3.CookieJar.NO_COOKIES).newCall(request.build()).execute()
+    }
+
+    private fun nextMediaRequest(server: MockWebServer): RecordedRequest? {
+        repeat(20) {
+            val request = server.takeRequest(500, TimeUnit.MILLISECONDS) ?: return@repeat
+            if (request.path == "/prefix/api/items/77/stream") return request
+        }
+        return null
     }
 
     private fun waitForPath(server: MockWebServer, path: String): RecordedRequest {
@@ -197,7 +320,15 @@ class ClientFlowInstrumentedTest {
             if (destination(scenario) == destinationId) return
             Thread.sleep(100)
         }
-        assertDestination(scenario, destinationId)
+        scenario.onActivity { activity ->
+            val nav = (activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment).navController
+            val actual = nav.currentDestination?.let { activity.resources.getResourceEntryName(it.id) }
+            val previous = nav.previousBackStackEntry?.destination?.let { activity.resources.getResourceEntryName(it.id) }
+            val playerFragment = (activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment)
+                .childFragmentManager.primaryNavigationFragment as? com.autoanime.android.feature.PlayerFragment
+            val close = playerFragment?.requireView()?.findViewById<android.view.View>(R.id.close)
+            fail("Navigation did not reach $destinationId; actual=$actual previous=$previous closeShown=${close?.isShown} closeEnabled=${close?.isEnabled} closeHasListener=${close?.hasOnClickListeners()}")
+        }
     }
 
     private fun destination(scenario: ActivityScenario<MainActivity>): Int {
