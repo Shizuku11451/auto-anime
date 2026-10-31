@@ -18,8 +18,12 @@ import javax.crypto.SecretKey
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import javax.crypto.spec.GCMParameterSpec
 
-class EncryptedCookieStorage(context: Context) : CookieStorage {
-    private val prefs = context.getSharedPreferences("session_ciphertext", Context.MODE_PRIVATE)
+class EncryptedCookieStorage(
+    context: Context,
+    private val keyAlias: String = KEY_ALIAS,
+    preferenceName: String = PREFERENCE_NAME
+) : CookieStorage {
+    private val prefs = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val current = java.util.concurrent.ConcurrentHashMap<String, List<Cookie>>()
     private fun clearAll() {
@@ -28,11 +32,11 @@ class EncryptedCookieStorage(context: Context) : CookieStorage {
     }
     @Synchronized private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        (store.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         // Ciphertexts encrypted by a missing key cannot be recovered.
         clearAll()
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
-            init(KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
             generateKey()
         }
@@ -49,7 +53,7 @@ class EncryptedCookieStorage(context: Context) : CookieStorage {
                 .mapNotNull { it.toCookie() }
         } catch (error: Exception) {
             if (isPermanentlyInvalidated(error)) {
-                runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
+                runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(keyAlias) }
                 clearAll()
             } else {
                 current.remove(origin)
@@ -69,7 +73,7 @@ class EncryptedCookieStorage(context: Context) : CookieStorage {
             current[origin] = cookies.toList()
         } catch (error: Exception) {
             if (isPermanentlyInvalidated(error)) {
-                runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
+                runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(keyAlias) }
                 clearAll()
             } else clear(origin)
         }
@@ -90,5 +94,8 @@ class EncryptedCookieStorage(context: Context) : CookieStorage {
         } catch (_: Exception) { null }
         companion object { fun from(c: Cookie) = StoredCookie(c.name, c.value, c.expiresAt, c.domain, c.path, c.secure, c.httpOnly, c.hostOnly) }
     }
-    companion object { private const val KEY_ALIAS = "auto-anime-session-v1" }
+    companion object {
+        private const val KEY_ALIAS = "auto-anime-session-v1"
+        private const val PREFERENCE_NAME = "session_ciphertext"
+    }
 }
