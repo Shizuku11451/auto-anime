@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">Auto-Anime</string>
+    <string name="server_url">Server URL</string>
+    <string name="allow_http_warning">Allow HTTP (credentials and media are unencrypted)</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="connect">Connect</string>
+    <string name="anime_cover">Anime cover</string>
+    <string name="back">Back</string>
+    <string name="logout">Log out</string>
+    <string name="library">Library</string>
+    <string name="load_more">Load more</string>
+    <string name="logout_change_server">Log out / Change server</string>
+    <string name="close_player">Close player</string>
+    <string name="video_unavailable">Saved video is unavailable</string>
+    <string name="playback_failed">Playback failed. Check the media format or server connection.</string>
+    <string name="playback_start_failed">Unable to start playback</string>
+    <string name="session_expired">Session expired. Log in again.</string>
+    <string name="playback_http_failed">Media request failed. Check the server and saved file.</string>
+    <string name="playback_format_failed">Unsupported or damaged media format.</string>
+</resources>

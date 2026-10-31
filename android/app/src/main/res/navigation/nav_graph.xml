@@ -1,0 +1,14 @@
+<navigation xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/nav_graph" app:startDestination="@id/connectFragment">
+    <fragment android:id="@+id/connectFragment" android:name="com.autoanime.android.feature.ConnectFragment" android:label="Connect">
+        <action android:id="@+id/action_connect_to_library" app:destination="@id/libraryFragment" app:popUpTo="@id/connectFragment" app:popUpToInclusive="true" />
+    </fragment>
+    <fragment android:id="@+id/libraryFragment" android:name="com.autoanime.android.feature.LibraryFragment" android:label="Library">
+        <action android:id="@+id/action_library_to_detail" app:destination="@id/detailFragment" />
+        <action android:id="@+id/action_library_logout" app:destination="@id/connectFragment" app:popUpTo="@id/nav_graph" app:popUpToInclusive="true" />
+    </fragment>
+    <fragment android:id="@+id/detailFragment" android:name="com.autoanime.android.feature.DetailFragment" android:label="Details">
+        <action android:id="@+id/action_detail_to_player" app:destination="@id/playerFragment" />
+        <action android:id="@+id/action_detail_logout" app:destination="@id/connectFragment" app:popUpTo="@id/nav_graph" app:popUpToInclusive="true" />
+    </fragment>
+    <fragment android:id="@+id/playerFragment" android:name="com.autoanime.android.feature.PlayerFragment" android:label="Player" />
+</navigation>

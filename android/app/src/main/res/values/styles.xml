@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.AutoAnime" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="colorPrimary">#285C4D</item>
+        <item name="colorSecondary">#C75B35</item>
+        <item name="android:windowLightStatusBar">?attr/isLightTheme</item>
+    </style>
+</resources>
