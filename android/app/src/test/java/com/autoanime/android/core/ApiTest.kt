@@ -142,7 +142,7 @@ class ApiTest {
             val connection = ServerConnection.parse(server.url("/proxy/").toString(), true)
             val client = connection.newHttpClient(OriginCookieJar(MemoryCookieStorage(), connection))
             try { client.newCall(Request.Builder().url(server.url("/escaped")).build().newBuilder().url("http://other.example/api/animes/1").build()).execute().use { fail("cross-origin request must be rejected") } }
-            catch (e: IllegalArgumentException) { assertEquals("Request escaped the selected server origin", e.message) }
+            catch (e: java.io.IOException) { assertEquals("Request escaped the selected server origin", e.message) }
             assertEquals(0, server.requestCount)
         } finally { server.shutdown() }
     }

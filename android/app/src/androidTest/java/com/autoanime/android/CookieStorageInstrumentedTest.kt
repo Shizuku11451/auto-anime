@@ -15,8 +15,8 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CookieStorageInstrumentedTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
-    // Instrumentation context has its own private preferences; don't touch app session data.
-    private val context get() = instrumentation.context
+    // Use the app's credential-protected storage; instrumentation storage may be device-protected.
+    private val context get() = instrumentation.targetContext
     private val testAlias = "auto-anime-instrumented-${UUID.randomUUID()}"
     private val testPreferenceName = "session_ciphertext_test_${UUID.randomUUID()}"
     private val prefs get() = context.getSharedPreferences(testPreferenceName, Context.MODE_PRIVATE)
@@ -35,10 +35,11 @@ class CookieStorageInstrumentedTest {
                 .hostOnlyDomain("storage-test.invalid").path("/").build()
             val storage = storage()
             storage.save(origin, listOf(cookie))
-            assertEquals("save should publish to the live jar immediately", "opaque-test-only", storage.cookies(origin).single().value)
-            assertEquals("opaque-test-only", storage.cookies(origin).single().value)
+            assertEquals("save should publish to the live jar immediately", "opaque-test-only", storage.cookies(origin).singleOrNull()?.value)
+            assertTrue("save should persist ciphertext", prefs.contains("origin_" + Base64.encodeToString(origin.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)))
+            assertEquals("opaque-test-only", storage.cookies(origin).singleOrNull()?.value)
             val restored = storage().apply { load(origin) }.cookies(origin)
-            assertEquals("opaque-test-only", restored.single().value)
+            assertEquals("storage recreation should restore cookie", "opaque-test-only", restored.singleOrNull()?.value)
         } finally { cleanup() }
     }
 

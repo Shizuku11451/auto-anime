@@ -183,12 +183,12 @@ class DetailFragment : Fragment() {
         binding.summary.text = summary
         val server = model.connection()
         if (server != null && cover.isNotBlank()) {
-            val url = server.resolve(cover.removePrefix("/"))
+            val url = server.resolve(cover)
             val cacheKey = "${server.base}:${model.state.value.sessionCacheKey}:$url"
             if (requestedCover != cacheKey) {
                 requestedCover = cacheKey
                 coverRequest?.dispose()
-                coverRequest = binding.cover.load(url, app.imageLoader) { memoryCacheKey(cacheKey) }
+                coverRequest = binding.cover.load(url.toString(), app.imageLoader) { memoryCacheKey(cacheKey) }
             }
         } else {
             requestedCover = ""

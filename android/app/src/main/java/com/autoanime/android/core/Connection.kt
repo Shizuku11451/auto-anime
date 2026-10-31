@@ -27,7 +27,7 @@ data class ServerConnection(val base: HttpUrl, val allowHttp: Boolean) {
         (base.scheme != "https" || url.scheme == "https")
 
     fun requireAccepted(url: HttpUrl) {
-        require(accepts(url)) { "Request escaped the selected server origin" }
+        if (!accepts(url)) throw java.io.IOException("Request escaped the selected server origin")
     }
 
     fun newHttpClient(jar: CookieJar): OkHttpClient = OkHttpClient.Builder()

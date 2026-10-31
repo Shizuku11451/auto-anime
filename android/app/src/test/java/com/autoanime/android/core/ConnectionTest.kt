@@ -2,6 +2,7 @@ package com.autoanime.android.core
 
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -12,6 +13,28 @@ class ConnectionTest {
         assertFalse(https.accepts("http://nas.example/aa/proxy/api/items".toHttpUrl()))
         assertTrue(runCatching { ServerConnection.parse("http://nas.example/aa/", false) }.isFailure)
         assertEquals("http://nas.example/aa/", ServerConnection.parse("http://nas.example/aa/", true).base.toString())
+    }
+
+    @Test fun rejectsEscapedOriginsAsIoFailure() {
+        val connection = ServerConnection.parse("https://nas.example/nas/", false)
+        assertTrue(runCatching { connection.requireAccepted("https://evil.example/path".toHttpUrl()) }.exceptionOrNull() is java.io.IOException)
+    }
+
+    @Test fun asyncClientReportsEscapedOriginWithoutConnecting() {
+        val connection = ServerConnection.parse("https://nas.example/nas/", false)
+        val client = connection.newHttpClient(object : okhttp3.CookieJar {
+            override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<Cookie>) = Unit
+            override fun loadForRequest(url: okhttp3.HttpUrl) = emptyList<Cookie>()
+        })
+        val failure = java.util.concurrent.CountDownLatch(1)
+        var result: java.io.IOException? = null
+        client.newCall(Request.Builder().url("http://127.0.0.1:1/outside").build()).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) { result = e; failure.countDown() }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close(); failure.countDown() }
+        })
+        assertTrue("callback should finish", failure.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue(result is java.io.IOException)
+        assertEquals("Request escaped the selected server origin", result?.message)
     }
 
     @Test fun cookieJarDoesNotLeakBetweenPortsOrHosts() {

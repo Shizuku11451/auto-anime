@@ -37,7 +37,6 @@ class ClientFlowInstrumentedTest {
         0x00, 0x05, 0x00, 0x01, 0xa5.toByte(), 0xf6.toByte(), 0x45, 0x40,
         0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae.toByte(), 0x42, 0x60, 0x82.toByte()
     )
-
     @Test fun loginLibraryDetailCoverAndLogoutUsePrefixedAuthenticatedEndpoints() {
         val server = MockWebServer()
         server.dispatcher = fixtureDispatcher(streamUnauthorized = false)
