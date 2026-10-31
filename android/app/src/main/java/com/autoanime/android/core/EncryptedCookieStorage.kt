@@ -9,18 +9,28 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Cookie
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
+import java.security.InvalidKeyException
+import java.nio.charset.StandardCharsets
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import javax.crypto.spec.GCMParameterSpec
 
 class EncryptedCookieStorage(context: Context) : CookieStorage {
     private val prefs = context.getSharedPreferences("session_ciphertext", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val current = java.util.concurrent.ConcurrentHashMap<String, List<Cookie>>()
+    private fun clearAll() {
+        current.clear()
+        prefs.edit().clear().apply()
+    }
     @Synchronized private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        // Ciphertexts encrypted by a missing key cannot be recovered.
+        clearAll()
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
             init(KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
@@ -28,27 +38,41 @@ class EncryptedCookieStorage(context: Context) : CookieStorage {
         }
     }
     @Synchronized override fun load(origin: String) {
-        current[origin] = try {
-            val raw = prefs.getString(keyFor(origin), null) ?: return
+        val raw = prefs.getString(keyFor(origin), null) ?: run { current.remove(origin); return }
+        try {
             val bytes = Base64.decode(raw, Base64.NO_WRAP)
             require(bytes.size > 12)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-            json.decodeFromString<List<StoredCookie>>(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size))))
+            cipher.updateAAD(origin.toByteArray(StandardCharsets.UTF_8))
+            current[origin] = json.decodeFromString<List<StoredCookie>>(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size))))
                 .mapNotNull { it.toCookie() }
-        } catch (_: Exception) {
-            runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
-            prefs.edit().remove(keyFor(origin)).apply()
-            emptyList()
+        } catch (error: Exception) {
+            if (isPermanentlyInvalidated(error)) {
+                runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
+                clearAll()
+            } else {
+                current.remove(origin)
+                prefs.edit().remove(keyFor(origin)).apply()
+            }
         }
     }
     @Synchronized override fun save(origin: String, cookies: List<Cookie>) {
-        current[origin] = cookies
         try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+            cipher.updateAAD(origin.toByteArray(StandardCharsets.UTF_8))
             val data = cipher.iv + cipher.doFinal(json.encodeToString(cookies.map(StoredCookie::from)).toByteArray())
-            prefs.edit().putString(keyFor(origin), Base64.encodeToString(data, Base64.NO_WRAP)).apply()
-        } catch (_: Exception) { clear(origin) }
+            if (!prefs.edit().putString(keyFor(origin), Base64.encodeToString(data, Base64.NO_WRAP)).commit()) {
+                current.remove(origin)
+                return
+            }
+            current[origin] = cookies.toList()
+        } catch (error: Exception) {
+            if (isPermanentlyInvalidated(error)) {
+                runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS) }
+                clearAll()
+            } else clear(origin)
+        }
     }
     override fun cookies(origin: String) = current[origin].orEmpty()
     @Synchronized override fun clear(origin: String) {
@@ -56,6 +80,9 @@ class EncryptedCookieStorage(context: Context) : CookieStorage {
         prefs.edit().remove(keyFor(origin)).apply()
     }
     private fun keyFor(origin: String) = "origin_" + Base64.encodeToString(origin.toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP)
+
+    private fun isPermanentlyInvalidated(error: Throwable): Boolean = generateSequence(error) { it.cause }
+        .any { it is KeyPermanentlyInvalidatedException || it is UnrecoverableKeyException || (it is InvalidKeyException && it.cause is KeyPermanentlyInvalidatedException) }
 
     @Serializable private data class StoredCookie(val name: String, val value: String, val expires: Long, val domain: String, val path: String, val secure: Boolean, val httpOnly: Boolean, val hostOnly: Boolean) {
         fun toCookie(): Cookie? = try {

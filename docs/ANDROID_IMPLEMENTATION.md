@@ -18,7 +18,7 @@ gradle.bat --no-daemon -Pkotlin.compiler.execution.strategy=in-process testDebug
 BUILD SUCCESSFUL
 ```
 
-The latest complete Gradle run passed 29 unit tests (15 API, 8 connection, 5 ViewModel and 1 playback-error test), app debug assemble, lint, app benchmark assemble, and the benchmark test module assemble; lint reported 28 warnings and 0 errors. Both benchmark APKs are debug-signed; metadata identifies the target app as `com.autoanime.android.benchmark` and instrumentation as `com.autoanime.android.benchmark.test`. Instrumentation was assembled only, never run. No physical-device tests or performance measurements have been collected.
+The latest complete Gradle run passed 29 unit tests (15 API, 8 connection, 5 ViewModel and 1 playback-error test), app debug assemble, lint, app benchmark assemble, and benchmark test APK assemble; lint reported 28 warnings and 0 errors. Both benchmark APKs are debug-signed; metadata identifies target `com.autoanime.android.benchmark` and instrumentation `com.autoanime.android.benchmark.test`. `assembleDebugAndroidTest` also successfully compiled the navigation/back-stack and encrypted cookie-storage instrumentation sources (origin-bound ciphertext, fail-closed corruption and immediate-save behavior); no instrumentation was executed. No physical-device tests or performance measurements have been collected.
 
 ## Dependency licenses
 
@@ -26,4 +26,4 @@ Direct dependencies are AndroidX (Apache-2.0), Kotlin/Kotlinx (Apache-2.0), OkHt
 
 ## Acceptance still required
 
-Still required: run Back-stack logout and 401/session race instrumentation; install on supported physical Android hardware; verify real cookies, covers, stream authentication/range behavior, codecs/subtitles, lifecycle, accessibility, and startup/scroll metrics using isolated temporary server data and legal sample media. No NAS or real-device acceptance is implied by compilation.
+Still required: run the compiled Android instrumentation suite on a device, install on supported physical Android hardware, verify real cookies, covers, stream authentication/range behavior, codecs/subtitles, lifecycle, accessibility, and startup/scroll metrics using isolated temporary server data and legal sample media. Confirm resolved transitive dependency licenses and notices before distribution; the direct-license list above is not an SBOM. No NAS or real-device acceptance is implied by compilation.
