@@ -12,10 +12,10 @@ The M0/M1 Android client prototype is delivered for emulator evaluation; M2-M4 r
 
 ## Verification evidence
 
-The latest full clean Android verification (from an ASCII-path junction, Gradle 8.13/JDK 21, in-process Kotlin compiler) ran:
+The latest full Android verification (from an ASCII-path junction, Gradle 8.13/JDK 21, in-process Kotlin compiler) ran:
 
 ```text
-gradle.bat --no-daemon -Pkotlin.compiler.execution.strategy=in-process clean testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug assembleBenchmark :benchmark:assembleBenchmark
+gradle.bat --no-daemon -Pkotlin.compiler.execution.strategy=in-process testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug assembleBenchmark :benchmark:assembleBenchmark
 BUILD SUCCESSFUL
 ```
 
