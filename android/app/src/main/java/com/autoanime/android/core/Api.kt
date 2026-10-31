@@ -60,7 +60,6 @@ open class AnimeApi(internal val client: OkHttpClient, private val connection: S
     private fun quote(value: String) = kotlinx.serialization.json.JsonPrimitive(value).toString()
     companion object { private val JSON = "application/json; charset=utf-8".toMediaType() }
 }
-
 private data class ApiResponse(val code: Int, val successful: Boolean, val body: String)
 
 data class ApiError(val status: Int, override val message: String) : Exception(message)
