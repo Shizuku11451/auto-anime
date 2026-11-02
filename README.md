@@ -91,6 +91,8 @@ docker compose up -d
 
 ## 文档
 
+完整文档也可在[文档站](https://shizuku11451.github.io/auto-anime/)浏览。
+
 | 想了解 | 查看 |
 | --- | --- |
 | 搜索、订阅、番剧库与播放 | [使用指南](docs/USAGE.md) |

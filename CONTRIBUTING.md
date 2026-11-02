@@ -17,6 +17,7 @@ Auto-Anime 使用 Go 后端与 Vue 前端，面向 NAS 和 Docker 部署。请�
 | `scripts/` | 开发启动、容器入口与发布验证脚本 | 可复用脚本随源码入库，不放私人凭据 |
 | `tools/` | 打包、制品规范化与相关测试 | Python 为构建辅助工具，不是服务端运行依赖 |
 | `docs/` | 面向用户的部署、配置与平台说明 | 从[文档索引](docs/README.md)进入 |
+| `site/` | 官网与文档站（VitePress） | 文档正文构建时同步自 `docs/` 与本文件，只修改原文；生成页面不入库 |
 | `local/` | 本地临时脚本与内部资料，不入库 | 评估和验收报告放在 `local/reports/`，不存放正式构建输入 |
 | `.github/workflows/` | 持续检查与发布工作流 | 修改发布路径时同步检查脚本引用 |
 | 根目录 Docker / Compose 文件 | 通用部署与源码镜像构建 | 默认 Compose 拉取发布镜像，源码构建使用覆盖文件 |
@@ -113,6 +114,19 @@ git commit --author="Codex <codex@openai.com>"
 ```
 
 `Co-Authored-By` 只会在提交页面显示，不计入 Contributors 统计，因此不单独使用。维护者本人的提交照常署名。
+
+## 官网与文档站
+
+`site/` 是独立的 VitePress 工程，不参与应用构建。首页、介绍、快速开始和 Docker 安装页在 `site/` 中手写；其余页面由 `site/scripts/sync-docs.mjs` 从 `docs/` 与本文件生成，并改写站内链接。新增公开文档时，在该脚本的 `pages` 与 `site/.vitepress/config.mts` 侧边栏中登记。
+
+```bash
+cd site
+npm ci
+npm run dev     # 本地预览
+npm run build   # 输出到 site/.vitepress/dist
+```
+
+推送到 `main` 后由 `.github/workflows/site.yml` 构建并发布到 GitHub Pages，默认路径为 `/auto-anime/`；使用自定义域名时设置 `SITE_BASE=/`。
 
 ## 源码镜像构建
 

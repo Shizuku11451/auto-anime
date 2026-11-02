@@ -1,0 +1,16 @@
+node_modules/
+.vitepress/cache/
+.vitepress/dist/
+
+# 由 scripts/sync-docs.mjs 从仓库文档生成
+/public/logo.svg
+/public/favicon.svg
+/install/fnos-app.md
+/install/fnos-compose.md
+/install/windows.md
+/guide/usage.md
+/guide/configuration.md
+/guide/maintenance.md
+/guide/features.md
+/advanced/
+/develop/

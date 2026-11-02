@@ -1,0 +1,45 @@
+/* 品牌色取自 web/public/logo.svg 的渐变 */
+:root {
+  --vp-c-brand-1: #4f6fe8;
+  --vp-c-brand-2: #6680f0;
+  --vp-c-brand-3: #668fff;
+  --vp-c-brand-soft: rgba(102, 143, 255, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(110deg, #57bfff 0%, #668fff 30%, #9180ff 60%, #ee98ea 100%);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #57bfff 30%, #ee98ea 70%);
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+.dark {
+  --vp-c-brand-1: #8aa6ff;
+  --vp-c-brand-2: #7a94ff;
+  --vp-c-brand-3: #668fff;
+  --vp-c-brand-soft: rgba(102, 143, 255, 0.16);
+}
+
+@media (min-width: 640px) {
+  :root { --vp-home-hero-image-filter: blur(72px); }
+}
+
+.VPHero .image-src {
+  max-width: 220px;
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-src { max-width: 300px; }
+}
+
+.source-note {
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+}
+
+.VPFeature .icon {
+  color: var(--vp-c-brand-1);
+}
+
+/* 首页正文区，与上方 features 拉开距离 */
+.home-section {
+  padding-top: 32px;
+}
