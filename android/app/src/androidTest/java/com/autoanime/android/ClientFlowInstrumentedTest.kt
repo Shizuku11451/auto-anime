@@ -1,6 +1,7 @@
 package com.autoanime.android
 
 import androidx.test.core.app.ActivityScenario
+import androidx.test.espresso.NoMatchingViewException
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.replaceText
@@ -288,6 +289,8 @@ class ClientFlowInstrumentedTest {
                 onView(matcher).check(matches(isDisplayed()))
                 return
             } catch (_: AssertionError) {
+                Thread.sleep(100)
+            } catch (_: NoMatchingViewException) {
                 Thread.sleep(100)
             }
         }
