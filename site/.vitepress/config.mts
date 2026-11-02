@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitepress'
 
 const repo = 'https://github.com/Shizuku11451/auto-anime'
-// GitHub Pages 项目站点默认部署在 /auto-anime/；自定义域名时设置 SITE_BASE=/
-const base = process.env.SITE_BASE ?? '/auto-anime/'
+// 官网部署在 https://autoanime.top 根路径；部署到子路径时设置 SITE_BASE，如 /auto-anime/
+const base = process.env.SITE_BASE ?? '/'
 
 // 与 GitHub 一致的标题锚点，docs/ 中为 GitHub 编写的锚点链接在站内同样有效
 const githubSlugify = (s: string) =>

@@ -126,7 +126,7 @@ npm run dev     # 本地预览
 npm run build   # 输出到 site/.vitepress/dist
 ```
 
-推送到 `main` 后由 `.github/workflows/site.yml` 构建并发布到 GitHub Pages，默认路径为 `/auto-anime/`；使用自定义域名时设置 `SITE_BASE=/`。
+`.github/workflows/site.yml` 在相关文件变更时检查文档站能否构建，不负责发布。官网 [autoanime.top](https://autoanime.top) 由维护者手动更新：构建后将 `site/.vitepress/dist/` 的内容上传到服务器的静态站点目录。默认部署在根路径，部署到子路径时设置 `SITE_BASE`（如 `/auto-anime/`）。
 
 ## 源码镜像构建
 
