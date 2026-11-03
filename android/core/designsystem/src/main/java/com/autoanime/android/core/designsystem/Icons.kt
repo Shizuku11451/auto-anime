@@ -17,4 +17,10 @@ object AppIcons {
     @DrawableRes val Resume = R.drawable.ic_play_arrow
     @DrawableRes val Delete = R.drawable.ic_delete
     @DrawableRes val Search = R.drawable.ic_search
+    @DrawableRes val Add = R.drawable.ic_add
+    @DrawableRes val Edit = R.drawable.ic_edit
+    @DrawableRes val More = R.drawable.ic_more_vert
+    @DrawableRes val Feeds = R.drawable.ic_rss_feed
+    @DrawableRes val Discover = R.drawable.ic_explore
+    @DrawableRes val Link = R.drawable.ic_link
 }

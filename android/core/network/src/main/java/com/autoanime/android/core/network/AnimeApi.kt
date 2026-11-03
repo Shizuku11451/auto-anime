@@ -1,6 +1,25 @@
 package com.autoanime.android.core.network
 
+import com.autoanime.android.core.model.AggregateResult
 import com.autoanime.android.core.model.AnimeDetail
+import com.autoanime.android.core.model.AnimeSaveResult
+import com.autoanime.android.core.model.AnimeUpdateInput
+import com.autoanime.android.core.model.ApplyRulesResult
+import com.autoanime.android.core.model.BindInput
+import com.autoanime.android.core.model.CorrectInput
+import com.autoanime.android.core.model.CorrectResult
+import com.autoanime.android.core.model.DiscoverResult
+import com.autoanime.android.core.model.Feed
+import com.autoanime.android.core.model.FeedInput
+import com.autoanime.android.core.model.FeedSaveResult
+import com.autoanime.android.core.model.MetaSearchResult
+import com.autoanime.android.core.model.PreviewInput
+import com.autoanime.android.core.model.PreviewResult
+import com.autoanime.android.core.model.RematchResult
+import com.autoanime.android.core.model.ServerSettings
+import com.autoanime.android.core.model.SettingsInput
+import com.autoanime.android.core.model.SettingsSaveResult
+import com.autoanime.android.core.model.SyncResult
 import com.autoanime.android.core.model.AnimePage
 import com.autoanime.android.core.model.DownloadAction
 import com.autoanime.android.core.model.DownloadActionResult
@@ -20,7 +39,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 open class AnimeApi(val client: OkHttpClient, private val connection: ServerConnection) {
-    private val json = Json { ignoreUnknownKeys = true }
+    /** Null optional fields are omitted: for partial updates the server keeps their stored values. */
+    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     open suspend fun login(user: String, password: String): LoginResult {
         val response = request("api/login", "POST", """{"username":${quote(user)},"password":${quote(password)}}""")
         if (!response.successful) throw ApiError(response.code, "Login failed")
@@ -68,6 +88,34 @@ open class AnimeApi(val client: OkHttpClient, private val connection: ServerConn
         val response = request(connection.resolve("api/items/$id"), "DELETE")
         if (!response.successful) throw response.error()
     }
+    open suspend fun feeds(): List<Feed> = get("api/feeds")
+    open suspend fun createFeed(input: FeedInput): FeedSaveResult = send("api/feeds", "POST", json.encodeToString(input))
+    open suspend fun updateFeed(id: Long, input: FeedInput): FeedSaveResult = send("api/feeds/$id", "PUT", json.encodeToString(input))
+    /** Deletes the subscription and its item records; saved media stays on the server. */
+    open suspend fun deleteFeed(id: Long) { send<Unit>("api/feeds/$id", "DELETE", null) }
+    open suspend fun syncFeed(id: Long): SyncResult = send("api/sync/$id", "POST", null)
+    open suspend fun preview(input: PreviewInput): PreviewResult = send("api/preview", "POST", json.encodeToString(input))
+
+    open suspend fun discoverSubjects(keyword: String): DiscoverResult = get(
+        connection.resolve("api/discover/subjects").newBuilder().addQueryParameter("keyword", keyword).build(),
+    )
+    open suspend fun discoverResources(subjectId: Long): AggregateResult = get(
+        connection.resolve("api/discover/resources").newBuilder().addQueryParameter("subject_id", subjectId.toString()).build(),
+    )
+
+    open suspend fun updateAnime(id: Long, input: AnimeUpdateInput): AnimeSaveResult = send("api/animes/$id", "PUT", json.encodeToString(input))
+    open suspend fun applyRules(id: Long): ApplyRulesResult = send("api/animes/$id/apply-rules", "POST", null)
+    open suspend fun rematch(id: Long): RematchResult = send("api/animes/$id/rematch", "POST", null)
+    open suspend fun searchMetadata(query: String): MetaSearchResult = get(
+        connection.resolve("api/meta/search").newBuilder().addQueryParameter("q", query).build(),
+    )
+    /** [bangumiId] 0 removes the binding. */
+    open suspend fun bindMetadata(id: Long, bangumiId: Long) { send<Unit>("api/animes/$id/metadata", "PUT", json.encodeToString(BindInput(bangumiId))) }
+    open suspend fun correctItem(id: Long, input: CorrectInput): CorrectResult = send("api/items/$id", "PATCH", json.encodeToString(input))
+
+    open suspend fun settings(): ServerSettings = get("api/settings")
+    open suspend fun saveSettings(input: SettingsInput): SettingsSaveResult = send("api/settings", "PUT", json.encodeToString(input))
+
     open suspend fun logout() { val response = request("api/logout", "POST"); if (!response.successful) throw ApiError(response.code, "Logout failed") }
     open suspend fun probeSession() { val response = request("api/animes?page=1&limit=1", "GET"); if (response.code == 401) throw ApiError(401, "Session expired"); if (!response.successful) throw ApiError(response.code, "Request failed") }
     private suspend inline fun <reified T> get(path: String): T = get(connection.resolve(path))
@@ -75,6 +123,12 @@ open class AnimeApi(val client: OkHttpClient, private val connection: ServerConn
         val response = request(url)
         if (!response.successful) throw ApiError(response.code, "Request failed")
         return json.decodeFromString<T>(response.body)
+    }
+    /** Writes carry the server's plain-text reason on failure; [O] is [Unit] when the body is ignored. */
+    private suspend inline fun <reified O> send(path: String, method: String, body: String?): O {
+        val response = request(connection.resolve(path), method, body)
+        if (!response.successful) throw response.error()
+        return if (O::class == Unit::class) Unit as O else json.decodeFromString<O>(response.body)
     }
     private suspend fun request(path: String, method: String = "GET", body: String? = null): ApiResponse =
         request(connection.resolve(path), method, body)
