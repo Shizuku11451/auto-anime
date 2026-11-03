@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -83,6 +84,8 @@ type animeManageInput struct {
 	IDs         []int64 `json:"ids"`
 	TargetID    int64   `json:"target_id"`
 	DeleteItems bool    `json:"delete_items"`
+	DeleteFiles bool    `json:"delete_files"` // 删除时一并删除已保存的媒体文件
+	MoveFiles   bool    `json:"move_files"`   // 合并后把并入的已保存文件移到目标番剧的文件夹
 }
 
 type animeManageResult struct {
@@ -90,6 +93,8 @@ type animeManageResult struct {
 	AnimeCount int   `json:"anime_count"`
 	ItemCount  int64 `json:"item_count"`
 	FeedCount  int64 `json:"feed_count"`
+	mediaDeleteResult
+	Relocation *relocationStatus `json:"relocation,omitempty"`
 }
 
 func animeManageAPI(w http.ResponseWriter, r *http.Request) {
@@ -112,12 +117,14 @@ func animeManageAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // The caller holds animeCleanupMu exclusively, protecting RSS sync and edits.
-// Each batch is atomic; media and downloader files are never removed or moved.
+// Each batch is atomic. Media is removed (delete_files) or moved (move_files)
+// only on explicit request and only after the records commit.
 // Downloader tasks are cancelled only after the transaction commits, so no
 // network round trip runs while the batch holds SQLite's single connection.
 func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 	out := animeManageResult{}
 	var tasks []downloaderTask
+	var media []savedMedia
 	bad := func(code int, message string) (animeManageResult, int, error) {
 		return out, code, fmt.Errorf("%s", message)
 	}
@@ -175,6 +182,13 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 			// 只收集任务标识：取消要走网络，不能在事务内、结果集未关闭时进行。
 			tasks = append(tasks, pendingDownloaderTasks(tx, "SELECT downloader,task_id FROM items WHERE "+related+" AND COALESCE(task_id,'')<>''", a.ID, a.Title)...)
 		}
+		if (in.Action == "delete" && in.DeleteItems && in.DeleteFiles) || (in.Action == "merge" && in.MoveFiles) {
+			saved, err := collectSavedMedia(tx, "SELECT id,file_path FROM items WHERE "+related+" AND status='已保存' AND COALESCE(file_path,'')<>''", a.ID, a.Title)
+			if err != nil {
+				return bad(500, "读取文件路径失败")
+			}
+			media = append(media, saved...)
+		}
 		var itemResult, feedResult sql.Result
 		if in.Action == "merge" {
 			season := a.Season
@@ -215,6 +229,20 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 	}
 	// 数据库已提交，此时取消下载器任务不再占用事务与唯一连接。
 	cancelDownloaderTasks(tasks)
+	if in.Action == "delete" && in.DeleteFiles {
+		out.mediaDeleteResult = deleteSavedMedia(media)
+	}
+	if in.Action == "merge" && in.MoveFiles && len(media) > 0 {
+		only := map[int64]bool{}
+		for _, m := range media {
+			only[m.ID] = true
+		}
+		if status, err := startRelocation(target.ID, only); err == nil {
+			out.Relocation = &status
+		} else {
+			log.Printf("合并后移动文件未能开始: %v", err)
+		}
+	}
 	out.OK = true
 	return out, 200, nil
 }

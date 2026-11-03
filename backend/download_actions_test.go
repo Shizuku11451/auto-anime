@@ -672,7 +672,7 @@ func TestDeleteInterruptsDirectTransferAndRollsBackRecords(t *testing.T) {
 			done := make(chan struct{})
 			go func() { downloadItem(id); close(done) }()
 			waitDownloadDone(t, started)
-			err := deleteItemRecords([]int{id, other})
+			_, err := deleteItemRecords([]int{id, other}, false)
 			waitDownloadDone(t, done)
 			if (err != nil) != failDelete {
 				t.Fatal(err)

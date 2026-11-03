@@ -123,7 +123,7 @@ func TestNativeSameHashItemsPauseAndDeleteIndependently(t *testing.T) {
 	if _, err := n.control(context.Background(), refs[0], false); err != nil {
 		t.Fatal(err)
 	}
-	if err := deleteItemRecords([]int{refs[0].ID}); err != nil {
+	if _, err := deleteItemRecords([]int{refs[0].ID}, false); err != nil {
 		t.Fatal(err)
 	}
 	if n.session.GetTorrent(refs[0].TaskID) != nil || n.session.GetTorrent(refs[1].TaskID).Stats().Status != raintorrent.Downloading {
@@ -400,7 +400,7 @@ func TestNativeLegacySharedTaskRefusesIndependentControl(t *testing.T) {
 	if _, err := pauseItemDownload(ids[0]); err == nil {
 		t.Fatal("ambiguous legacy control accepted")
 	}
-	if err := deleteItemRecords([]int{ids[0]}); err != nil {
+	if _, err := deleteItemRecords([]int{ids[0]}, false); err != nil {
 		t.Fatal(err)
 	}
 	if n.session.GetTorrent(hash) == nil {

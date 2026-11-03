@@ -657,6 +657,34 @@ func removeDownloaderTask(downloader, taskID string) {
 		if err := aria2RPC("aria2.remove", []any{taskID}, nil); err != nil {
 			_ = aria2RPC("aria2.removeDownloadResult", []any{taskID}, nil)
 		}
+	case "qbittorrent":
+		// 只按完整 hash 删除唯一任务，下载器里的文件保留。
+		if !qbitControlHash.MatchString(taskID) {
+			return
+		}
+		client, err := qbitLogin()
+		if err != nil {
+			log.Printf("移除 qBittorrent 任务失败: %v", err)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := client.removeContext(ctx, strings.ToLower(taskID)); err != nil {
+			log.Printf("移除 qBittorrent 任务失败: %v", err)
+		}
+	case "transmission":
+		id, err := strconv.Atoi(taskID)
+		if err != nil || id <= 0 {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		var result struct {
+			Result string `json:"result"`
+		}
+		if err := (&transmissionClient{}).callContext(ctx, map[string]any{"method": "torrent-remove", "arguments": map[string]any{"ids": []int{id}, "delete-local-data": false}}, &result); err != nil || result.Result != "success" {
+			log.Printf("移除 Transmission 任务失败: %v %s", err, result.Result)
+		}
 	}
 }
 

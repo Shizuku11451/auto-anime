@@ -38,11 +38,12 @@ func itemsEntryAPI(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPatch:
 			correctItem(w, r, int64(id))
 		case http.MethodDelete:
-			if err := deleteItemRecords([]int{id}); err != nil {
+			media, err := deleteItemRecords([]int{id}, r.URL.Query().Get("delete_files") == "1")
+			if err != nil {
 				itemActionError(w, err)
 				return
 			}
-			jsonOut(w, map[string]bool{"ok": true})
+			jsonOut(w, map[string]any{"ok": true, "deleted_files": media.Deleted, "file_errors": media.Failed})
 		default:
 			http.Error(w, "方法不支持", 405)
 		}
@@ -85,6 +86,9 @@ type itemBatchResult struct {
 	Count   int                 `json:"count"`
 	Skipped int                 `json:"skipped"`
 	Failed  []itemActionFailure `json:"failed"`
+	// 仅批量删除且选择删除文件时返回。
+	DeletedFiles int      `json:"deleted_files,omitempty"`
+	FileErrors   []string `json:"file_errors,omitempty"`
 }
 
 type itemActionFailure struct {
@@ -98,8 +102,9 @@ func manageItemsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Action string `json:"action"`
-		IDs    []int  `json:"ids"`
+		Action      string `json:"action"`
+		IDs         []int  `json:"ids"`
+		DeleteFiles bool   `json:"delete_files"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	if decoder.Decode(&in) != nil || decoder.Decode(new(any)) != io.EOF || len(in.IDs) == 0 || len(in.IDs) > 500 {
@@ -120,11 +125,13 @@ func manageItemsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	out := itemBatchResult{OK: true, Failed: []itemActionFailure{}}
 	if in.Action == "delete" {
-		if err := deleteItemRecords(in.IDs); err != nil {
+		media, err := deleteItemRecords(in.IDs, in.DeleteFiles)
+		if err != nil {
 			itemActionError(w, err)
 			return
 		}
 		out.Count = len(in.IDs)
+		out.DeletedFiles, out.FileErrors = media.Deleted, media.Failed
 		jsonOut(w, out)
 		return
 	}
@@ -164,7 +171,8 @@ func manageItemsAPI(w http.ResponseWriter, r *http.Request) {
 // Finish in-flight work before removing its record. In particular, direct
 // transfers must close and clean their temporary files before IDs can be reused.
 // Delete records atomically; downloader cleanup still preserves source files.
-func deleteItemRecords(ids []int) error {
+// Saved media is removed only when deleteFiles is set, after the records commit.
+func deleteItemRecords(ids []int, deleteFiles bool) (mediaDeleteResult, error) {
 	ordered := append([]int(nil), ids...)
 	sort.Ints(ordered)
 	for _, id := range ordered {
@@ -192,27 +200,39 @@ func deleteItemRecords(ids []int) error {
 	for _, id := range ordered {
 		item, err := readControlledItem(id)
 		if err != nil {
-			return err
+			return mediaDeleteResult{}, err
 		}
 		tasks = append(tasks, item)
 	}
+	var media []savedMedia
+	var err error
+	if deleteFiles {
+		args := make([]any, len(ordered))
+		for i, id := range ordered {
+			args[i] = id
+		}
+		media, err = collectSavedMedia(db, "SELECT id,file_path FROM items WHERE status='已保存' AND COALESCE(file_path,'')<>'' AND id IN (?"+strings.Repeat(",?", len(ordered)-1)+")", args...)
+		if err != nil {
+			return mediaDeleteResult{}, actionError(500, "读取文件路径失败，请重试")
+		}
+	}
 	tx, err := db.Begin()
 	if err != nil {
-		return actionError(500, "移除失败，请重试")
+		return mediaDeleteResult{}, actionError(500, "移除失败，请重试")
 	}
 	defer tx.Rollback()
 	for _, id := range ordered {
 		if _, err = tx.Exec("DELETE FROM items WHERE id=?", id); err != nil {
-			return actionError(500, "移除失败，记录已保留；中断的直链下载可点击继续")
+			return mediaDeleteResult{}, actionError(500, "移除失败，记录已保留；中断的直链下载可点击继续")
 		}
 	}
 	if err = tx.Commit(); err != nil {
-		return actionError(500, "移除失败，记录已保留；中断的直链下载可点击继续")
+		return mediaDeleteResult{}, actionError(500, "移除失败，记录已保留；中断的直链下载可点击继续")
 	}
 	committed = true
 	for _, item := range tasks {
 		clearTransfer(item.ID)
 		removeDownloaderTask(item.Downloader, item.TaskID)
 	}
-	return nil
+	return deleteSavedMedia(media), nil
 }

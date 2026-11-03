@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -358,7 +359,7 @@ func animesPageAPI(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, resp)
 }
 
-// ---- /api/animes/{id}[/metadata|/apply-rules] ----
+// ---- /api/animes/{id}[/metadata|/apply-rules|/relocation|/relocation-preview] ----
 
 func animeEntryAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
@@ -416,6 +417,31 @@ func animeEntryAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		animeApplyRules(w, id)
+	case "relocation-preview":
+		if r.Method != http.MethodPost {
+			http.Error(w, "方法不支持", 405)
+			return
+		}
+		animeRelocationPreview(w, r, id)
+	case "relocation":
+		w.Header().Set("Cache-Control", "no-store")
+		switch r.Method {
+		case http.MethodGet:
+			jsonOut(w, relocationSnapshot(id))
+		case http.MethodPost:
+			status, err := startRelocation(id, nil)
+			if errors.Is(err, errRelocationRunning) {
+				http.Error(w, err.Error(), 409)
+				return
+			}
+			if err != nil {
+				http.Error(w, "番剧不存在", 404)
+				return
+			}
+			jsonOut(w, status)
+		default:
+			http.Error(w, "方法不支持", 405)
+		}
 	default:
 		http.NotFound(w, r)
 	}

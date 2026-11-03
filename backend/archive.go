@@ -146,14 +146,19 @@ func queryAnimeStorage(animeTitle string) (dir string, season int, ok bool) {
 //  3. 标题分析解析出的季（items.season_auto，例如「3期」「S3」「第三季」）；
 //  4. 第 1 季。
 func resolveSeason(animeTitle string, itemSeason, autoSeason int) int {
-	if itemSeason >= 1 && itemSeason <= 999 {
-		return itemSeason
+	animeSeason := 0
+	if itemSeason < 1 || itemSeason > 999 {
+		_, animeSeason, _ = queryAnimeStorage(animeTitle)
 	}
-	if _, season, ok := queryAnimeStorage(animeTitle); ok && season >= 1 && season <= 999 {
-		return season
-	}
-	if autoSeason >= 1 && autoSeason <= 999 {
-		return autoSeason
+	return pickSeason(itemSeason, animeSeason, autoSeason)
+}
+
+// pickSeason 是 resolveSeason 的纯函数部分，番剧季号由调用方提供（迁移预览用）。
+func pickSeason(itemSeason, animeSeason, autoSeason int) int {
+	for _, season := range []int{itemSeason, animeSeason, autoSeason} {
+		if season >= 1 && season <= 999 {
+			return season
+		}
 	}
 	return 1
 }
@@ -172,13 +177,16 @@ func archiveBaseRoot() string {
 // archiveRootFor resolves where a series folder lives: a saved per-series
 // override wins, then the media library directory, then DOWNLOAD_DIR.
 func archiveRootFor(series string) string {
-	root := filepath.Join(archiveBaseRoot(), safeComponent(series))
-	if dir, _, ok := queryAnimeStorage(series); ok {
-		if d := strings.TrimSpace(dir); d != "" {
-			root = cleanStoragePath(d)
-		}
+	dir, _, _ := queryAnimeStorage(series)
+	return seriesRoot(series, dir)
+}
+
+// seriesRoot 是 archiveRootFor 的纯函数部分：自定义存储位置优先，否则为默认根目录下的番剧文件夹。
+func seriesRoot(series, storageDir string) string {
+	if d := strings.TrimSpace(storageDir); d != "" {
+		return cleanStoragePath(d)
 	}
-	return root
+	return filepath.Join(archiveBaseRoot(), safeComponent(series))
 }
 
 // archiveTarget computes where a resource belongs: the series folder (a saved
