@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { Info, Sparkles } from '@lucide/vue'
 import RouteLink from '@/components/ui/RouteLink.vue'
 import ThemeToggle from '@/components/ui/ThemeToggle.vue'
+import NavIcon from './NavIcon.vue'
 import ServiceTools from './ServiceTools.vue'
 import { useAppStore } from '@/stores/app'
 import { NAV_ITEMS } from '@/nav'
@@ -49,7 +50,7 @@ function showRelease() {
         class="nav-link"
         :class="{ active: i === activeIndex }"
       >
-        <component :is="item.icon" class="nav-ic" aria-hidden="true" />
+        <NavIcon :icon="item.icon" :active="i === activeIndex" class="nav-ic" />
         <span class="nav-label">{{ item.label }}</span>
       </RouteLink>
     </nav>
@@ -141,9 +142,6 @@ function showRelease() {
   color: var(--accent);
 }
 .nav-ic {
-  width: 20px;
-  height: 20px;
-  flex: none;
   color: var(--text-3);
   transition:
     color var(--t-med) var(--ease-out),
@@ -151,6 +149,9 @@ function showRelease() {
 }
 .nav-link:hover .nav-ic {
   color: var(--text-2);
+}
+.nav-link:hover:not(.active) .nav-ic {
+  transform: translateY(-2px);
 }
 .nav-link.active .nav-ic {
   color: var(--accent);

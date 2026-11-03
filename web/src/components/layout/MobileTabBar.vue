@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import RouteLink from '@/components/ui/RouteLink.vue'
+import NavIcon from './NavIcon.vue'
 import { NAV_ITEMS } from '@/nav'
 
 const route = useRoute()
@@ -20,7 +21,7 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
       class="tab"
       :class="{ active: i === activeIndex }"
     >
-      <component :is="item.icon" class="tab-ic" aria-hidden="true" />
+      <NavIcon :icon="item.icon" :active="i === activeIndex" class="tab-ic" />
       <span class="tab-label">{{ item.label }}</span>
     </RouteLink>
   </nav>
@@ -74,14 +75,6 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
 }
 .tab.active {
   color: var(--accent);
-}
-.tab-ic {
-  width: 20px;
-  height: 20px;
-  transition: transform var(--t-med) var(--ease-spring);
-}
-.tab.active .tab-ic {
-  transform: translateY(-1px) scale(1.06);
 }
 .tab-label {
   line-height: 1.2;
