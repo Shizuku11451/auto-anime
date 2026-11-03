@@ -4,7 +4,7 @@
 
 ## 媒体库分页 API
 
-`GET /api/animes` 保持原有完整 JSON 数组响应。客户端可使用 `GET /api/animes?page=1&limit=N&before=ID` 按 ID 倒序读取精简媒体库卡片：`limit` 默认为 30，范围为 1–100；省略 `before` 从最新记录开始，后续请求使用响应中的 `next_before`。响应为 `{ "items": [...], "next_before": ID }`，`next_before` 为 0 表示没有后续页。卡片字段为 `id`、`title`、`season`、`cover`、`meta_name`、`meta_name_cn` 和 `summary`；封面为服务端相对路径。非法分页大小或游标返回 HTTP 400。
+`GET /api/animes` 保持原有完整 JSON 数组响应。客户端可使用 `GET /api/animes?page=1&limit=N&before=ID` 按 ID 倒序读取精简媒体库卡片：`limit` 默认为 30，范围为 1–100；省略 `before` 从最新记录开始，后续请求使用响应中的 `next_before`。响应为 `{ "items": [...], "next_before": ID }`，`next_before` 为 0 表示没有后续页。卡片字段为 `id`、`title`、`season`、`cover`、`meta_name`、`meta_name_cn`、`summary`、`update_weekday`（手动更新日，0 为自动）、`broadcast_weekday` 和 `broadcast_end`（Bangumi 放送星期与完结日期，仅在资料属于该番剧绑定的条目时返回）；封面为服务端相对路径。可选 `day=0–8` 按更新日筛选（0 待补充、1–7 周一至周日、8 已完结，与网页番剧库一致），`today=YYYY-MM-DD` 指定判断完结所用的日期（默认服务端日期），`counts=1` 额外返回全库各更新日数量 `day_counts`（长度 9 的数组，不受 `day` 与分页影响）。非法分页大小、游标、`day` 或 `today` 返回 HTTP 400。
 
 ## 配置方式与优先级
 

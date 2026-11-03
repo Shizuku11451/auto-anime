@@ -218,6 +218,20 @@ func animesAPI(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, out)
 }
 
+// Bangumi broadcast data only counts when it belongs to the subject the anime is
+// bound to (or, unbound, the subject its metadata came from); matches animesAPI.
+const (
+	pageBroadcastWeekdaySQL = `CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0 AND anime_meta.broadcast_subject_id=anime_meta.subject_id
+		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN COALESCE(anime_meta.broadcast_weekday,0) ELSE 0 END`
+	pageBroadcastEndSQL = `CASE WHEN anime_meta.source IN ('bangumi','manual') AND anime_meta.subject_id>0 AND anime_meta.broadcast_subject_id=anime_meta.subject_id
+		 AND (COALESCE(animes.bangumi_id,0)=0 OR animes.bangumi_id=anime_meta.subject_id) THEN COALESCE(anime_meta.broadcast_end,'') ELSE '' END`
+	// Same buckets as web/src/components/library/schedule.ts: 0 unknown, 1-7
+	// weekday, 8 finished. A manual update day wins and is never "finished".
+	pageScheduleDaySQL = `CASE WHEN uw=0 AND be GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND be<? THEN 8
+		WHEN uw<>0 THEN CASE WHEN uw BETWEEN 1 AND 7 THEN uw ELSE 0 END
+		WHEN bw BETWEEN 1 AND 7 THEN bw ELSE 0 END`
+)
+
 func animesPageAPI(w http.ResponseWriter, r *http.Request) {
 	limit := 30
 	if raw := r.URL.Query().Get("limit"); raw != "" {
@@ -228,18 +242,75 @@ func animesPageAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	// "Finished" depends on the client's calendar day; default to the server's.
+	today := time.Now().Format("2006-01-02")
+	if raw := r.URL.Query().Get("today"); raw != "" {
+		if _, err := time.Parse("2006-01-02", raw); err != nil {
+			http.Error(w, "日期无效", http.StatusBadRequest)
+			return
+		}
+		today = raw
+	}
+	day := -1
+	if raw := r.URL.Query().Get("day"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 8 {
+			http.Error(w, "更新日筛选无效", http.StatusBadRequest)
+			return
+		}
+		day = n
+	}
+	source := `SELECT animes.id AS id,animes.title AS title,COALESCE(animes.season,0) AS season,COALESCE(anime_meta.cover_file,'') AS cover_file,
+		COALESCE(anime_meta.name,'') AS name,COALESCE(anime_meta.name_cn,'') AS name_cn,COALESCE(anime_meta.summary,'') AS summary,
+		COALESCE(animes.update_weekday,0) AS uw,` + pageBroadcastWeekdaySQL + ` AS bw,` + pageBroadcastEndSQL + ` AS be
+		FROM animes LEFT JOIN anime_meta ON anime_meta.anime_title=animes.title`
+	// Counts run first and finish before the page query: SQLite has one connection.
+	var dayCounts []int
+	if r.URL.Query().Get("counts") == "1" {
+		dayCounts = make([]int, 9)
+		rows, err := db.QueryContext(r.Context(), `SELECT `+pageScheduleDaySQL+` AS day,COUNT(*) FROM (`+source+`) GROUP BY day`, today)
+		if err != nil {
+			http.Error(w, "查询失败", http.StatusInternalServerError)
+			return
+		}
+		for rows.Next() {
+			var d, n int
+			if err := rows.Scan(&d, &n); err != nil {
+				rows.Close()
+				http.Error(w, "查询失败", http.StatusInternalServerError)
+				return
+			}
+			if d >= 0 && d < len(dayCounts) {
+				dayCounts[d] = n
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			http.Error(w, "查询失败", http.StatusInternalServerError)
+			return
+		}
+	}
+	where := []string{}
 	args := []any{}
-	query := `SELECT animes.id,animes.title,COALESCE(animes.season,0),COALESCE(anime_meta.cover_file,''),COALESCE(anime_meta.name,''),COALESCE(anime_meta.name_cn,''),COALESCE(anime_meta.summary,'') FROM animes LEFT JOIN anime_meta ON anime_meta.anime_title=animes.title`
+	if day >= 0 {
+		where = append(where, "("+pageScheduleDaySQL+")=?")
+		args = append(args, today, day)
+	}
 	if raw := r.URL.Query().Get("before"); raw != "" {
 		before, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || before < 1 {
 			http.Error(w, "分页游标无效", http.StatusBadRequest)
 			return
 		}
-		query += ` WHERE animes.id<?`
+		where = append(where, "id<?")
 		args = append(args, before)
 	}
-	query += ` ORDER BY animes.id DESC LIMIT ?`
+	query := `SELECT id,title,season,cover_file,name,name_cn,summary,uw,bw,be FROM (` + source + `)`
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += ` ORDER BY id DESC LIMIT ?`
 	args = append(args, limit+1)
 	rows, err := db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -248,19 +319,22 @@ func animesPageAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type card struct {
-		ID         int64  `json:"id"`
-		Title      string `json:"title"`
-		Season     int    `json:"season"`
-		Cover      string `json:"cover"`
-		MetaName   string `json:"meta_name"`
-		MetaNameCN string `json:"meta_name_cn"`
-		Summary    string `json:"summary"`
+		ID               int64  `json:"id"`
+		Title            string `json:"title"`
+		Season           int    `json:"season"`
+		Cover            string `json:"cover"`
+		MetaName         string `json:"meta_name"`
+		MetaNameCN       string `json:"meta_name_cn"`
+		Summary          string `json:"summary"`
+		UpdateWeekday    int    `json:"update_weekday"`
+		BroadcastWeekday int    `json:"broadcast_weekday"`
+		BroadcastEnd     string `json:"broadcast_end"`
 	}
 	out := make([]card, 0, limit+1)
 	for rows.Next() {
 		var c card
 		var coverFile string
-		if err := rows.Scan(&c.ID, &c.Title, &c.Season, &coverFile, &c.MetaName, &c.MetaNameCN, &c.Summary); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &c.Season, &coverFile, &c.MetaName, &c.MetaNameCN, &c.Summary, &c.UpdateWeekday, &c.BroadcastWeekday, &c.BroadcastEnd); err != nil {
 			http.Error(w, "查询失败", http.StatusInternalServerError)
 			return
 		}
@@ -277,7 +351,11 @@ func animesPageAPI(w http.ResponseWriter, r *http.Request) {
 		next = out[len(out)-1].ID
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, map[string]any{"items": out, "next_before": next})
+	resp := map[string]any{"items": out, "next_before": next}
+	if dayCounts != nil {
+		resp["day_counts"] = dayCounts
+	}
+	jsonOut(w, resp)
 }
 
 // ---- /api/animes/{id}[/metadata|/apply-rules] ----
