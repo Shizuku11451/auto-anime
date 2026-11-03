@@ -2,8 +2,20 @@ package com.autoanime.android.core.model
 
 import kotlinx.serialization.Serializable
 
-@Serializable data class AnimePage(val items: List<Anime>, val next_before: Long)
-@Serializable data class Anime(val id: Long, val title: String, val season: Int = 0, val cover: String = "", val meta_name: String = "", val meta_name_cn: String = "", val summary: String = "")
+/** [day_counts] is present only when requested and the server supports schedule filtering. */
+@Serializable data class AnimePage(val items: List<Anime>, val next_before: Long, val day_counts: List<Int>? = null)
+@Serializable data class Anime(
+    val id: Long,
+    val title: String,
+    val season: Int = 0,
+    val cover: String = "",
+    val meta_name: String = "",
+    val meta_name_cn: String = "",
+    val summary: String = "",
+    val update_weekday: Int = 0,
+    val broadcast_weekday: Int = 0,
+    val broadcast_end: String = "",
+)
 @Serializable data class LoginResult(val ok: Boolean)
 @Serializable data class AnimeDetail(val id: Long, val title: String, val cover: String = "", val summary: String = "", val seasons: List<Season> = emptyList())
 @Serializable data class Season(val season: Int, val episodes: List<Episode> = emptyList(), val loose: List<MediaItem> = emptyList())

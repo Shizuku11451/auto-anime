@@ -29,7 +29,22 @@ open class AnimeApi(val client: OkHttpClient, private val connection: ServerConn
         return result
     }
     open suspend fun setupStatus(): SetupState = get("api/setup/status")
-    open suspend fun page(before: Long? = null): AnimePage = get("api/animes?page=1&limit=30" + (before?.let { "&before=$it" } ?: ""))
+    /**
+     * [day] filters by schedule bucket (see [com.autoanime.android.core.model.ScheduleDay]); [today] is the
+     * client's calendar date, which decides whether a show has finished airing.
+     */
+    open suspend fun page(before: Long? = null, day: Int? = null, today: String? = null, counts: Boolean = false): AnimePage = get(
+        connection.resolve("api/animes").newBuilder()
+            .addQueryParameter("page", "1")
+            .addQueryParameter("limit", "30")
+            .apply {
+                before?.let { addQueryParameter("before", it.toString()) }
+                day?.let { addQueryParameter("day", it.toString()) }
+                today?.let { addQueryParameter("today", it) }
+                if (counts) addQueryParameter("counts", "1")
+            }
+            .build(),
+    )
     open suspend fun detail(id: Long): AnimeDetail = get("api/animes/$id")
     open suspend fun items(group: String?, query: String?, before: Long?): DownloadPage = get(
         connection.resolve("api/items").newBuilder()

@@ -8,6 +8,7 @@ import com.autoanime.android.core.model.Anime
 import com.autoanime.android.core.model.AnimeDetail
 import com.autoanime.android.core.model.AnimePage
 import com.autoanime.android.core.model.AppError
+import com.autoanime.android.core.model.ScheduleDay
 import com.autoanime.android.core.model.SetupState
 import com.autoanime.android.core.network.AnimeApi
 import com.autoanime.android.core.network.ApiError
@@ -28,9 +29,11 @@ import okhttp3.Cookie
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModelTest {
@@ -85,6 +88,40 @@ class LibraryViewModelTest {
         assertTrue(model.state.value.items.isEmpty())
     }
 
+    @Test fun dayFilterSendsLocalDateAndIgnoresPagesForAnotherDay() = scope.runTest {
+        val model = LibraryViewModel(sessions, dispatcher)
+        model.today = { LocalDate.of(2026, 11, 3) }
+        connect("https://nas.example/")
+        val api = apis.last()
+        val counts = listOf(1, 2, 3, 0, 0, 0, 0, 0, 4)
+        api.pages.single().complete(AnimePage(listOf(Anime(1, "all")), 0, day_counts = counts))
+        runCurrent()
+        assertEquals(counts, model.state.value.dayCounts)
+        assertEquals(2, model.state.value.todayWeekday)
+
+        model.selectDay(2)
+        runCurrent()
+        val tuesday = api.pages.last()
+        model.selectDay(ScheduleDay.FINISHED)
+        runCurrent()
+        assertEquals(PageCall(null, 2, "2026-11-03", true), api.pageCalls[1])
+        assertEquals(PageCall(null, ScheduleDay.FINISHED, "2026-11-03", true), api.pageCalls[2])
+        api.pages.last().complete(AnimePage(listOf(Anime(8, "finished")), 0, day_counts = counts))
+        runCurrent()
+        tuesday.complete(AnimePage(listOf(Anime(2, "tuesday")), 0, day_counts = counts))
+        runCurrent()
+        assertEquals(listOf(8L), model.state.value.items.map { it.id })
+        assertEquals(ScheduleDay.FINISHED, model.state.value.day)
+    }
+
+    @Test fun serverWithoutDayCountsHidesTheFilter() = scope.runTest {
+        val model = LibraryViewModel(sessions, dispatcher)
+        connect("https://nas.example/")
+        apis.last().pages.single().complete(AnimePage(listOf(Anime(1, "a")), 0))
+        runCurrent()
+        assertNull(model.state.value.dayCounts)
+    }
+
     @Test fun lateDetailResponseCannotReplaceRetry() = scope.runTest {
         connect("https://nas.example/")
         val api = apis.last()
@@ -109,14 +146,20 @@ class LibraryViewModelTest {
     }
 }
 
+private data class PageCall(val before: Long?, val day: Int?, val today: String?, val counts: Boolean)
+
 private class GatedApi : AnimeApi(OkHttpClient(), ServerConnection.parse("https://nas.example/", false)) {
     val setup = CompletableDeferred<SetupState>()
     val pages = mutableListOf<CompletableDeferred<AnimePage>>()
+    val pageCalls = mutableListOf<PageCall>()
     val details = mutableListOf<CompletableDeferred<AnimeDetail>>()
     var nonCancellableDetail = false
     override suspend fun setupStatus() = setup.await()
     override suspend fun probeSession() = Unit
-    override suspend fun page(before: Long?): AnimePage = CompletableDeferred<AnimePage>().also { pages += it }.await()
+    override suspend fun page(before: Long?, day: Int?, today: String?, counts: Boolean): AnimePage {
+        pageCalls += PageCall(before, day, today, counts)
+        return CompletableDeferred<AnimePage>().also { pages += it }.await()
+    }
     override suspend fun detail(id: Long): AnimeDetail {
         val gate = CompletableDeferred<AnimeDetail>().also { details += it }
         return if (nonCancellableDetail) withContext(NonCancellable) { gate.await() } else gate.await()

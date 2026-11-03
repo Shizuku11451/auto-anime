@@ -141,7 +141,7 @@ private class FakeApi(private val probeError: Exception? = null) :
     override suspend fun setupStatus() = setup.await()
     override suspend fun login(user: String, password: String): LoginResult { loginCalls++; return LoginResult(true) }
     override suspend fun probeSession() { probeCalls++; probeError?.let { throw it } }
-    override suspend fun page(before: Long?): AnimePage = AnimePage(emptyList(), 0)
+    override suspend fun page(before: Long?, day: Int?, today: String?, counts: Boolean): AnimePage = AnimePage(emptyList(), 0)
     override suspend fun detail(id: Long): AnimeDetail = AnimeDetail(id, "")
     override suspend fun logout() = Unit
 }

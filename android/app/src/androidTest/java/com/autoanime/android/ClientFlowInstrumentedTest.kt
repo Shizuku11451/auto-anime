@@ -77,7 +77,7 @@ class ClientFlowInstrumentedTest {
 
     @Test fun playableFixtureRendersSeeksAndReleasesOnExit() = launch(playableFixture = true) {
         connect()
-        waitForPath("/prefix/api/animes?page=1&limit=30")
+        waitForPath(LIBRARY_PAGE)
         compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
         compose.waitUntilExactlyOneExists(hasText("Play fixture"), TIMEOUT)
         compose.onNode(hasText("Play fixture") and hasClickAction()).performClick()
@@ -118,7 +118,7 @@ class ClientFlowInstrumentedTest {
 
     @Test fun loginLibraryDetailCoverAndLogoutUsePrefixedAuthenticatedEndpoints() = launch {
         connect()
-        val page = waitForPath("/prefix/api/animes?page=1&limit=30")
+        val page = waitForPath(LIBRARY_PAGE)
         assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
         compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
         compose.waitUntilExactlyOneExists(hasText("Fixture summary"), TIMEOUT)
@@ -176,7 +176,7 @@ class ClientFlowInstrumentedTest {
         // The page request is only sent once the library composes, so wait on the UI first.
         compose.waitUntilExactlyOneExists(hasText(context.getString(DesignR.string.error_session_expired)), TIMEOUT)
         compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.CONNECT), TIMEOUT)
-        val page = waitForPath("/prefix/api/animes?page=1&limit=30")
+        val page = waitForPath(LIBRARY_PAGE)
         assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
     }
 
@@ -219,12 +219,12 @@ class ClientFlowInstrumentedTest {
     }
 
     private fun fixtureDispatcher(streamUnauthorized: Boolean, libraryUnauthorized: Boolean, playableFixture: Boolean) = object : Dispatcher() {
-        override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+        override fun dispatch(request: RecordedRequest): MockResponse = when (request.routeKey()) {
             "/prefix/api/setup/status" -> MockResponse().setBody("""{"required":false}""")
             "/prefix/api/login" -> MockResponse()
                 .addHeader("Set-Cookie", "auto_anime_session=instrumented-session; Path=/; HttpOnly")
                 .setBody("""{"ok":true}""")
-            "/prefix/api/animes?page=1&limit=30" -> if (!libraryUnauthorized && hasSession(request)) {
+            LIBRARY_PAGE -> if (!libraryUnauthorized && hasSession(request)) {
                 MockResponse().setBody("""{"items":[{"id":7,"title":"Fixture Anime","season":1}],"next_before":0}""")
             } else MockResponse().setResponseCode(401)
             "/prefix/api/animes/7" -> if (hasSession(request)) {
@@ -268,6 +268,9 @@ class ClientFlowInstrumentedTest {
             }
         }
 
+        /** Library pages carry extra query parameters; route them by their common prefix. */
+        private fun RecordedRequest.routeKey(): String? = path?.let { if (it.startsWith(LIBRARY_PAGE)) LIBRARY_PAGE else it }
+
         private fun hasSession(request: RecordedRequest) =
             request.getHeader("Cookie")?.contains("auto_anime_session=instrumented-session") == true
     }
@@ -299,11 +302,12 @@ class ClientFlowInstrumentedTest {
         return null
     }
 
+    /** Exact path, except [LIBRARY_PAGE], which matches any query parameters that follow it. */
     private fun waitForPath(path: String): RecordedRequest {
         val seen = mutableListOf<String?>()
         repeat(30) {
             val request = server.takeRequest(1, TimeUnit.SECONDS) ?: return@repeat
-            if (request.path == path) return request
+            if (request.path == path || (path == LIBRARY_PAGE && request.path?.startsWith(path) == true)) return request
             seen += request.path
         }
         throw AssertionError("No request received for $path; saw $seen")
@@ -327,5 +331,7 @@ class ClientFlowInstrumentedTest {
 
     private companion object {
         const val TIMEOUT = 5_000L
+        /** The library's first page; the client also sends its local date and asks for day counts. */
+        const val LIBRARY_PAGE = "/prefix/api/animes?page=1&limit=30"
     }
 }

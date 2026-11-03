@@ -6,4 +6,18 @@
     <string name="anime_cover">Anime cover</string>
     <string name="no_saved_episodes">No saved episodes yet</string>
     <string name="select_anime">Select an anime</string>
+    <string name="day_all">All</string>
+    <string name="day_unknown">No day</string>
+    <string name="day_finished">Finished</string>
+    <string name="day_today">%1$s · Today</string>
+    <string name="day_empty">Nothing on this day</string>
+    <string-array name="weekdays">
+        <item>Mon</item>
+        <item>Tue</item>
+        <item>Wed</item>
+        <item>Thu</item>
+        <item>Fri</item>
+        <item>Sat</item>
+        <item>Sun</item>
+    </string-array>
 </resources>

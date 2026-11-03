@@ -6,4 +6,18 @@
     <string name="anime_cover">番剧封面</string>
     <string name="no_saved_episodes">暂无已保存的剧集</string>
     <string name="select_anime">选择一部番剧</string>
+    <string name="day_all">全部</string>
+    <string name="day_unknown">待补充</string>
+    <string name="day_finished">已完结</string>
+    <string name="day_today">%1$s · 今天</string>
+    <string name="day_empty">这一天没有番剧</string>
+    <string-array name="weekdays">
+        <item>周一</item>
+        <item>周二</item>
+        <item>周三</item>
+        <item>周四</item>
+        <item>周五</item>
+        <item>周六</item>
+        <item>周日</item>
+    </string-array>
 </resources>

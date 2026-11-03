@@ -14,9 +14,12 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as rowItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -32,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,11 +45,12 @@ import com.autoanime.android.core.designsystem.CoverImage
 import com.autoanime.android.core.designsystem.ErrorState
 import com.autoanime.android.core.designsystem.LoadingState
 import com.autoanime.android.core.designsystem.message
+import com.autoanime.android.core.model.ScheduleDay
 
 @Composable
 fun LibraryRoute(onOpenAnime: (Long) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    LibraryScreen(state, onOpenAnime, onRefresh = viewModel::refresh, onLoadMore = viewModel::loadMore)
+    LibraryScreen(state, onOpenAnime, onRefresh = viewModel::refresh, onLoadMore = viewModel::loadMore, onSelectDay = viewModel::selectDay)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,22 +60,59 @@ fun LibraryScreen(
     onOpenAnime: (Long) -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onSelectDay: (Int?) -> Unit = {},
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.library)) }) }) { padding ->
-        val body = Modifier.fillMaxSize().padding(padding)
-        when {
-            state.items.isEmpty() && state.error != null -> ErrorState(state.error, onRetry = onRefresh, modifier = body)
-            state.items.isEmpty() && state.loading -> LoadingState(body)
-            state.items.isEmpty() -> Box(body, contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.library_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // Servers without schedule filtering send no counts; the filter is hidden for them.
+            state.dayCounts?.let { counts -> DayFilter(state.day, counts, state.todayWeekday, onSelectDay) }
+            val body = Modifier.fillMaxSize()
+            when {
+                state.items.isEmpty() && state.error != null -> ErrorState(state.error, onRetry = onRefresh, modifier = body)
+                state.items.isEmpty() && state.loading -> LoadingState(body)
+                state.items.isEmpty() -> Box(body, contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(if (state.day == null) R.string.library_empty else R.string.day_empty),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> PullToRefreshBox(
+                    isRefreshing = state.refreshing,
+                    onRefresh = onRefresh,
+                    modifier = body,
+                ) {
+                    AnimeGrid(state, onOpenAnime, onLoadMore)
+                }
             }
-            else -> PullToRefreshBox(
-                isRefreshing = state.refreshing,
-                onRefresh = onRefresh,
-                modifier = body,
-            ) {
-                AnimeGrid(state, onOpenAnime, onLoadMore)
+        }
+    }
+}
+
+/** All, Monday to Sunday, then unknown and finished; the same buckets as the web library. */
+@Composable
+private fun DayFilter(selected: Int?, counts: List<Int>, todayWeekday: Int, onSelect: (Int?) -> Unit) {
+    val weekdays = stringArrayResource(R.array.weekdays)
+    val days: List<Int?> = listOf(null) + ScheduleDay.WEEKDAYS + ScheduleDay.UNKNOWN + ScheduleDay.FINISHED
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.testTag(LibraryTestTags.DAY_FILTER),
+    ) {
+        rowItems(days, key = { it ?: -1 }) { day ->
+            val label = when (day) {
+                null -> stringResource(R.string.day_all)
+                ScheduleDay.UNKNOWN -> stringResource(R.string.day_unknown)
+                ScheduleDay.FINISHED -> stringResource(R.string.day_finished)
+                todayWeekday -> stringResource(R.string.day_today, weekdays[day - 1])
+                else -> weekdays[day - 1]
             }
+            val count = if (day == null) counts.sum() else counts[day]
+            FilterChip(
+                selected = selected == day,
+                onClick = { onSelect(day) },
+                label = { Text("$label $count") },
+                modifier = Modifier.testTag(LibraryTestTags.day(day)),
+            )
         }
     }
 }
@@ -142,4 +184,6 @@ private fun AnimeCardItem(anime: AnimeCard, onClick: () -> Unit) {
 object LibraryTestTags {
     /** Also exposed as a resource id for the scroll benchmark. */
     const val GRID = "anime_list"
+    const val DAY_FILTER = "day_filter"
+    fun day(day: Int?) = "day_${day ?: "all"}"
 }
