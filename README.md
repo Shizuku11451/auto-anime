@@ -81,7 +81,7 @@ docker compose up -d
 
 搜索候选资源默认使用公共聚合服务 `https://search.115415.xyz`，无需令牌，目前覆盖蜜柑计划、动漫花园、ACG.RIP、Nyaa 和 Bangumi Moe。使用时请求者 IP 和条目 ID 会发送给该服务。也可以[自建服务](https://autoanime.top/advanced/search-server)，或用 `AGGREGATE_SEARCH_URL=""` 关闭。聚合服务或 Bangumi 不可用时，已有的 RSS 订阅和下载不受影响。
 
-更多操作（关键词规则、集数偏移、识别纠错、批量管理、Bangumi 收藏同步）见[使用指南](https://autoanime.top/guide/usage)。
+更多操作（关键词规则、集数偏移、调整归属、批量管理、Bangumi 收藏同步）见[使用指南](https://autoanime.top/guide/usage)。
 
 ## 使用须知
 
