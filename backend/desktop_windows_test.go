@@ -109,6 +109,9 @@ func TestDesktopThemeWithoutWindow(t *testing.T) {
 	if applyTitleBarTheme(0, true) {
 		t.Fatal("空窗口句柄不应报告成功")
 	}
+	if hideTitleBarCaption(0) {
+		t.Fatal("空窗口句柄不应隐藏标题栏成功")
+	}
 	if applyDesktopTheme("dark") || applyDesktopTheme("light") {
 		t.Fatal("没有桌面窗口时不应报告已应用")
 	}

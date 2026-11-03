@@ -195,6 +195,9 @@ const (
 	smCxSmIcon          = 49
 	imageIcon           = 1
 	idiApplication      = 32512
+	wtaNonClient        = 1 // WTA_NONCLIENT
+	wtncaNoDrawCaption  = 0x1
+	wtncaNoDrawIcon     = 0x2
 )
 
 var (
@@ -202,6 +205,8 @@ var (
 	procLoadImageW       = desktopUser32.NewProc("LoadImageW")
 	procLoadIconW        = desktopUser32.NewProc("LoadIconW")
 	procGetSystemMetrics = desktopUser32.NewProc("GetSystemMetrics")
+
+	procSetWindowThemeAttribute = windows.NewLazySystemDLL("uxtheme.dll").NewProc("SetWindowThemeAttribute")
 )
 
 // desktopWindowHandle 是当前桌面窗口（服务模式或非 Windows 为 0），供主题接口更新标题栏。
@@ -290,6 +295,17 @@ func applyTitleBarTheme(hwnd windows.HWND, dark bool) bool {
 	return windows.DwmSetWindowAttribute(hwnd, dwmwaImmersiveDark2, unsafe.Pointer(&value), size) == nil
 }
 
+// hideTitleBarCaption 让原生标题栏只保留窗口按钮，不绘制图标和标题文字；
+// 窗口标题仍然保留，任务栏、Alt+Tab 和托盘照常显示名称与图标。
+func hideTitleBarCaption(hwnd windows.HWND) bool {
+	if hwnd == 0 {
+		return false
+	}
+	options := struct{ flags, mask uint32 }{wtncaNoDrawCaption | wtncaNoDrawIcon, wtncaNoDrawCaption | wtncaNoDrawIcon}
+	result, found := callOptional(procSetWindowThemeAttribute, uintptr(hwnd), wtaNonClient, uintptr(unsafe.Pointer(&options)), unsafe.Sizeof(options))
+	return found && result == 0
+}
+
 // applyDesktopTheme 由 /api/desktop/theme 调用：把应用主题同步到原生标题栏。
 // 返回 false 表示当前没有桌面窗口（服务模式）或系统不支持。
 func applyDesktopTheme(theme string) bool {
@@ -374,6 +390,9 @@ func runDesktop() {
 	defer func() { desktopWindowHandle = 0 }()
 	applyWindowIcon(hwnd)
 	applyTitleBarTheme(hwnd, darkTitleBar)
+	if !hideTitleBarCaption(hwnd) {
+		log.Print("无法隐藏标题栏图标与文字，保持系统默认标题栏")
+	}
 	w.SetHtml(`<!doctype html><meta charset="utf-8"><style>body{font:18px system-ui;padding:48px;color:#333}@media(prefers-color-scheme:dark){body{background:#18181b;color:#eee}}</style><h1>Auto-Anime</h1><p>正在启动服务与下载器，请稍候…</p><p>关闭窗口后继续在系统托盘运行；右键托盘图标可退出。</p>`)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
