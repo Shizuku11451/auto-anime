@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -50,6 +53,7 @@ import androidx.media3.ui.compose.material3.Player
 import androidx.media3.ui.compose.material3.PlayerDefaults
 import androidx.media3.ui.compose.material3.indicator.ProgressSlider
 import com.autoanime.android.core.designsystem.AppIcons
+import com.autoanime.android.core.designsystem.AutoAnimeTheme
 import kotlinx.coroutines.delay
 
 @Composable
@@ -70,7 +74,13 @@ fun PlayerRoute(itemId: Long, title: String, onClose: () -> Unit) {
         }
     }
     ImmersiveMode()
-    PlayerScreen(player, title, state, onClose)
+    // Video chrome stays dark in both app themes: Media3's bottom scrim uses the background color
+    // and its icons and time text use the content color, which is not set outside a Surface.
+    AutoAnimeTheme(darkTheme = true) {
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            PlayerScreen(player, title, state, onClose)
+        }
+    }
 }
 
 @OptIn(UnstableApi::class, ExperimentalApi::class)
@@ -102,7 +112,12 @@ fun PlayerScreen(player: ExoPlayer?, title: String, state: PlayerUiState, onClos
             topControls = { _, visible ->
                 AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
                     Row(
-                        Modifier.fillMaxWidth().safeDrawingPadding().padding(4.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .background(TopScrim)
+                            .safeDrawingPadding()
+                            // Extra bottom space lets the scrim fade out below the title.
+                            .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 24.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         IconButton(onClick = onClose, modifier = Modifier.testTag(PlayerTestTags.CLOSE)) {
@@ -117,6 +132,16 @@ fun PlayerScreen(player: ExoPlayer?, title: String, state: PlayerUiState, onClos
                         )
                     }
                 }
+            },
+            // Only one item is queued, so previous/next would have nothing to skip to.
+            centerControls = { current, visible ->
+                PlayerDefaults.CenterControls(
+                    current,
+                    visible,
+                    Modifier.fillMaxWidth(),
+                    backSecondary = {},
+                    forwardSecondary = {},
+                )
             },
             bottomControls = { current, visible ->
                 PlayerDefaults.BottomControls(
@@ -156,6 +181,8 @@ private fun ImmersiveMode() {
 }
 
 private const val CONTROLS_TIMEOUT_MS = 4_000L
+
+private val TopScrim = Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent))
 
 object PlayerTestTags {
     const val PLAYER = "player"

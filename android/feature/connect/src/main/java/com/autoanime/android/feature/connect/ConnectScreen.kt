@@ -1,14 +1,19 @@
 package com.autoanime.android.feature.connect
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
@@ -23,6 +28,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +37,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -67,6 +76,15 @@ fun ConnectScreen(
     // The password is deliberately not saveable: it must not land in the saved-state bundle.
     var password by remember { mutableStateOf("") }
     var invalid by remember { mutableStateOf<InvalidServerUrl.Reason?>(null) }
+    var passwordFocused by remember { mutableStateOf(false) }
+    val connectButton = remember { BringIntoViewRequester() }
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    // Focusing the password only scrolls the field into view; follow the keyboard as it opens so
+    // the connect button below it is not left hidden.
+    LaunchedEffect(passwordFocused) {
+        if (passwordFocused) snapshotFlow { ime.getBottom(density) }.collect { connectButton.bringIntoView() }
+    }
     val submit = {
         if (!state.connecting) {
             invalid = onConnect(url, allowHttp, account, password)
@@ -79,6 +97,7 @@ fun ConnectScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
@@ -138,7 +157,10 @@ fun ConnectScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }),
-                    modifier = Modifier.fillMaxWidth().testTag(ConnectTestTags.PASSWORD),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { passwordFocused = it.isFocused }
+                        .testTag(ConnectTestTags.PASSWORD),
                 )
                 state.error?.let {
                     Text(it.message(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -146,7 +168,10 @@ fun ConnectScreen(
                 Button(
                     onClick = submit,
                     enabled = !state.connecting,
-                    modifier = Modifier.fillMaxWidth().testTag(ConnectTestTags.CONNECT),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewRequester(connectButton)
+                        .testTag(ConnectTestTags.CONNECT),
                 ) {
                     if (state.connecting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Text(stringResource(R.string.connect))

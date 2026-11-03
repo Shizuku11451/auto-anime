@@ -88,7 +88,8 @@ private fun AnimeGrid(state: LibraryUiState, onOpenAnime: (Long) -> Unit, onLoad
         if (nearEnd && !state.endReached && state.error == null) onLoadMore()
     }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 128.dp),
+        // Three columns on common phone widths (360–412 dp); more on tablets.
+        columns = GridCells.Adaptive(minSize = 100.dp),
         state = grid,
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
