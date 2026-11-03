@@ -11,7 +11,7 @@ const githubSlugify = (s: string) =>
 export default defineConfig({
   lang: 'zh-CN',
   title: 'Auto-Anime',
-  description: '为 NAS 打造的自动追番服务：番剧搜索、订阅追更、内置下载、季集归档、番剧库与播放。',
+  description: '为 NAS 打造的自动追番工具。订阅更新，自动下载，整理入库。',
   base,
   cleanUrls: true,
   lastUpdated: true,
