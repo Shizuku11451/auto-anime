@@ -20,6 +20,7 @@ include(
     ":core:model",
     ":core:network",
     ":core:data",
+    ":core:database",
     ":core:designsystem",
     ":feature:connect",
     ":feature:discover",
