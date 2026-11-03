@@ -77,11 +77,15 @@ import com.autoanime.android.core.model.canResume
 import com.autoanime.android.core.model.canRetry
 import com.autoanime.android.core.model.effectiveStatus
 import com.autoanime.android.core.model.isDownloadingStatus
+import com.autoanime.android.core.model.PlayableEpisode
 import com.autoanime.android.core.model.isPlayable
 import com.autoanime.android.core.model.restartsOnResume
 
 @Composable
-fun DownloadsRoute(onPlay: (itemId: Long, title: String) -> Unit, viewModel: DownloadsViewModel = hiltViewModel()) {
+fun DownloadsRoute(
+    onPlay: (episodes: List<PlayableEpisode>, index: Int, title: String) -> Unit,
+    viewModel: DownloadsViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LifecycleStartEffect(viewModel) {
         viewModel.setVisible(true)
@@ -105,7 +109,11 @@ fun DownloadsRoute(onPlay: (itemId: Long, title: String) -> Unit, viewModel: Dow
         onLoadMore = viewModel::loadMore,
         onAction = viewModel::perform,
         onRemove = viewModel::remove,
-        onPlay = { row -> onPlay(row.item.id, row.playerTitle(resources.getString(R.string.episode_number, row.item.episode))) },
+        onPlay = { row ->
+            val label = row.playerTitle(resources.getString(R.string.episode_number, row.item.episode))
+            // Downloads carry no anime id; the watch-progress store keys on the item alone.
+            onPlay(listOf(PlayableEpisode(row.item.id, label)), 0, label)
+        },
     )
 }
 

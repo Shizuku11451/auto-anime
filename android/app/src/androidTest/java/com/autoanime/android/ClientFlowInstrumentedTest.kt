@@ -180,13 +180,60 @@ class ClientFlowInstrumentedTest {
         assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
     }
 
+    @Test fun closingThePlayerKeepsThePositionAndReopeningResumesFromIt() = launch(playableFixture = true) {
+        connect()
+        compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasText("Play fixture"), TIMEOUT)
+        compose.onNode(hasText("Play fixture") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(SemanticsMatcher.expectValue(PlayerSemantics.FirstFrameRendered, true), 10_000)
+
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.SEEK_BAR)).performSemanticsAction(SemanticsActions.SetProgress) { it(0.4f) }
+        compose.waitUntil(TIMEOUT) {
+            compose.onAllNodes(SemanticsMatcher("seeked past 10 s") { node ->
+                node.config.getOrElseNullable(PlayerSemantics.LastSeekPositionMs) { null }?.let { it >= 10_000 } == true
+            }).fetchSemanticsNodes().isNotEmpty()
+        }
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.CLOSE)).performClick()
+        compose.waitUntil(TIMEOUT) { PlayerInstances.active.get() == 0 }
+
+        // Reopening the same release restores the stored position and announces it.
+        compose.onNode(hasText("Play fixture") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasTestTag(PlayerTestTags.RESUME_HINT), TIMEOUT)
+        waitUntilStreamRequestWithRangeAtLeast(minStart = 100_000L)
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.CLOSE)).performClick()
+        compose.waitUntil(TIMEOUT) { PlayerInstances.active.get() == 0 }
+    }
+
+    @Test fun finishedEpisodeOffersTheNextQueuedOneAndPlayingItRequestsItsStream() = launch(playlist = true) {
+        connect()
+        compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasText("Play fixture"), TIMEOUT)
+        compose.onNode(hasText("Play fixture") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(SemanticsMatcher.expectValue(PlayerSemantics.FirstFrameRendered, true), 10_000)
+
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.SEEK_BAR)).performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
+        compose.waitUntilExactlyOneExists(hasTestTag(PlayerTestTags.AUTO_NEXT), TIMEOUT)
+        compose.onNode(hasTestTag(PlayerTestTags.PLAY_NOW)).performClick()
+        waitForPath("/prefix/api/items/78/stream")
+        compose.waitUntilExactlyOneExists(SemanticsMatcher.expectValue(PlayerSemantics.FirstFrameRendered, true), 10_000)
+        compose.waitUntil(TIMEOUT) { compose.onAllNodes(hasTestTag(PlayerTestTags.AUTO_NEXT)).fetchSemanticsNodes().isEmpty() }
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.CLOSE)).performClick()
+        compose.waitUntil(TIMEOUT) { PlayerInstances.active.get() == 0 }
+    }
+
     private fun launch(
         streamUnauthorized: Boolean = false,
         libraryUnauthorized: Boolean = false,
         playableFixture: Boolean = false,
+        playlist: Boolean = false,
         body: () -> Unit,
     ) {
-        server.dispatcher = fixtureDispatcher(streamUnauthorized, libraryUnauthorized, playableFixture)
+        server.dispatcher = fixtureDispatcher(streamUnauthorized, libraryUnauthorized, playableFixture, playlist)
         server.start()
         assertFreshTestApp()
         ActivityScenario.launch(MainActivity::class.java).use { body() }
@@ -224,7 +271,12 @@ class ClientFlowInstrumentedTest {
         compose.waitUntilExactlyOneExists(hasTestTag(PlayerTestTags.CLOSE), TIMEOUT)
     }
 
-    private fun fixtureDispatcher(streamUnauthorized: Boolean, libraryUnauthorized: Boolean, playableFixture: Boolean) = object : Dispatcher() {
+    private fun fixtureDispatcher(
+        streamUnauthorized: Boolean,
+        libraryUnauthorized: Boolean,
+        playableFixture: Boolean,
+        playlist: Boolean,
+    ) = object : Dispatcher() {
         override fun dispatch(request: RecordedRequest): MockResponse = when (request.routeKey()) {
             "/prefix/api/setup/status" -> MockResponse().setBody("""{"required":false}""")
             "/prefix/api/login" -> MockResponse()
@@ -234,14 +286,20 @@ class ClientFlowInstrumentedTest {
                 MockResponse().setBody("""{"items":[{"id":7,"title":"Fixture Anime","season":1}],"next_before":0}""")
             } else MockResponse().setResponseCode(401)
             "/prefix/api/animes/7" -> if (hasSession(request)) {
-                MockResponse().setBody("""{"id":7,"title":"Fixture Anime","cover":"/api/covers/cover.png","summary":"Fixture summary","seasons":[{"season":1,"episodes":[{"episode":"1","items":[{"id":77,"title":"Play fixture","status":"已保存","episode":"1"}]}]}]}""")
+                val episodes = if (playlist) {
+                    """{"season":1,"episodes":[{"episode":"1","items":[{"id":77,"title":"Play fixture","status":"已保存","episode":"1"}]},""" +
+                        """{"episode":"2","items":[{"id":78,"title":"Next fixture","status":"已保存","episode":"2"}]}]}"""
+                } else {
+                    """{"season":1,"episodes":[{"episode":"1","items":[{"id":77,"title":"Play fixture","status":"已保存","episode":"1"}]}]}"""
+                }
+                MockResponse().setBody("""{"id":7,"title":"Fixture Anime","cover":"/api/covers/cover.png","summary":"Fixture summary","seasons":[$episodes]}""")
             } else MockResponse().setResponseCode(401)
             "/prefix/api/covers/cover.png" -> if (hasSession(request)) {
                 MockResponse().setHeader("Content-Type", "image/png").setBody(okio.Buffer().write(png1x1))
             } else MockResponse().setResponseCode(401)
-            "/prefix/api/items/77/stream" -> when {
+            "/prefix/api/items/77/stream", "/prefix/api/items/78/stream" -> when {
                 streamUnauthorized && hasSession(request) -> MockResponse().setResponseCode(401)
-                hasSession(request) && playableFixture -> mediaResponse(request)
+                hasSession(request) && (playableFixture || playlist) -> mediaResponse(request)
                 !hasSession(request) -> MockResponse().setResponseCode(401)
                 else -> MockResponse().setResponseCode(404)
             }
@@ -306,6 +364,26 @@ class ClientFlowInstrumentedTest {
             if (request.path == "/prefix/api/items/77/stream") return request
         }
         return null
+    }
+
+    /**
+     * Drains recorded requests until a stream call for [path] arrives with a Range starting at or
+     * after [minStart] bytes — the wire signature of playback resuming from a stored position.
+     */
+    private fun waitUntilStreamRequestWithRangeAtLeast(minStart: Long, path: String = "/prefix/api/items/77/stream"): RecordedRequest {
+        val seen = mutableListOf<String>()
+        repeat(30) {
+            val request = server.takeRequest(1, TimeUnit.SECONDS) ?: return@repeat
+            if (request.path == path) {
+                val start = request.getHeader("Range")
+                    ?.removePrefix("bytes=")?.substringBefore('-')?.toLongOrNull() ?: 0L
+                if (start >= minStart) return request
+                seen += "$path@0"
+            } else {
+                seen += request.path.orEmpty()
+            }
+        }
+        throw AssertionError("No ranged request >= $minStart for $path; saw $seen")
     }
 
     /** Exact path, except [LIBRARY_PAGE], which matches any query parameters that follow it. */

@@ -59,6 +59,17 @@ const val STATUS_SAVED = "已保存"
 
 val MediaItem.isSaved: Boolean get() = status == STATUS_SAVED
 
+/** Only saved releases with a file on the server are playable. */
+val MediaItem.isPlayable: Boolean get() = isSaved && file_path.isNotEmpty()
+
+/** One playable release handed to the player: its item id, display label and owning anime. */
+@Serializable data class PlayableEpisode(val id: Long, val label: String, val animeId: Long = 0)
+
 fun AnimeDetail.allItems(): List<MediaItem> = seasons.flatMap { season -> season.episodes.flatMap { it.items } + season.loose }
 
 fun AnimeDetail.savedItems(): List<MediaItem> = allItems().filter { it.isSaved }
+
+private val episodeNumber = Regex("""\d+(?:\.\d+)?""")
+
+/** The first number in the episode field; null for labels like "OVA" or "SP". */
+val MediaItem.episodeSortKey: Float? get() = episodeNumber.find(episode)?.value?.toFloatOrNull()

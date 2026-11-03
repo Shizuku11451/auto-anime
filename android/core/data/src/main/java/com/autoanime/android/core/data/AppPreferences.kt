@@ -3,6 +3,7 @@ package com.autoanime.android.core.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -21,7 +22,15 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
         context.appPreferences.edit { it[DYNAMIC_COLOR] = enabled }
     }
 
+    /** Playback speed applied to every player until changed; volumes stay under system control. */
+    val playbackRate: Flow<Float> = context.appPreferences.data.map { it[PLAYBACK_RATE] ?: 1f }
+
+    suspend fun setPlaybackRate(rate: Float) {
+        context.appPreferences.edit { it[PLAYBACK_RATE] = rate }
+    }
+
     private companion object {
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val PLAYBACK_RATE = floatPreferencesKey("playback_rate")
     }
 }

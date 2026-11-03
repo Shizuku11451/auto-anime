@@ -34,6 +34,7 @@ import androidx.navigation3.ui.NavDisplay
 import com.autoanime.android.core.data.SessionState
 import com.autoanime.android.core.designsystem.AppIcons
 import com.autoanime.android.core.designsystem.LocalCoverImageLoader
+import com.autoanime.android.core.model.PlayableEpisode
 import com.autoanime.android.feature.connect.ConnectRoute
 import com.autoanime.android.core.model.displayName
 import com.autoanime.android.feature.discover.DiscoverRoute
@@ -60,7 +61,8 @@ import com.autoanime.android.feature.settings.R as SettingsR
 
 @Serializable data object LibraryKey : NavKey
 @Serializable data class DetailKey(val animeId: Long) : NavKey
-@Serializable data class PlayerKey(val itemId: Long, val title: String) : NavKey
+/** Plays [episodes] starting at [index]; a single-entry list plays one release without skip buttons. */
+@Serializable data class PlayerKey(val episodes: List<PlayableEpisode>, val index: Int, val title: String) : NavKey
 @Serializable data class AnimeEditKey(val animeId: Long) : NavKey
 @Serializable data class BindKey(val animeId: Long) : NavKey
 @Serializable data object DiscoverKey : NavKey
@@ -111,7 +113,9 @@ private fun MainNavigation() {
     val current = Tab.entries.lastOrNull { it != Tab.Library && it.root in backStack } ?: Tab.Library
     val suiteType = if (backStack.last() is PlayerKey) NavigationSuiteType.None
     else NavigationSuiteScaffoldDefaults.navigationSuiteType(currentWindowAdaptiveInfo())
-    val play: (Long, String) -> Unit = { itemId, title -> backStack.add(PlayerKey(itemId, title)) }
+    val play: (List<PlayableEpisode>, Int, String) -> Unit = { episodes, index, title ->
+        if (episodes.isNotEmpty()) backStack.add(PlayerKey(episodes, index, title))
+    }
 
     NavigationSuiteScaffold(
         navigationSuiteType = suiteType,
@@ -157,7 +161,7 @@ private fun MainNavigation() {
                     BindRoute(key.animeId, onDone = { backStack.removeLastOrNull() })
                 }
                 entry<PlayerKey> { key ->
-                    PlayerRoute(key.itemId, key.title, onClose = { backStack.removeLastOrNull() })
+                    PlayerRoute(key.episodes, key.index, key.title, onClose = { backStack.removeLastOrNull() })
                 }
                 entry<DiscoverKey>(metadata = ListDetailSceneStrategy.listPane(detailPlaceholder = { SubjectPlaceholder() })) {
                     DiscoverRoute(onOpenSubject = { subject -> backStack.openPane(SubjectKey(subject.id, subject.displayName)) })

@@ -4,4 +4,21 @@
     <string name="playback_failed">播放失败，请检查视频格式或服务器连接。</string>
     <string name="playback_http_failed">视频请求失败，请检查服务器和已保存的文件。</string>
     <string name="playback_format_failed">视频格式不受支持或文件已损坏。</string>
+    <string name="resume_hint">已从 %1$s 继续播放</string>
+    <string name="audio_and_subtitles">音轨与字幕</string>
+    <string name="audio_tracks">音轨</string>
+    <string name="subtitle_tracks">字幕</string>
+    <string name="subtitles_off">关闭字幕</string>
+    <string name="no_tracks">没有可选轨道</string>
+    <string name="track_index">轨道 %1$d</string>
+    <string name="playback_speed">倍速</string>
+    <string name="skip_back">快退 10 秒</string>
+    <string name="skip_forward">快进 10 秒</string>
+    <string name="auto_next_title">即将播放</string>
+    <string name="play_now">立即播放</string>
+    <string name="cancel">取消</string>
+    <string name="previous_episode">上一集</string>
+    <string name="next_episode">下一集</string>
+    <string name="brightness">亮度</string>
+    <string name="volume">音量</string>
 </resources>

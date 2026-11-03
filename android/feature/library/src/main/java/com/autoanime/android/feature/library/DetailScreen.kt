@@ -61,13 +61,15 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import com.autoanime.android.core.designsystem.message
 import com.autoanime.android.core.model.CorrectInput
 import com.autoanime.android.core.model.MediaItem
+import com.autoanime.android.core.model.PlayableEpisode
+import com.autoanime.android.core.model.episodeSortKey
 import com.autoanime.android.core.model.isSaved
 import com.autoanime.android.core.designsystem.R as DesignR
 
 @Composable
 fun DetailRoute(
     animeId: Long,
-    onPlay: (itemId: Long, title: String) -> Unit,
+    onPlay: (episodes: List<PlayableEpisode>, index: Int, title: String) -> Unit,
     onBack: (() -> Unit)?,
     onEdit: (animeId: Long) -> Unit = {},
     onBind: (animeId: Long) -> Unit = {},
@@ -115,7 +117,7 @@ fun DetailRoute(
 @Composable
 fun DetailScreen(
     state: DetailUiState,
-    onPlay: (itemId: Long, title: String) -> Unit,
+    onPlay: (episodes: List<PlayableEpisode>, index: Int, title: String) -> Unit,
     onBack: (() -> Unit)?,
     onRetry: () -> Unit,
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
@@ -126,6 +128,13 @@ fun DetailScreen(
 ) {
     var menu by remember { mutableStateOf(false) }
     var correcting by remember { mutableStateOf<MediaItem?>(null) }
+    // Saved releases as a player queue ordered by episode number; loose titles keep list order at the end.
+    val playable = remember(state.episodes) {
+        state.episodes.filter { it.isSaved }.sortedBy { it.episodeSortKey ?: Float.MAX_VALUE }
+    }
+    val queue = playable.map { item ->
+        PlayableEpisode(item.id, item.title.ifBlank { stringResource(R.string.episode_number, item.episode) }, item.anime_id)
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -186,7 +195,11 @@ fun DetailScreen(
                                 Icon(painterResource(AppIcons.Edit), contentDescription = stringResource(R.string.correct_item))
                             }
                         },
-                        modifier = if (item.isSaved) Modifier.clickable { onPlay(item.id, label) } else Modifier,
+                        modifier = if (item.isSaved) {
+                            Modifier.clickable { onPlay(queue, queue.indexOfFirst { it.id == item.id }, state.title) }
+                        } else {
+                            Modifier
+                        },
                     )
                 }
             }

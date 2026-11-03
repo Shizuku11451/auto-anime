@@ -4,4 +4,21 @@
     <string name="playback_failed">Playback failed. Check the media format or server connection.</string>
     <string name="playback_http_failed">Media request failed. Check the server and saved file.</string>
     <string name="playback_format_failed">Unsupported or damaged media format.</string>
+    <string name="resume_hint">Resumed from %1$s</string>
+    <string name="audio_and_subtitles">Audio and subtitles</string>
+    <string name="audio_tracks">Audio</string>
+    <string name="subtitle_tracks">Subtitles</string>
+    <string name="subtitles_off">Subtitles off</string>
+    <string name="no_tracks">No selectable tracks</string>
+    <string name="track_index">Track %1$d</string>
+    <string name="playback_speed">Speed</string>
+    <string name="skip_back">Back 10 seconds</string>
+    <string name="skip_forward">Forward 10 seconds</string>
+    <string name="auto_next_title">Up next</string>
+    <string name="play_now">Play now</string>
+    <string name="cancel">Cancel</string>
+    <string name="previous_episode">Previous episode</string>
+    <string name="next_episode">Next episode</string>
+    <string name="brightness">Brightness</string>
+    <string name="volume">Volume</string>
 </resources>
