@@ -10,7 +10,7 @@ const open = ref(false)
 
 <template>
   <div class="service-tools">
-    <BaseButton block variant="ghost" :icon="SlidersHorizontal" @click="open = true">服务与备份</BaseButton>
+    <BaseButton icon-only variant="ghost" :icon="SlidersHorizontal" title="服务与备份" aria-label="服务与备份" @click="open = true" />
     <BaseDialog :open="open" title="服务与备份" size="sm" @close="open = false">
       <div class="tools-body">
         <RuntimeCard />
@@ -23,5 +23,4 @@ const open = ref(false)
 
 <style scoped>
 .tools-body { display: grid; gap: 16px; padding-bottom: 16px; }
-.service-tools :deep(> .btn) { justify-content: flex-start; }
 </style>

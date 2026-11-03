@@ -56,13 +56,12 @@ function card(extra = {}) {
   return { events, bound }
 }
 
-test('编译后的卡片包含评分徽章与悬停简介，不再有卡内展开面板', () => {
+test('编译后的卡片包含评分徽章，不显示悬停简介或卡内展开面板', () => {
   const template = descriptor.template.content.replace(/\r\n/g, '\n')
   assert.match(template, /v-if="anime\.rating > 0"/)
   assert.match(template, /class="rating-badge"/)
   assert.match(template, /Bangumi 评分 \$\{anime\.rating\.toFixed\(1\)\}/)
-  assert.match(template, /v-if="anime\.summary" class="poster-veil" aria-hidden="true"/)
-  assert.match(template, /class="veil-text"/)
+  assert.doesNotMatch(template, /poster-veil|veil-text|anime\.summary/)
   assert.doesNotMatch(template, /summary-toggle|summary-panel|aria-expanded/)
 })
 
@@ -85,7 +84,7 @@ test('未绑定元数据的番剧标题回退且无展开内容', () => {
   assert.equal(vue.unref(h.bound.ratio), 100)
 })
 
-test('模板渲染：评分徽章随评分出现，简介只在封面悬停层显示', async () => {
+test('模板渲染：评分徽章随评分出现，卡片不渲染简介', async () => {
   const { compileTemplate } = await import('@vue/compiler-sfc')
   const { renderToString } = await import('vue/server-renderer')
   const tpl = compileTemplate({
@@ -107,12 +106,9 @@ test('模板渲染：评分徽章随评分出现，简介只在封面悬停层�
   assert.match(withMeta, /7\.9/)
   assert.match(withMeta, /Bangumi 评分 7\.9/)
   assert.doesNotMatch(withMeta, /summary-toggle|summary-panel|aria-expanded/)
-  assert.match(withMeta, /poster-veil/)
-  assert.match(withMeta, /veil-text/)
-  assert.match(withMeta, /class="veil-text">[^<]*这是第一行简介。/)
+  assert.doesNotMatch(withMeta, /poster-veil|这是第一行简介。/)
   const withoutMeta = await html({ ...anime, rating: 0, summary: '', bangumi_id: 0 })
   assert.doesNotMatch(withoutMeta, /rating-badge/)
-  assert.doesNotMatch(withoutMeta, /poster-veil/)
   for (const [type, label] of Object.entries(typesContext.exports.BANGUMI_COLLECTION_LABELS)) {
     const local = await html(anime, { collectionType: Number(type), selecting: true })
     assert.match(local, new RegExp(`>${label}</span>`))

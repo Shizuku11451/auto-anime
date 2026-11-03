@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Menu } from '@lucide/vue'
-import BrandMark from '@/components/ui/BrandMark.vue'
 import ThemeToggle from '@/components/ui/ThemeToggle.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
@@ -13,7 +12,6 @@ const menuOpen = ref(false)
 
 <template>
   <header class="m-header">
-    <BrandMark />
     <div class="m-tools">
       <ThemeToggle />
       <BaseButton icon-only :icon="Menu" aria-label="更多操作" @click="menuOpen = true" />
@@ -36,7 +34,7 @@ const menuOpen = ref(false)
   z-index: 50;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding: 12px 16px;
   padding-top: calc(12px + env(safe-area-inset-top));

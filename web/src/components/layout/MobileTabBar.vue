@@ -16,6 +16,7 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
       :key="item.name"
       :to="item.to"
       :active="i === activeIndex"
+      :title="item.label"
       class="tab"
       :class="{ active: i === activeIndex }"
     >
@@ -81,5 +82,18 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
 }
 .tab.active .tab-ic {
   transform: translateY(-1px) scale(1.06);
+}
+.tab-label {
+  line-height: 1.2;
+  animation: fade-in var(--t-med) var(--ease-out) both;
+}
+/* 未选中的项只显示图标，名称保留给读屏 */
+.tab:not(.active) .tab-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 </style>

@@ -32,9 +32,6 @@ const progressLabel = computed(() => `已保存 ${props.anime.saved_count} / ${p
         <span v-if="anime.include_rules" class="tag">多来源</span>
         <span v-if="anime.season > 1" class="tag">第 {{ anime.season }} 季</span>
       </div>
-      <div v-if="anime.summary" class="poster-veil" aria-hidden="true">
-        <p class="veil-text">{{ anime.summary }}</p>
-      </div>
     </div>
     <div class="body">
       <h3 class="title" :title="displayName">{{ displayName }}</h3>
@@ -116,7 +113,6 @@ const progressLabel = computed(() => `已保存 ${props.anime.saved_count} / ${p
     transform 900ms var(--ease-out),
     filter var(--t-med) var(--ease-out);
 }
-/* 简介轻量淡入，保留封面轮廓；键盘聚焦时同样生效。 */
 .poster-wrap:hover .poster :deep(img.loaded),
 .card-open:focus-visible .poster :deep(img.loaded) {
   transform: scale(1.025);
@@ -138,40 +134,6 @@ const progressLabel = computed(() => `已保存 ${props.anime.saved_count} / ${p
   flex-wrap: wrap;
   gap: 5px;
   transition: opacity var(--t-med) var(--ease-out);
-}
-.poster-wrap:hover .poster-tags,
-.card-open:focus-visible .poster-tags {
-  opacity: 0;
-}
-.poster-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  padding: 12px 11px;
-  background: rgba(8, 10, 16, 0.42);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--t-med) var(--ease-out);
-}
-.poster-wrap:hover .poster-veil,
-.card-open:focus-visible .poster-veil {
-  opacity: 1;
-  pointer-events: auto;
-}
-.veil-text {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
-  color: #f1f3f8;
-  font-size: 12px;
-  line-height: 1.65;
-  white-space: pre-line;
-  overflow-wrap: anywhere;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 .poster-tags .tag {
   backdrop-filter: blur(8px);
