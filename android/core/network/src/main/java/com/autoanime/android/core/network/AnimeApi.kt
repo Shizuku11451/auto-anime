@@ -2,9 +2,14 @@ package com.autoanime.android.core.network
 
 import com.autoanime.android.core.model.AnimeDetail
 import com.autoanime.android.core.model.AnimePage
+import com.autoanime.android.core.model.DownloadAction
+import com.autoanime.android.core.model.DownloadActionResult
+import com.autoanime.android.core.model.DownloadPage
 import com.autoanime.android.core.model.LoginResult
+import com.autoanime.android.core.model.RuntimeStatus
 import com.autoanime.android.core.model.SetupState
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.OkHttpClient
@@ -26,15 +31,39 @@ open class AnimeApi(val client: OkHttpClient, private val connection: ServerConn
     open suspend fun setupStatus(): SetupState = get("api/setup/status")
     open suspend fun page(before: Long? = null): AnimePage = get("api/animes?page=1&limit=30" + (before?.let { "&before=$it" } ?: ""))
     open suspend fun detail(id: Long): AnimeDetail = get("api/animes/$id")
+    open suspend fun items(group: String?, query: String?, before: Long?): DownloadPage = get(
+        connection.resolve("api/items").newBuilder()
+            .addQueryParameter("page", "1")
+            .apply {
+                group?.let { addQueryParameter("group", it) }
+                query?.takeIf { it.isNotBlank() }?.let { addQueryParameter("q", it.trim()) }
+                before?.let { addQueryParameter("before", it.toString()) }
+            }
+            .build(),
+    )
+    open suspend fun runtimeStatus(): RuntimeStatus = get("api/status")
+    /** Returns whether the server changed the task; `false` means it was already in that state. */
+    open suspend fun itemAction(id: Long, action: DownloadAction): Boolean {
+        val response = request(connection.resolve("api/items/$id/${action.path}"), "POST")
+        if (!response.successful) throw response.error()
+        return json.decodeFromString<DownloadActionResult>(response.body).changed
+    }
+    /** Removes only the record; the server keeps saved files and downloader sources. */
+    open suspend fun deleteItem(id: Long) {
+        val response = request(connection.resolve("api/items/$id"), "DELETE")
+        if (!response.successful) throw response.error()
+    }
     open suspend fun logout() { val response = request("api/logout", "POST"); if (!response.successful) throw ApiError(response.code, "Logout failed") }
     open suspend fun probeSession() { val response = request("api/animes?page=1&limit=1", "GET"); if (response.code == 401) throw ApiError(401, "Session expired"); if (!response.successful) throw ApiError(response.code, "Request failed") }
-    private suspend inline fun <reified T> get(path: String): T {
-        val response = request(path)
+    private suspend inline fun <reified T> get(path: String): T = get(connection.resolve(path))
+    private suspend inline fun <reified T> get(url: HttpUrl): T {
+        val response = request(url)
         if (!response.successful) throw ApiError(response.code, "Request failed")
         return json.decodeFromString<T>(response.body)
     }
-    private suspend fun request(path: String, method: String = "GET", body: String? = null): ApiResponse = suspendCancellableCoroutine { continuation ->
-        val url = connection.resolve(path)
+    private suspend fun request(path: String, method: String = "GET", body: String? = null): ApiResponse =
+        request(connection.resolve(path), method, body)
+    private suspend fun request(url: HttpUrl, method: String = "GET", body: String? = null): ApiResponse = suspendCancellableCoroutine { continuation ->
         connection.requireAccepted(url)
         val request = Request.Builder().url(url).method(method, body?.toRequestBody(JSON) ?: if (method == "GET") null else "".toRequestBody(JSON)).build()
         val call = client.newCall(request)
@@ -54,9 +83,13 @@ open class AnimeApi(val client: OkHttpClient, private val connection: ServerConn
     private fun quote(value: String) = kotlinx.serialization.json.JsonPrimitive(value).toString()
     companion object { private val JSON = "application/json; charset=utf-8".toMediaType() }
 }
-private data class ApiResponse(val code: Int, val successful: Boolean, val body: String)
+private data class ApiResponse(val code: Int, val successful: Boolean, val body: String) {
+    /** Action endpoints answer with a short plain-text reason, such as an invalid state transition. */
+    fun error() = ApiError(code, "Request failed", detail = body.trim().takeIf { it.isNotEmpty() && !it.startsWith("<") }?.take(200))
+}
 
-data class ApiError(val status: Int, override val message: String) : Exception(message)
+/** [detail] is the server's own explanation; like the web client, the app shows it as-is. */
+data class ApiError(val status: Int, override val message: String, val detail: String? = null) : Exception(message)
 
 private fun okhttp3.ResponseBody.boundedString(): String {
     val out = java.io.ByteArrayOutputStream()

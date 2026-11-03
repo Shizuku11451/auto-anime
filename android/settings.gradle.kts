@@ -22,6 +22,7 @@ include(
     ":core:data",
     ":core:designsystem",
     ":feature:connect",
+    ":feature:downloads",
     ":feature:library",
     ":feature:player",
     ":feature:settings",

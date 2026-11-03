@@ -9,6 +9,9 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -83,8 +86,19 @@ fun AutoAnimeTheme(
         darkTheme -> DarkColors
         else -> LightColors
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    CompositionLocalProvider(LocalStatusColors provides if (darkTheme) DarkStatusColors else LightStatusColors) {
+        MaterialTheme(colorScheme = colors, content = content)
+    }
 }
+
+/** Task-state accents from tokens.css (`--blue`, `--amber`); success and failure use primary and error. */
+@Immutable
+data class StatusColors(val active: Color, val waiting: Color)
+
+private val LightStatusColors = StatusColors(active = Color(0xFF2563EB), waiting = Color(0xFFB45309))
+private val DarkStatusColors = StatusColors(active = Color(0xFF60A5FA), waiting = Color(0xFFFBBF24))
+
+val LocalStatusColors = staticCompositionLocalOf { LightStatusColors }
 
 /** Dynamic color needs Android 12; older systems keep the brand palette. */
 val supportsDynamicColor: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S

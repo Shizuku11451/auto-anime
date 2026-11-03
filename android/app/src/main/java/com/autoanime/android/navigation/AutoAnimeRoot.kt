@@ -21,6 +21,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -34,18 +35,21 @@ import com.autoanime.android.core.data.SessionState
 import com.autoanime.android.core.designsystem.AppIcons
 import com.autoanime.android.core.designsystem.LocalCoverImageLoader
 import com.autoanime.android.feature.connect.ConnectRoute
+import com.autoanime.android.feature.downloads.DownloadsRoute
 import com.autoanime.android.feature.library.DetailPlaceholder
 import com.autoanime.android.feature.library.DetailRoute
 import com.autoanime.android.feature.library.LibraryRoute
 import com.autoanime.android.feature.player.PlayerRoute
 import com.autoanime.android.feature.settings.SettingsRoute
 import kotlinx.serialization.Serializable
+import com.autoanime.android.feature.downloads.R as DownloadsR
 import com.autoanime.android.feature.library.R as LibraryR
 import com.autoanime.android.feature.settings.R as SettingsR
 
 @Serializable data object LibraryKey : NavKey
 @Serializable data class DetailKey(val animeId: Long) : NavKey
 @Serializable data class PlayerKey(val itemId: Long, val title: String) : NavKey
+@Serializable data object DownloadsKey : NavKey
 @Serializable data object SettingsKey : NavKey
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -73,6 +77,7 @@ fun AutoAnimeRoot(state: SessionState) {
 private fun MainNavigation() {
     val backStack = rememberNavBackStack(LibraryKey)
     val inSettings = backStack.any { it is SettingsKey }
+    val inDownloads = backStack.any { it is DownloadsKey }
     val suiteType = if (backStack.last() is PlayerKey) NavigationSuiteType.None
     else NavigationSuiteScaffoldDefaults.navigationSuiteType(currentWindowAdaptiveInfo())
 
@@ -80,11 +85,19 @@ private fun MainNavigation() {
         navigationSuiteType = suiteType,
         navigationItems = {
             NavigationSuiteItem(
-                selected = !inSettings,
+                selected = !inSettings && !inDownloads,
                 onClick = { backStack.resetTo(LibraryKey) },
                 icon = { Icon(painterResource(AppIcons.Library), contentDescription = null) },
                 label = { Text(stringResource(LibraryR.string.library)) },
                 navigationSuiteType = suiteType,
+            )
+            NavigationSuiteItem(
+                selected = inDownloads,
+                onClick = { if (!inDownloads) backStack.resetTo(LibraryKey, DownloadsKey) },
+                icon = { Icon(painterResource(AppIcons.Download), contentDescription = null) },
+                label = { Text(stringResource(DownloadsR.string.downloads)) },
+                navigationSuiteType = suiteType,
+                modifier = Modifier.testTag(NavTestTags.DOWNLOADS),
             )
             NavigationSuiteItem(
                 selected = inSettings,
@@ -117,6 +130,9 @@ private fun MainNavigation() {
                 entry<PlayerKey> { key ->
                     PlayerRoute(key.itemId, key.title, onClose = { backStack.removeLastOrNull() })
                 }
+                entry<DownloadsKey> {
+                    DownloadsRoute(onPlay = { itemId, title -> backStack.add(PlayerKey(itemId, title)) })
+                }
                 entry<SettingsKey> { SettingsRoute() }
             },
         )
@@ -132,4 +148,8 @@ private fun NavBackStack<NavKey>.openDetail(animeId: Long) {
 private fun NavBackStack<NavKey>.resetTo(vararg keys: NavKey) {
     clear()
     addAll(keys)
+}
+
+object NavTestTags {
+    const val DOWNLOADS = "nav_downloads"
 }

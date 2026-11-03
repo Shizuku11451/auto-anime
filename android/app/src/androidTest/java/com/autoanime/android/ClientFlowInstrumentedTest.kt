@@ -7,6 +7,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.printToString
@@ -19,6 +20,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.autoanime.android.core.network.ServerConnection
 import com.autoanime.android.feature.connect.ConnectTestTags
+import com.autoanime.android.feature.downloads.DownloadsTestTags
+import com.autoanime.android.navigation.NavTestTags
 import com.autoanime.android.feature.player.PlayerInstances
 import com.autoanime.android.feature.player.PlayerSemantics
 import com.autoanime.android.feature.player.PlayerTestTags
@@ -38,6 +41,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.TimeUnit
 import com.autoanime.android.core.designsystem.R as DesignR
+import com.autoanime.android.feature.downloads.R as DownloadsR
 import com.autoanime.android.feature.settings.R as SettingsR
 
 @OptIn(ExperimentalTestApi::class)
@@ -63,6 +67,8 @@ class ClientFlowInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().context.assets.open("fixture.mp4").use { it.readBytes() }
     }
     private val serverUrl get() = "http://127.0.0.1:${server.port}/prefix/"
+    /** Server-side state of the synthetic download task; null once its record is removed. */
+    @Volatile private var taskStatus: String? = "下载中"
 
     @After fun tearDown() {
         clearTestConnection()
@@ -125,6 +131,31 @@ class ClientFlowInstrumentedTest {
         compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.CONNECT), TIMEOUT)
         val logout = waitForPath("/prefix/api/logout")
         assertEquals("auto_anime_session=instrumented-session", logout.getHeader("Cookie"))
+    }
+
+    @Test fun downloadsPauseAndRemoveTargetOneItemAndShowServerState() = launch {
+        connect()
+        compose.onNode(hasTestTag(NavTestTags.DOWNLOADS)).performClick()
+        compose.waitUntilExactlyOneExists(hasTestTag(DownloadsTestTags.row(88)), TIMEOUT)
+        val list = waitForPath("/prefix/api/items?page=1")
+        assertEquals("auto_anime_session=instrumented-session", list.getHeader("Cookie"))
+
+        compose.onNode(hasTestTag(DownloadsTestTags.PAUSE) and hasAnyAncestor(hasTestTag(DownloadsTestTags.row(88)))).performClick()
+        val pause = waitForPath("/prefix/api/items/88/pause")
+        assertEquals("POST", pause.method)
+        assertEquals("auto_anime_session=instrumented-session", pause.getHeader("Cookie"))
+        // The row shows what the server recorded after the action, not an optimistic guess.
+        compose.waitUntilExactlyOneExists(
+            hasTestTag(DownloadsTestTags.status(88)) and hasText(context.getString(DownloadsR.string.group_paused)),
+            TIMEOUT,
+        )
+
+        compose.onNode(hasTestTag(DownloadsTestTags.REMOVE) and hasAnyAncestor(hasTestTag(DownloadsTestTags.row(88)))).performClick()
+        compose.waitUntilExactlyOneExists(hasTestTag(DownloadsTestTags.CONFIRM_REMOVE), TIMEOUT)
+        compose.onNode(hasTestTag(DownloadsTestTags.CONFIRM_REMOVE)).performClick()
+        val remove = waitForPath("/prefix/api/items/88")
+        assertEquals("DELETE", remove.method)
+        compose.waitUntilExactlyOneExists(hasText(context.getString(DownloadsR.string.downloads_empty)), TIMEOUT)
     }
 
     @Test fun streamUnauthorizedResponseReturnsFromPlayerToConnect() = launch(streamUnauthorized = true) {
@@ -211,7 +242,30 @@ class ClientFlowInstrumentedTest {
             "/prefix/api/logout" -> MockResponse()
                 .addHeader("Set-Cookie", "auto_anime_session=; Path=/; Max-Age=0; HttpOnly")
                 .setBody("""{"ok":true}""")
-            else -> MockResponse().setResponseCode(404)
+            else -> downloadsResponse(request)
+        }
+
+        private fun downloadsResponse(request: RecordedRequest): MockResponse {
+            if (!hasSession(request)) return MockResponse().setResponseCode(401)
+            val status = taskStatus
+            return when {
+                request.path == "/prefix/api/status" ->
+                    MockResponse().setBody(if (status == null) "{\"counts\":{}}" else "{\"counts\":{\"$status\":1}}")
+                request.path == "/prefix/api/items?page=1" -> MockResponse().setBody(
+                    if (status == null) "{\"items\":[],\"next_before\":0}"
+                    else "{\"items\":[{\"id\":88,\"title\":\"[Group] Fixture 01\",\"status\":\"$status\",\"anime_title\":\"Fixture Anime\"," +
+                        "\"episode\":\"1\",\"progress\":40,\"download_speed\":2048,\"link\":\"magnet:?xt=urn:btih:fixture\"}],\"next_before\":0}",
+                )
+                request.path == "/prefix/api/items/88/pause" && request.method == "POST" -> {
+                    taskStatus = "已暂停"
+                    MockResponse().setBody("{\"ok\":true,\"changed\":true}")
+                }
+                request.path == "/prefix/api/items/88" && request.method == "DELETE" -> {
+                    taskStatus = null
+                    MockResponse().setBody("{\"ok\":true}")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
         }
 
         private fun hasSession(request: RecordedRequest) =

@@ -1,5 +1,6 @@
 package com.autoanime.android.core.designsystem
 
+import android.content.res.Resources
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,12 +65,16 @@ fun ErrorState(error: AppError, onRetry: (() -> Unit)?, modifier: Modifier = Mod
 }
 
 @Composable
-fun AppError.message(): String = when (this) {
-    AppError.SessionExpired -> stringResource(R.string.error_session_expired)
-    AppError.SetupRequired -> stringResource(R.string.error_setup_required)
-    AppError.InvalidSavedUrl -> stringResource(R.string.error_invalid_saved_url)
-    AppError.UnsupportedServer -> stringResource(R.string.error_unsupported_server)
-    AppError.ResponseTooLarge -> stringResource(R.string.error_response_too_large)
-    AppError.Network -> stringResource(R.string.error_network)
-    is AppError.Http -> stringResource(R.string.error_http, status)
+fun AppError.message(): String = message(LocalResources.current)
+
+/** For messages resolved outside composition, such as snackbars raised from events. */
+fun AppError.message(resources: Resources): String = when (this) {
+    AppError.SessionExpired -> resources.getString(R.string.error_session_expired)
+    AppError.SetupRequired -> resources.getString(R.string.error_setup_required)
+    AppError.InvalidSavedUrl -> resources.getString(R.string.error_invalid_saved_url)
+    AppError.UnsupportedServer -> resources.getString(R.string.error_unsupported_server)
+    AppError.ResponseTooLarge -> resources.getString(R.string.error_response_too_large)
+    AppError.Network -> resources.getString(R.string.error_network)
+    is AppError.Http -> resources.getString(R.string.error_http, status)
+    is AppError.Rejected -> detail
 }

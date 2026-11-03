@@ -32,6 +32,7 @@ dependencies {
     implementation(projects.core.data)
     implementation(projects.core.designsystem)
     implementation(projects.feature.connect)
+    implementation(projects.feature.downloads)
     implementation(projects.feature.library)
     implementation(projects.feature.player)
     implementation(projects.feature.settings)

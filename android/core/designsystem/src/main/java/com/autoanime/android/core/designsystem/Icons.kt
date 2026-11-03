@@ -12,4 +12,9 @@ object AppIcons {
     @DrawableRes val Play = R.drawable.ic_play_circle
     @DrawableRes val Server = R.drawable.ic_dns
     @DrawableRes val Refresh = R.drawable.ic_refresh
+    @DrawableRes val Download = R.drawable.ic_download
+    @DrawableRes val Pause = R.drawable.ic_pause
+    @DrawableRes val Resume = R.drawable.ic_play_arrow
+    @DrawableRes val Delete = R.drawable.ic_delete
+    @DrawableRes val Search = R.drawable.ic_search
 }

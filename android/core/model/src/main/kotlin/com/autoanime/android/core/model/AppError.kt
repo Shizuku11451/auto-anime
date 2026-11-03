@@ -9,4 +9,6 @@ sealed interface AppError {
     data object ResponseTooLarge : AppError
     data object Network : AppError
     data class Http(val status: Int) : AppError
+    /** The server refused a request and said why, e.g. an action that no longer fits the task state. */
+    data class Rejected(val status: Int, val detail: String) : AppError
 }
