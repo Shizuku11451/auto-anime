@@ -205,6 +205,7 @@ var (
 	procLoadImageW       = desktopUser32.NewProc("LoadImageW")
 	procLoadIconW        = desktopUser32.NewProc("LoadIconW")
 	procGetSystemMetrics = desktopUser32.NewProc("GetSystemMetrics")
+	procCreateIcon       = desktopUser32.NewProc("CreateIcon")
 
 	procSetWindowThemeAttribute = windows.NewLazySystemDLL("uxtheme.dll").NewProc("SetWindowThemeAttribute")
 )
@@ -295,14 +296,36 @@ func applyTitleBarTheme(hwnd windows.HWND, dark bool) bool {
 	return windows.DwmSetWindowAttribute(hwnd, dwmwaImmersiveDark2, unsafe.Pointer(&value), size) == nil
 }
 
+// blankIcon 返回全透明的单色图标（AND 掩码全 1、XOR 全 0）；失败返回 0。
+func blankIcon(size int) uintptr {
+	if size <= 0 {
+		return 0
+	}
+	stride := (size + 15) / 16 * 2 // 单色位图每行按 WORD 对齐
+	and := make([]byte, stride*size)
+	for i := range and {
+		and[i] = 0xff
+	}
+	xor := make([]byte, stride*size)
+	icon, found := callOptional(procCreateIcon, uintptr(moduleHandle()), uintptr(size), uintptr(size), 1, 1, uintptr(unsafe.Pointer(&and[0])), uintptr(unsafe.Pointer(&xor[0])))
+	if !found {
+		return 0
+	}
+	return icon
+}
+
 // hideTitleBarCaption 让原生标题栏只保留窗口按钮，不绘制图标和标题文字；
-// 窗口标题仍然保留，任务栏、Alt+Tab 和托盘照常显示名称与图标。
+// 窗口标题和大图标仍然保留，任务栏、Alt+Tab 和托盘照常显示名称与图标。
+// Windows 11 会忽略 WTNCA_NODRAWICON，所以标题栏使用的小图标另外换成透明图标。
 func hideTitleBarCaption(hwnd windows.HWND) bool {
 	if hwnd == 0 {
 		return false
 	}
 	options := struct{ flags, mask uint32 }{wtncaNoDrawCaption | wtncaNoDrawIcon, wtncaNoDrawCaption | wtncaNoDrawIcon}
 	result, found := callOptional(procSetWindowThemeAttribute, uintptr(hwnd), wtaNonClient, uintptr(unsafe.Pointer(&options)), unsafe.Sizeof(options))
+	if blank := blankIcon(systemIconSize(smCxSmIcon, 16)); blank != 0 {
+		procSendMessageW.Call(uintptr(hwnd), wmSetIcon, iconSmall, blank)
+	}
 	return found && result == 0
 }
 
