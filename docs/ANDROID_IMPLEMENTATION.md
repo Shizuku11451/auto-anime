@@ -1,6 +1,6 @@
 # Android client implementation status
 
-The M0/M1 Android client prototype is delivered for emulator evaluation; a single-device instrumentation subset has passed, but M1 physical-device compatibility and performance acceptance remain incomplete. M2-M4 remain out of scope.
+The M0/M1 Android client prototype is delivered for emulator evaluation; a single-device instrumentation subset has passed, but M1 physical-device compatibility and performance acceptance remain incomplete. The prototype uses XML Views; later phases in ANDROID_PLAN.md (Compose migration onward) are not implemented.
 
 ## Implementation
 
