@@ -21,7 +21,7 @@ const activeIndex = computed(() => Math.max(0, NAV_ITEMS.findIndex((n) => n.name
       class="tab"
       :class="{ active: i === activeIndex }"
     >
-      <NavIcon :icon="item.icon" :active="i === activeIndex" class="tab-ic" />
+      <NavIcon :icon="item.icon" :name="item.name" :active="i === activeIndex" class="tab-ic" />
       <span class="tab-label">{{ item.label }}</span>
     </RouteLink>
   </nav>

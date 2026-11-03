@@ -50,7 +50,7 @@ function showRelease() {
         class="nav-link"
         :class="{ active: i === activeIndex }"
       >
-        <NavIcon :icon="item.icon" :active="i === activeIndex" class="nav-ic" />
+        <NavIcon :icon="item.icon" :name="item.name" :active="i === activeIndex" class="nav-ic" />
         <span class="nav-label">{{ item.label }}</span>
       </RouteLink>
     </nav>
