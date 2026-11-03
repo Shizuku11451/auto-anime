@@ -1,5 +1,7 @@
 # Android client
 
+The client is a multi-module Compose app (`app`, `core/*`, `feature/*`, `benchmark`); shared Gradle setup lives in `build-logic`.
+
 Requires JDK 17 or newer (verified with JDK 21) and Android SDK platform 37 (`platforms;android-37.0`) with Build Tools 37.0.0. The Gradle 9.8.2 wrapper is checked in and checksum-pinned; dependency and plugin versions live in `gradle/libs.versions.toml`.
 
 From this directory:

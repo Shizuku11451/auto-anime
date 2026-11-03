@@ -1,0 +1,7 @@
+<resources>
+    <string name="close_player">Close player</string>
+    <string name="video_unavailable">Saved video is unavailable</string>
+    <string name="playback_failed">Playback failed. Check the media format or server connection.</string>
+    <string name="playback_http_failed">Media request failed. Check the server and saved file.</string>
+    <string name="playback_format_failed">Unsupported or damaged media format.</string>
+</resources>

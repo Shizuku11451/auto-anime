@@ -1,0 +1,9 @@
+<resources>
+    <string name="library">番剧库</string>
+    <string name="library_empty">番剧库为空</string>
+    <string name="season_number">第 %1$d 季</string>
+    <string name="episode_number">第 %1$s 集</string>
+    <string name="anime_cover">番剧封面</string>
+    <string name="no_saved_episodes">暂无已保存的剧集</string>
+    <string name="select_anime">选择一部番剧</string>
+</resources>

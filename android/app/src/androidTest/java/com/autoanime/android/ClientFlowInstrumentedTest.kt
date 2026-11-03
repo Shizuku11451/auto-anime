@@ -1,41 +1,54 @@
 package com.autoanime.android
 
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.printToString
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ActivityScenario
-import androidx.test.espresso.NoMatchingViewException
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.action.ViewActions.replaceText
-import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.withId
-import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.media3.common.Player
-import androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK
+import com.autoanime.android.core.network.ServerConnection
+import com.autoanime.android.feature.connect.ConnectTestTags
+import com.autoanime.android.feature.player.PlayerInstances
+import com.autoanime.android.feature.player.PlayerSemantics
+import com.autoanime.android.feature.player.PlayerTestTags
+import com.autoanime.android.feature.settings.SettingsTestTags
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.runBlocking
+import okhttp3.Request
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
-import okhttp3.Request
-import com.autoanime.android.core.ServerConnection
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.runBlocking
+import com.autoanime.android.core.designsystem.R as DesignR
+import com.autoanime.android.feature.settings.R as SettingsR
 
+@OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 class ClientFlowInstrumentedTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private val app get() = EntryPointAccessors.fromApplication(context, DebugEntryPoint::class.java)
+    private val server = MockWebServer()
     private var ownsPersistedTestConnection = false
-    private var testServerUrl: String? = null
     private val png1x1 = byteArrayOf(
         0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
         0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -44,179 +57,137 @@ class ClientFlowInstrumentedTest {
         0x89.toByte(), 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
         0x54, 0x78, 0x9c.toByte(), 0x63, 0x60, 0x00, 0x02, 0x00,
         0x00, 0x05, 0x00, 0x01, 0xa5.toByte(), 0xf6.toByte(), 0x45, 0x40,
-        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae.toByte(), 0x42, 0x60, 0x82.toByte()
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae.toByte(), 0x42, 0x60, 0x82.toByte(),
     )
-    private val media by lazy { InstrumentationRegistry.getInstrumentation().context.assets.open("fixture.mp4").use { it.readBytes() } }
-    @Test fun playableFixtureRendersSeeksAndReleasesOnExit() {
-        val server = MockWebServer()
-        server.dispatcher = fixtureDispatcher(streamUnauthorized = false, playableFixture = true)
-        server.start()
-        try {
-            assertFreshTestApp()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                connect(server)
-                waitForPath(server, "/prefix/api/animes?page=1&limit=30")
-                onView(withText("Fixture Anime")).perform(click())
-                awaitDisplayed(withText("Play fixture"))
-                val playerRef = AtomicReference<Player>()
-                val playerViewRef = AtomicReference<androidx.media3.ui.PlayerView>()
-                val rendered = CountDownLatch(1)
-                val sought = CountDownLatch(1)
-                val released = AtomicBoolean(false)
-                scenario.onActivity { activity ->
-                    val host = activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment
-                    host.childFragmentManager.registerFragmentLifecycleCallbacks(object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
-                        override fun onFragmentViewCreated(fm: androidx.fragment.app.FragmentManager, f: androidx.fragment.app.Fragment, v: android.view.View, savedInstanceState: android.os.Bundle?) {
-                            if (f !is com.autoanime.android.feature.PlayerFragment) return
-                            val playerView = v.findViewById<androidx.media3.ui.PlayerView>(R.id.player_view)
-                            playerViewRef.set(playerView)
-                            val player = playerView.player ?: throw AssertionError("PlayerView has no active player")
-                            playerRef.set(player)
-                            player.addListener(object : Player.Listener {
-                                override fun onRenderedFirstFrame() { rendered.countDown() }
-                                override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                                    if (reason == DISCONTINUITY_REASON_SEEK) sought.countDown()
-                                }
-                            })
-                        }
-                    }, true)
-                }
-                onView(withText("Play fixture")).perform(click())
-                awaitDisplayed(withId(R.id.player_view))
-                assertTrue("Expected Media3 to render a video frame", rendered.await(10, TimeUnit.SECONDS))
-
-                val stream = nextMediaRequest(server) ?: throw AssertionError("No authenticated stream request")
-                assertEquals("/prefix/api/items/77/stream", stream.path)
-                assertEquals("auto_anime_session=instrumented-session", stream.getHeader("Cookie"))
-                assertEquals("GET", stream.method)
-
-                val serverConnection = ServerConnection.parse("http://127.0.0.1:${server.port}/prefix/", allowHttp = true)
-                val head = rangeCall(serverConnection, "HEAD", includeSession = true, range = false).use { response ->
-                    assertEquals(200, response.code)
-                    response.header("Content-Length")
-                }
-                assertEquals(media.size.toString(), head)
-                val rangeResponse = rangeCall(serverConnection, "GET", includeSession = true).use { response ->
-                    assertEquals(206, response.code)
-                    assertEquals("bytes 100-199/${media.size}", response.header("Content-Range"))
-                    response.body.bytes()
-                }
-                assertEquals(100, rangeResponse.size)
-                val unauthorized = rangeCall(serverConnection, "GET", includeSession = false).use { it.code }
-                assertEquals(401, unauthorized)
-
-                scenario.onActivity { playerRef.get().pause() }
-                val before = AtomicReference(0L)
-                scenario.onActivity { before.set(playerRef.get().currentPosition) }
-                scenario.onActivity { playerRef.get().seekTo(2500) }
-                assertTrue("Expected Media3 seek discontinuity", sought.await(2, TimeUnit.SECONDS))
-                val after = AtomicReference(0L)
-                scenario.onActivity { after.set(playerRef.get().currentPosition) }
-                assertTrue("Seek target should change playback position: before=${before.get()} after=${after.get()}", after.get() >= 2000L)
-
-                val close = onView(withId(R.id.close)).check(matches(isDisplayed()))
-                scenario.onActivity { activity ->
-                    val button = activity.findViewById<android.view.View>(R.id.close)
-                    val visible = android.graphics.Rect()
-                    assertTrue("Close button must have a tappable area above system navigation bars", button.getGlobalVisibleRect(visible) && visible.height() >= button.height - 2)
-                }
-                close.perform(click())
-                waitForDestination(scenario, R.id.detailFragment)
-                scenario.onActivity { released.set(playerViewRef.get().player == null) }
-                assertTrue("Closed player view should detach its released player", released.get())
-            }
-        } finally {
-            clearTestConnection()
-            server.shutdown()
-        }
+    private val media by lazy {
+        InstrumentationRegistry.getInstrumentation().context.assets.open("fixture.mp4").use { it.readBytes() }
     }
-    @Test fun loginLibraryDetailCoverAndLogoutUsePrefixedAuthenticatedEndpoints() {
-        val server = MockWebServer()
-        server.dispatcher = fixtureDispatcher(streamUnauthorized = false)
-        server.start()
-        try {
-            assertFreshTestApp()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                connect(server)
-                awaitDisplayed(withText("Fixture Anime"))
-                val page = waitForPath(server, "/prefix/api/animes?page=1&limit=30")
-                assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
-                onView(withText("Fixture Anime")).perform(click())
-                awaitDisplayed(withText("Fixture summary"))
-                val cover = waitForPath(server, "/prefix/api/covers/cover.png")
-                assertEquals("auto_anime_session=instrumented-session", cover.getHeader("Cookie"))
+    private val serverUrl get() = "http://127.0.0.1:${server.port}/prefix/"
 
-                onView(withId(R.id.logout)).perform(click())
-                onView(withId(R.id.connect)).check(matches(isDisplayed()))
-                val logout = waitForPath(server, "/prefix/api/logout")
-                assertEquals("auto_anime_session=instrumented-session", logout.getHeader("Cookie"))
-                assertDestination(scenario, R.id.connectFragment)
-            }
-        } finally {
-            clearTestConnection()
-            server.shutdown()
-        }
+    @After fun tearDown() {
+        clearTestConnection()
+        server.shutdown()
     }
 
-    @Test fun streamUnauthorizedResponseReturnsFromPlayerToConnect() {
-        val server = MockWebServer()
-        server.dispatcher = fixtureDispatcher(streamUnauthorized = true)
-        server.start()
-        try {
-            assertFreshTestApp()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                connect(server)
-                awaitDisplayed(withText("Fixture Anime"))
-                val page = waitForPath(server, "/prefix/api/animes?page=1&limit=30")
-                assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
-                onView(withText("Fixture Anime")).perform(click())
-                awaitDisplayed(withText("Play fixture"))
-                onView(withText("Play fixture")).perform(click())
-                val stream = waitForPath(server, "/prefix/api/items/77/stream")
-                assertEquals("auto_anime_session=instrumented-session", stream.getHeader("Cookie"))
-                waitForDestination(scenario, R.id.connectFragment)
-            }
-        } finally {
-            clearTestConnection()
-            server.shutdown()
+    @Test fun playableFixtureRendersSeeksAndReleasesOnExit() = launch(playableFixture = true) {
+        connect()
+        waitForPath("/prefix/api/animes?page=1&limit=30")
+        compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasText("Play fixture"), TIMEOUT)
+        compose.onNode(hasText("Play fixture") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(SemanticsMatcher.expectValue(PlayerSemantics.FirstFrameRendered, true), 10_000)
+
+        val stream = nextMediaRequest() ?: throw AssertionError("No authenticated stream request")
+        assertEquals("/prefix/api/items/77/stream", stream.path)
+        assertEquals("auto_anime_session=instrumented-session", stream.getHeader("Cookie"))
+        assertEquals("GET", stream.method)
+
+        val connection = ServerConnection.parse(serverUrl, allowHttp = true)
+        val head = rangeCall(connection, "HEAD", includeSession = true, range = false).use { response ->
+            assertEquals(200, response.code)
+            response.header("Content-Length")
         }
+        assertEquals(media.size.toString(), head)
+        val ranged = rangeCall(connection, "GET", includeSession = true).use { response ->
+            assertEquals(206, response.code)
+            assertEquals("bytes 100-199/${media.size}", response.header("Content-Range"))
+            response.body.bytes()
+        }
+        assertEquals(100, ranged.size)
+        assertEquals(401, rangeCall(connection, "GET", includeSession = false).use { it.code })
+
+        // Seek through the real progress slider, then close with the on-screen button.
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.SEEK_BAR)).performSemanticsAction(SemanticsActions.SetProgress) { it(0.6f) }
+        compose.waitUntil(TIMEOUT) {
+            compose.onAllNodes(SemanticsMatcher("seeked past 2 s") { node ->
+                node.config.getOrElseNullable(PlayerSemantics.LastSeekPositionMs) { null }?.let { it >= 2_000 } == true
+            }).fetchSemanticsNodes().isNotEmpty()
+        }
+        showPlayerControls()
+        compose.onNode(hasTestTag(PlayerTestTags.CLOSE)).performClick()
+        compose.waitUntilExactlyOneExists(hasText("Play fixture"), TIMEOUT)
+        compose.waitUntil(TIMEOUT) { PlayerInstances.active.get() == 0 }
     }
 
-    @Test fun unauthorizedLibraryResponseReturnsToConnect() {
-        val server = MockWebServer()
-        server.dispatcher = fixtureDispatcher(streamUnauthorized = false, libraryUnauthorized = true)
-        server.start()
-        try {
-            assertFreshTestApp()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                connect(server, expectLibrary = false)
-                val page = waitForPath(server, "/prefix/api/animes?page=1&limit=30")
-                assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
-                waitForDestination(scenario, R.id.connectFragment)
-                awaitDisplayed(withId(R.id.connect))
-                awaitDisplayed(withText("Session expired. Log in again."))
-            }
-        } finally {
-            clearTestConnection()
-            server.shutdown()
-        }
+    @Test fun loginLibraryDetailCoverAndLogoutUsePrefixedAuthenticatedEndpoints() = launch {
+        connect()
+        val page = waitForPath("/prefix/api/animes?page=1&limit=30")
+        assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
+        compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasText("Fixture summary"), TIMEOUT)
+        val cover = waitForPath("/prefix/api/covers/cover.png")
+        assertEquals("auto_anime_session=instrumented-session", cover.getHeader("Cookie"))
+
+        compose.onNode(hasText(context.getString(SettingsR.string.settings)) and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasTestTag(SettingsTestTags.LOGOUT), TIMEOUT)
+        compose.onNode(hasTestTag(SettingsTestTags.LOGOUT)).performClick()
+        compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.CONNECT), TIMEOUT)
+        val logout = waitForPath("/prefix/api/logout")
+        assertEquals("auto_anime_session=instrumented-session", logout.getHeader("Cookie"))
     }
 
-    private fun connect(server: MockWebServer, expectLibrary: Boolean = true) {
-        val emulatorUrl = "http://127.0.0.1:${server.port}/prefix/"
-        testServerUrl = emulatorUrl
-        onView(withId(R.id.server_url)).perform(replaceText(emulatorUrl), closeSoftKeyboard())
-        onView(withId(R.id.allow_http)).perform(click())
-        onView(withId(R.id.username)).perform(replaceText("test-user"), closeSoftKeyboard())
-        onView(withId(R.id.password)).perform(replaceText("test-password"), closeSoftKeyboard())
-        onView(withId(R.id.connect)).perform(click())
-        assertEquals("/prefix/api/setup/status", waitForPath(server, "/prefix/api/setup/status").path)
-        val login = waitForPath(server, "/prefix/api/login")
+    @Test fun streamUnauthorizedResponseReturnsFromPlayerToConnect() = launch(streamUnauthorized = true) {
+        connect()
+        compose.onNode(hasText("Fixture Anime") and hasClickAction()).performClick()
+        compose.waitUntilExactlyOneExists(hasText("Play fixture"), TIMEOUT)
+        compose.onNode(hasText("Play fixture") and hasClickAction()).performClick()
+        // Blocking on the server does not advance Compose frames; let the player screen compose first.
+        compose.waitUntilAtLeastOneExists(hasTestTag(PlayerTestTags.PLAYER) or hasTestTag(ConnectTestTags.CONNECT), TIMEOUT)
+        val stream = waitForPath("/prefix/api/items/77/stream")
+        assertEquals("auto_anime_session=instrumented-session", stream.getHeader("Cookie"))
+        compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.CONNECT), TIMEOUT)
+        compose.waitUntilExactlyOneExists(hasText(context.getString(DesignR.string.error_session_expired)), TIMEOUT)
+    }
+
+    @Test fun unauthorizedLibraryResponseReturnsToConnect() = launch(libraryUnauthorized = true) {
+        connect(expectLibrary = false)
+        // The page request is only sent once the library composes, so wait on the UI first.
+        compose.waitUntilExactlyOneExists(hasText(context.getString(DesignR.string.error_session_expired)), TIMEOUT)
+        compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.CONNECT), TIMEOUT)
+        val page = waitForPath("/prefix/api/animes?page=1&limit=30")
+        assertEquals("auto_anime_session=instrumented-session", page.getHeader("Cookie"))
+    }
+
+    private fun launch(
+        streamUnauthorized: Boolean = false,
+        libraryUnauthorized: Boolean = false,
+        playableFixture: Boolean = false,
+        body: () -> Unit,
+    ) {
+        server.dispatcher = fixtureDispatcher(streamUnauthorized, libraryUnauthorized, playableFixture)
+        server.start()
+        assertFreshTestApp()
+        ActivityScenario.launch(MainActivity::class.java).use { body() }
+    }
+
+    private fun connect(expectLibrary: Boolean = true) {
+        compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.SERVER_URL), TIMEOUT)
+        // Toggle before typing: the keyboard animation shifts the layout under injected taps.
+        val allowHttp = compose.onNode(hasTestTag(ConnectTestTags.ALLOW_HTTP))
+        if (allowHttp.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] != ToggleableState.On) allowHttp.performClick()
+        compose.onNode(hasTestTag(ConnectTestTags.SERVER_URL)).performTextReplacement(serverUrl)
+        compose.onNode(hasTestTag(ConnectTestTags.USERNAME)).performTextReplacement("test-user")
+        compose.onNode(hasTestTag(ConnectTestTags.PASSWORD)).performTextReplacement("test-password")
+        compose.onNode(hasTestTag(ConnectTestTags.CONNECT)).performClick()
+        val setup = runCatching { waitForPath("/prefix/api/setup/status") }.getOrElse {
+            throw AssertionError("${it.message}; screen:" + compose.onAllNodes(isRoot())[0].printToString(), it)
+        }
+        assertEquals("/prefix/api/setup/status", setup.path)
+        val login = waitForPath("/prefix/api/login")
         assertEquals("{\"username\":\"test-user\",\"password\":\"test-password\"}", login.body.readUtf8())
-        if (expectLibrary) awaitDisplayed(withText("Fixture Anime"))
+        if (expectLibrary) compose.waitUntilExactlyOneExists(hasText("Fixture Anime"), TIMEOUT)
     }
 
-    private fun fixtureDispatcher(streamUnauthorized: Boolean, libraryUnauthorized: Boolean = false, playableFixture: Boolean = false) = object : Dispatcher() {
+    /** Controls auto-hide while playing; a tap on the video brings them back. */
+    private fun showPlayerControls() {
+        if (compose.onAllNodes(hasTestTag(PlayerTestTags.CLOSE)).fetchSemanticsNodes().isEmpty()) {
+            compose.onNode(hasTestTag(PlayerTestTags.PLAYER)).performClick()
+        }
+        compose.waitUntilExactlyOneExists(hasTestTag(PlayerTestTags.CLOSE), TIMEOUT)
+    }
+
+    private fun fixtureDispatcher(streamUnauthorized: Boolean, libraryUnauthorized: Boolean, playableFixture: Boolean) = object : Dispatcher() {
         override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
             "/prefix/api/setup/status" -> MockResponse().setBody("""{"required":false}""")
             "/prefix/api/login" -> MockResponse()
@@ -250,8 +221,7 @@ class ClientFlowInstrumentedTest {
     private fun mediaResponse(request: RecordedRequest): MockResponse {
         val response = MockResponse().addHeader("Content-Type", "video/mp4").addHeader("Accept-Ranges", "bytes")
         if (request.method == "HEAD") return response.setBody(okio.Buffer()).setHeader("Content-Length", media.size)
-        val range = request.getHeader("Range")?.removePrefix("bytes=")
-        if (range == null) return response.setBody(okio.Buffer().write(media))
+        val range = request.getHeader("Range")?.removePrefix("bytes=") ?: return response.setBody(okio.Buffer().write(media))
         val start = range.substringBefore('-').toLongOrNull() ?: 0L
         if (start >= media.size) return response.setResponseCode(416).addHeader("Content-Range", "bytes */${media.size}")
         val end = range.substringAfter('-', "").toLongOrNull()?.coerceAtMost(media.size.toLong() - 1) ?: (media.size - 1).toLong()
@@ -259,15 +229,15 @@ class ClientFlowInstrumentedTest {
         return response.setResponseCode(206).addHeader("Content-Range", "bytes $start-$end/${media.size}").setBody(okio.Buffer().write(body))
     }
 
-    private fun rangeCall(server: ServerConnection, method: String, includeSession: Boolean, range: Boolean = true): okhttp3.Response {
-        val request = Request.Builder().url(server.resolve("api/items/77/stream"))
+    private fun rangeCall(connection: ServerConnection, method: String, includeSession: Boolean, range: Boolean = true): okhttp3.Response {
+        val request = Request.Builder().url(connection.resolve("api/items/77/stream"))
             .apply { if (includeSession) header("Cookie", "auto_anime_session=instrumented-session") }
         if (range) request.header("Range", "bytes=100-199")
         if (method == "HEAD") request.head()
-        return server.newHttpClient(okhttp3.CookieJar.NO_COOKIES).newCall(request.build()).execute()
+        return connection.newHttpClient(okhttp3.CookieJar.NO_COOKIES).newCall(request.build()).execute()
     }
 
-    private fun nextMediaRequest(server: MockWebServer): RecordedRequest? {
+    private fun nextMediaRequest(): RecordedRequest? {
         repeat(20) {
             val request = server.takeRequest(500, TimeUnit.MILLISECONDS) ?: return@repeat
             if (request.path == "/prefix/api/items/77/stream") return request
@@ -275,78 +245,33 @@ class ClientFlowInstrumentedTest {
         return null
     }
 
-    private fun waitForPath(server: MockWebServer, path: String): RecordedRequest {
+    private fun waitForPath(path: String): RecordedRequest {
+        val seen = mutableListOf<String?>()
         repeat(30) {
             val request = server.takeRequest(1, TimeUnit.SECONDS) ?: return@repeat
             if (request.path == path) return request
+            seen += request.path
         }
-        throw AssertionError("No request received for $path")
-    }
-
-    private fun awaitDisplayed(matcher: org.hamcrest.Matcher<android.view.View>) {
-        repeat(50) {
-            try {
-                onView(matcher).check(matches(isDisplayed()))
-                return
-            } catch (_: AssertionError) {
-                Thread.sleep(100)
-            } catch (_: NoMatchingViewException) {
-                Thread.sleep(100)
-            }
-        }
-        onView(matcher).check(matches(isDisplayed()))
+        throw AssertionError("No request received for $path; saw $seen")
     }
 
     private fun assertFreshTestApp() {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as AutoAnimeApp
-        val saved = runBlocking { app.savedConnection() }
-        assertNull("E2E requires a disposable test app with no persisted login", saved)
+        assertNull("E2E requires a disposable test app with no persisted login", runBlocking { app.connectionStore().load() })
         ownsPersistedTestConnection = true
     }
 
+    /** Only clears what this test created: the synthetic account's cookie and the saved connection. */
     private fun clearTestConnection() {
         if (!ownsPersistedTestConnection) return
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as AutoAnimeApp
-        app.clearSession()
-        testServerUrl?.let { url ->
-            val base = ServerConnection.parse(url, allowHttp = true).base
-            val origin = "${base.scheme}://${base.host}:${base.port}"
-            app.storage.clear("${origin.length}:$origin${"test-user".length}:test-user")
-        }
-        runBlocking { app.clearSavedConnection(app.generation.get()) }
+        app.sessions().logout()
+        val base = ServerConnection.parse(serverUrl, allowHttp = true).base
+        val origin = "${base.scheme}://${base.host}:${base.port}"
+        app.cookieStorage().clear("${origin.length}:$origin${"test-user".length}:test-user")
+        runBlocking { app.connectionStore().clear() }
         ownsPersistedTestConnection = false
-        testServerUrl = null
     }
 
-    private fun waitForDestination(scenario: ActivityScenario<MainActivity>, destinationId: Int) {
-        repeat(50) {
-            if (destination(scenario) == destinationId) return
-            Thread.sleep(100)
-        }
-        scenario.onActivity { activity ->
-            val nav = (activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment).navController
-            val actual = nav.currentDestination?.let { activity.resources.getResourceEntryName(it.id) }
-            val previous = nav.previousBackStackEntry?.destination?.let { activity.resources.getResourceEntryName(it.id) }
-            val playerFragment = (activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment)
-                .childFragmentManager.primaryNavigationFragment as? com.autoanime.android.feature.PlayerFragment
-            val close = playerFragment?.requireView()?.findViewById<android.view.View>(R.id.close)
-            fail("Navigation did not reach $destinationId; actual=$actual previous=$previous closeShown=${close?.isShown} closeEnabled=${close?.isEnabled} closeHasListener=${close?.hasOnClickListeners()}")
-        }
-    }
-
-    private fun destination(scenario: ActivityScenario<MainActivity>): Int {
-        var actual = 0
-        scenario.onActivity { activity ->
-            actual = (activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment)
-                .navController.currentDestination?.id ?: 0
-        }
-        return actual
-    }
-
-    private fun assertDestination(scenario: ActivityScenario<MainActivity>, destinationId: Int) {
-        scenario.onActivity { activity ->
-            val nav = (activity.supportFragmentManager.findFragmentById(R.id.nav_host) as androidx.navigation.fragment.NavHostFragment).navController
-            assertEquals(destinationId, nav.currentDestination?.id)
-        }
+    private companion object {
+        const val TIMEOUT = 5_000L
     }
 }

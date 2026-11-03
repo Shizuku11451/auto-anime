@@ -1,0 +1,9 @@
+<resources>
+    <string name="settings">设置</string>
+    <string name="server">服务器</string>
+    <string name="account">账号</string>
+    <string name="dynamic_color">动态取色</string>
+    <string name="dynamic_color_summary">跟随系统壁纸配色</string>
+    <string name="logout">退出登录</string>
+    <string name="logout_summary">退出后可连接其他服务器</string>
+</resources>

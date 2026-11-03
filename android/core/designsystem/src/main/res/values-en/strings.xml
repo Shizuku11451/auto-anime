@@ -1,0 +1,11 @@
+<resources>
+    <string name="retry">Retry</string>
+    <string name="back">Back</string>
+    <string name="error_session_expired">Session expired. Log in again.</string>
+    <string name="error_setup_required">Server setup is required. Complete setup in the browser first.</string>
+    <string name="error_invalid_saved_url">Saved server URL is invalid. Enter it again.</string>
+    <string name="error_unsupported_server">Server update required: this server does not support the mobile API.</string>
+    <string name="error_response_too_large">The server response is too large.</string>
+    <string name="error_network">Connection failed. Check the server and network.</string>
+    <string name="error_http">Request failed (%1$d)</string>
+</resources>

@@ -1,16 +1,28 @@
 # Android client implementation status
 
-The M0/M1 Android client prototype is delivered for emulator evaluation; a single-device instrumentation subset has passed, but M1 physical-device compatibility and performance acceptance remain incomplete. The prototype uses XML Views; later phases in ANDROID_PLAN.md (Compose migration onward) are not implemented.
+M2 (technology-stack migration) is implemented: the M0/M1 prototype screens were rewritten on Compose with the same features. M1 physical-device compatibility and performance acceptance remain incomplete, and later phases in ANDROID_PLAN.md (M3 onward) are not implemented.
 
 ## Implementation
 
-- Kotlin/XML Android Views app, API 26+, compile SDK 36, target SDK 35, Gradle 8.13 wrapper with pinned distribution checksum.
-- HTTPS by default; HTTP requires explicit user confirmation. Requests preserve a reverse-proxy prefix, reject cross-origin redirects, and scope encrypted Keystore AES-GCM session cookies by origin and account. Passwords are not persisted.
-- Setup/login/logout, bounded library pagination, detail, covers and saved-item Media3 streaming are implemented. A server missing the bounded page response fails with an actionable server-update message; no full-array fallback is used. Retrofit is deliberately not used: the API is a small custom OkHttp coroutine client, so unused Retrofit/converter dependencies were removed.
-- Macrobenchmark module uses AGP experimental self-instrumenting mode (`android.experimental.self-instrumenting=true`), runs the target in the test APK process, and keeps the app's benchmark build minified/profileable. Startup and library-scroll scenarios exist; scroll requires fixed demo server data.
-- Debug builds enable logged StrictMode thread/VM diagnostics only. `MainActivity` calls `reportFullyDrawn()` on the first pre-draw of the navigation host; this is a UI-readiness marker and does not wait for connection restore, library data, or covers. It is not a separately validated fully-interactive benchmark metric; benchmark scenarios must measure that separately from first frame and network/data/cover completion.
+- API 26+, compile SDK 37, target SDK 36. Gradle 9.8.2 wrapper with pinned distribution checksum, AGP 9.5 with built-in Kotlin, KSP; versions in `android/gradle/libs.versions.toml`, shared module setup in `android/build-logic` convention plugins.
+- Modules: `core/model` (pure Kotlin DTOs and error categories), `core/network` (server URL rules, origin cookie jar, Keystore cookie storage, OkHttp API client), `core/data` (`SessionRepository`, DataStore, Hilt bindings), `core/designsystem` (theme, icons, shared components), `feature/connect|library|player|settings`, `app`, `benchmark`.
+- UI: Jetpack Compose with Material 3, Hilt, Navigation 3 and Material 3 Adaptive. Phones use a bottom navigation bar; wider windows use a navigation rail and show the library and detail side by side. The player is full screen and uses the Media3 Compose player and controls. Chinese is the default UI language, with English resources. Brand colors mirror `web/src/styles/tokens.css`; dynamic color is an opt-in setting on Android 12+.
+- HTTPS by default; HTTP requires explicit user confirmation. Requests preserve a reverse-proxy prefix, reject cross-origin redirects, and scope encrypted Keystore AES-GCM session cookies by origin and account. Passwords are not persisted or placed in saved UI state. The saved-connection DataStore file and keys are unchanged from the prototype.
+- `SessionRepository` owns connect, restore, logout and 401 expiry. Each transition advances a generation; superseded connect results, saved-connection writes and library pages are discarded, and repeated 401 reports end a session once. Each session owns its OkHttp clients and an in-memory-only Coil cover loader, all closed when the session ends; a new session starts from a fresh back stack.
+- Setup/login/logout, bounded library pagination (loads further pages near the end of the grid, pull to refresh), detail, covers and saved-item Media3 streaming are implemented. A server missing the bounded page response fails with an actionable server-update message; no full-array fallback is used.
+- The ExoPlayer instance exists only while the player screen is started; the position is kept in its ViewModel. The activity handles rotation and resize changes itself, so rotating does not restart playback.
+- Macrobenchmark module uses AGP experimental self-instrumenting mode (`android.experimental.self-instrumenting=true`), runs the target in the test APK process, and keeps the app's benchmark build minified/profileable. Compose test tags are exposed as resource ids so the scroll scenario still finds `anime_list`; it requires fixed demo server data.
+- Debug builds enable logged StrictMode thread/VM diagnostics, and a debug-only Hilt entry point (`app/src/debug`) lets instrumented tests check and reset the session they create. `ReportDrawnWhen` marks UI readiness once the startup restore finishes; it does not wait for library data or covers.
 
 ## Verification evidence
+
+### M2 Compose migration (2026-11-03)
+
+From the ASCII-path junction with Gradle 9.8.2/JDK 21 and the in-process Kotlin compiler: `testDebugUnitTest` passed 38 JVM tests (network 25, session repository 7, library/detail ViewModels 4, playback error mapping 2); `lintDebug` passed for all modules; `assembleDebug`, `assembleDebugAndroidTest`, `assembleBenchmark` and `:benchmark:assembleBenchmark` built. On the dedicated disposable `emulator-5580` (API 35, x86_64), installed and run explicitly with `am instrument` (no Gradle `connected*` tasks): `core/network` cookie storage 3/3, and the app suite 5/5 in five consecutive runs (about 18 s each). The app suite covers prefixed authenticated login, library, detail, cover and logout requests; playback that renders a frame of the synthetic fixture, the HEAD/Range contract and unauthenticated 401, seeking through the on-screen progress slider, and closing the player releases ExoPlayer; a 401 from the library or the stream returns to the connect screen with the expiry message; app backup stays disabled.
+
+While the tests were being fixed, one earlier run crashed with a Compose runtime `ArrayIndexOutOfBoundsException` in `SlotWriter` while disposing the composition on activity destroy. It did not recur in any later run, including the five consecutive full passes; the cause was not identified. No physical-device run, benchmark measurement or tablet/foldable check was performed for M2.
+
+### M0/M1 Views prototype (earlier evidence)
 
 The latest full Android verification (from an ASCII-path junction, Gradle 8.13/JDK 21, in-process Kotlin compiler) ran:
 
@@ -25,8 +37,8 @@ A separate 30-iteration cold-start connect-screen Macrobenchmark passed on the e
 
 ## Dependency licenses
 
-The resolved debug runtime dependency inventory (127 artifacts) and each artifact's published POM license/source metadata are recorded in [ANDROID_DEPENDENCIES.md](ANDROID_DEPENDENCIES.md). The inventory is not an SPDX/SBOM or a legal review, and excludes test-only and benchmark-only dependencies. Confirm notices and applicable distribution terms before release; Android SDK/Gradle tooling has separate terms.
+The resolved debug runtime dependency inventory (220 artifacts) and each artifact's published POM license/source metadata are recorded in [ANDROID_DEPENDENCIES.md](ANDROID_DEPENDENCIES.md). The inventory is not an SPDX/SBOM or a legal review, and excludes test-only and benchmark-only dependencies. Confirm notices and applicable distribution terms before release; Android SDK/Gradle tooling has separate terms.
 
 ## Acceptance still required
 
-Still required: broader physical-device compatibility coverage; investigate whether the phone's custom ART environment can support Macrobenchmark without altering system settings or build mode; codec/subtitle combinations; accessibility review; and startup/scroll evaluation using fixed isolated server data. Emulator UI tests do not establish hardware decoding, device compatibility, or performance acceptance. No NAS acceptance is implied.
+Still required: M2 physical-device and tablet/foldable runs of the Compose UI; broader physical-device compatibility coverage; investigate whether the phone's custom ART environment can support Macrobenchmark without altering system settings or build mode; codec/subtitle combinations; accessibility review; and startup/scroll evaluation using fixed isolated server data. Emulator UI tests do not establish hardware decoding, device compatibility, or performance acceptance. No NAS acceptance is implied.

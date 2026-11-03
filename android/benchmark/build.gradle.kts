@@ -30,12 +30,12 @@ android {
 dependencies {
     implementation("androidx.arch.core:core-runtime:2.2.0")
     implementation("androidx.concurrent:concurrent-futures:1.2.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.profileinstaller)
     implementation("androidx.startup:startup-runtime:1.2.0")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
-    implementation("androidx.test:runner:1.7.0")
+    implementation(libs.androidx.test.runner)
     implementation("androidx.tracing:tracing:1.2.0")
-    implementation("androidx.test.uiautomator:uiautomator:2.3.0")
-    implementation("androidx.benchmark:benchmark-macro-junit4:1.4.1")
+    implementation(libs.androidx.test.uiautomator)
+    implementation(libs.androidx.benchmark.macro.junit4)
 }

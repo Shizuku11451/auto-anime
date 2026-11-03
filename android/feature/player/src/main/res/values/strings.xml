@@ -1,0 +1,7 @@
+<resources>
+    <string name="close_player">关闭播放器</string>
+    <string name="video_unavailable">无法播放：视频不可用</string>
+    <string name="playback_failed">播放失败，请检查视频格式或服务器连接。</string>
+    <string name="playback_http_failed">视频请求失败，请检查服务器和已保存的文件。</string>
+    <string name="playback_format_failed">视频格式不受支持或文件已损坏。</string>
+</resources>
