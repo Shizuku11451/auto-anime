@@ -1,0 +1,24 @@
+<resources>
+    <string name="discover">Discover</string>
+    <string name="search_bangumi">Search Bangumi</string>
+    <string name="no_subjects">No anime found</string>
+    <string name="resources_disabled">The server has no aggregate search service; you can only browse anime</string>
+    <string name="select_subject">Select an anime</string>
+    <string name="no_resources">No subscribable releases found</string>
+    <string name="unusable_resources">%1$d more releases lack details and cannot be subscribed</string>
+    <string name="release_summary">%1$d releases · Ep %2$s</string>
+    <string name="needs_review">Identification needs review</string>
+    <string name="already_subscribed">Subscribed</string>
+    <string name="subscribe_version">Subscribe to this version</string>
+    <string name="subscribe">Subscribe</string>
+    <string name="subscribed">Subscribed</string>
+    <string name="subscribed_synced">Subscribed, %1$d new from sync</string>
+    <string name="feed_name">Subscription name</string>
+    <string name="season_rule_specific">Only releases marked season %1$d</string>
+    <string name="season_rule_unmarked">Only releases without a season mark</string>
+    <string name="auto_download">Download automatically</string>
+    <string name="cancel">Cancel</string>
+    <string name="unknown_group">Unknown group</string>
+    <string name="unknown_quality">Unknown quality</string>
+    <string name="season_label">Season %1$d</string>
+</resources>

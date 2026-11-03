@@ -35,21 +35,41 @@ import com.autoanime.android.core.data.SessionState
 import com.autoanime.android.core.designsystem.AppIcons
 import com.autoanime.android.core.designsystem.LocalCoverImageLoader
 import com.autoanime.android.feature.connect.ConnectRoute
+import com.autoanime.android.core.model.displayName
+import com.autoanime.android.feature.discover.DiscoverRoute
+import com.autoanime.android.feature.discover.SubjectPlaceholder
+import com.autoanime.android.feature.discover.SubjectRoute
 import com.autoanime.android.feature.downloads.DownloadsRoute
+import com.autoanime.android.feature.feeds.FeedEditorRoute
+import com.autoanime.android.feature.feeds.FeedPlaceholder
+import com.autoanime.android.feature.feeds.FeedsRoute
+import com.autoanime.android.feature.library.AnimeEditRoute
+import com.autoanime.android.feature.library.BindRoute
+import com.autoanime.android.feature.settings.ServerSettingsRoute
 import com.autoanime.android.feature.library.DetailPlaceholder
 import com.autoanime.android.feature.library.DetailRoute
 import com.autoanime.android.feature.library.LibraryRoute
 import com.autoanime.android.feature.player.PlayerRoute
 import com.autoanime.android.feature.settings.SettingsRoute
 import kotlinx.serialization.Serializable
+import com.autoanime.android.feature.discover.R as DiscoverR
 import com.autoanime.android.feature.downloads.R as DownloadsR
+import com.autoanime.android.feature.feeds.R as FeedsR
 import com.autoanime.android.feature.library.R as LibraryR
 import com.autoanime.android.feature.settings.R as SettingsR
 
 @Serializable data object LibraryKey : NavKey
 @Serializable data class DetailKey(val animeId: Long) : NavKey
 @Serializable data class PlayerKey(val itemId: Long, val title: String) : NavKey
+@Serializable data class AnimeEditKey(val animeId: Long) : NavKey
+@Serializable data class BindKey(val animeId: Long) : NavKey
+@Serializable data object DiscoverKey : NavKey
+@Serializable data class SubjectKey(val subjectId: Long, val name: String) : NavKey
+@Serializable data object FeedsKey : NavKey
+/** A null [feedId] adds a new subscription. */
+@Serializable data class FeedEditKey(val feedId: Long?) : NavKey
 @Serializable data object DownloadsKey : NavKey
+@Serializable data object ServerSettingsKey : NavKey
 @Serializable data object SettingsKey : NavKey
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -72,40 +92,41 @@ fun AutoAnimeRoot(state: SessionState) {
     ReportDrawnWhen { state != SessionState.Restoring }
 }
 
+/**
+ * Top-level destinations. The library is always the root of the back stack; any other tab sits
+ * directly on top of it, so Back from a tab returns to the library.
+ */
+private enum class Tab(val root: NavKey) {
+    Library(LibraryKey),
+    Discover(DiscoverKey),
+    Feeds(FeedsKey),
+    Downloads(DownloadsKey),
+    Settings(SettingsKey),
+}
+
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 private fun MainNavigation() {
     val backStack = rememberNavBackStack(LibraryKey)
-    val inSettings = backStack.any { it is SettingsKey }
-    val inDownloads = backStack.any { it is DownloadsKey }
+    val current = Tab.entries.lastOrNull { it != Tab.Library && it.root in backStack } ?: Tab.Library
     val suiteType = if (backStack.last() is PlayerKey) NavigationSuiteType.None
     else NavigationSuiteScaffoldDefaults.navigationSuiteType(currentWindowAdaptiveInfo())
+    val play: (Long, String) -> Unit = { itemId, title -> backStack.add(PlayerKey(itemId, title)) }
 
     NavigationSuiteScaffold(
         navigationSuiteType = suiteType,
         navigationItems = {
-            NavigationSuiteItem(
-                selected = !inSettings && !inDownloads,
-                onClick = { backStack.resetTo(LibraryKey) },
-                icon = { Icon(painterResource(AppIcons.Library), contentDescription = null) },
-                label = { Text(stringResource(LibraryR.string.library)) },
-                navigationSuiteType = suiteType,
-            )
-            NavigationSuiteItem(
-                selected = inDownloads,
-                onClick = { if (!inDownloads) backStack.resetTo(LibraryKey, DownloadsKey) },
-                icon = { Icon(painterResource(AppIcons.Download), contentDescription = null) },
-                label = { Text(stringResource(DownloadsR.string.downloads)) },
-                navigationSuiteType = suiteType,
-                modifier = Modifier.testTag(NavTestTags.DOWNLOADS),
-            )
-            NavigationSuiteItem(
-                selected = inSettings,
-                onClick = { if (!inSettings) backStack.resetTo(LibraryKey, SettingsKey) },
-                icon = { Icon(painterResource(AppIcons.Settings), contentDescription = null) },
-                label = { Text(stringResource(SettingsR.string.settings)) },
-                navigationSuiteType = suiteType,
-            )
+            Tab.entries.forEach { tab ->
+                NavigationSuiteItem(
+                    selected = current == tab,
+                    // Selecting the current tab again returns to its first screen.
+                    onClick = { if (tab == Tab.Library) backStack.resetTo(LibraryKey) else backStack.resetTo(LibraryKey, tab.root) },
+                    icon = { Icon(painterResource(tab.icon()), contentDescription = null) },
+                    label = { Text(stringResource(tab.label())) },
+                    navigationSuiteType = suiteType,
+                    modifier = Modifier.testTag(NavTestTags.tab(tab.name)),
+                )
+            }
         },
     ) {
         NavDisplay(
@@ -118,31 +139,68 @@ private fun MainNavigation() {
             sceneStrategies = listOf(rememberListDetailSceneStrategy()),
             entryProvider = entryProvider {
                 entry<LibraryKey>(metadata = ListDetailSceneStrategy.listPane(detailPlaceholder = { DetailPlaceholder() })) {
-                    LibraryRoute(onOpenAnime = { id -> backStack.openDetail(id) })
+                    LibraryRoute(onOpenAnime = { id -> backStack.openPane(DetailKey(id)) })
                 }
                 entry<DetailKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
                     DetailRoute(
                         animeId = key.animeId,
-                        onPlay = { itemId, title -> backStack.add(PlayerKey(itemId, title)) },
+                        onPlay = play,
                         onBack = { backStack.removeLastOrNull() },
+                        onEdit = { id -> backStack.add(AnimeEditKey(id)) },
+                        onBind = { id -> backStack.add(BindKey(id)) },
                     )
+                }
+                entry<AnimeEditKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                    AnimeEditRoute(key.animeId, onDone = { backStack.removeLastOrNull() })
+                }
+                entry<BindKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                    BindRoute(key.animeId, onDone = { backStack.removeLastOrNull() })
                 }
                 entry<PlayerKey> { key ->
                     PlayerRoute(key.itemId, key.title, onClose = { backStack.removeLastOrNull() })
                 }
-                entry<DownloadsKey> {
-                    DownloadsRoute(onPlay = { itemId, title -> backStack.add(PlayerKey(itemId, title)) })
+                entry<DiscoverKey>(metadata = ListDetailSceneStrategy.listPane(detailPlaceholder = { SubjectPlaceholder() })) {
+                    DiscoverRoute(onOpenSubject = { subject -> backStack.openPane(SubjectKey(subject.id, subject.displayName)) })
                 }
-                entry<SettingsKey> { SettingsRoute() }
+                entry<SubjectKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                    SubjectRoute(key.subjectId, key.name, onBack = { backStack.removeLastOrNull() })
+                }
+                entry<FeedsKey>(metadata = ListDetailSceneStrategy.listPane(detailPlaceholder = { FeedPlaceholder() })) {
+                    FeedsRoute(onEdit = { id -> backStack.openPane(FeedEditKey(id)) })
+                }
+                entry<FeedEditKey>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                    FeedEditorRoute(key.feedId, onDone = { backStack.removeLastOrNull() })
+                }
+                entry<DownloadsKey> { DownloadsRoute(onPlay = play) }
+                entry<SettingsKey> { SettingsRoute(onServerSettings = { backStack.add(ServerSettingsKey) }) }
+                entry<ServerSettingsKey> { ServerSettingsRoute(onBack = { backStack.removeLastOrNull() }) }
             },
         )
     }
 }
 
-/** In the two-pane layout a new selection replaces the open detail instead of stacking. */
-private fun NavBackStack<NavKey>.openDetail(animeId: Long) {
-    val detail = DetailKey(animeId)
-    if (last() is DetailKey) set(lastIndex, detail) else add(detail)
+private fun Tab.icon(): Int = when (this) {
+    Tab.Library -> AppIcons.Library
+    Tab.Discover -> AppIcons.Discover
+    Tab.Feeds -> AppIcons.Feeds
+    Tab.Downloads -> AppIcons.Download
+    Tab.Settings -> AppIcons.Settings
+}
+
+private fun Tab.label(): Int = when (this) {
+    Tab.Library -> LibraryR.string.library
+    Tab.Discover -> DiscoverR.string.discover
+    Tab.Feeds -> FeedsR.string.feeds
+    Tab.Downloads -> DownloadsR.string.downloads
+    Tab.Settings -> SettingsR.string.settings
+}
+
+/**
+ * In the two-pane layout a new selection replaces the open detail of the same kind instead of
+ * stacking, so Back leaves the list rather than walking through earlier selections.
+ */
+private inline fun <reified T : NavKey> NavBackStack<NavKey>.openPane(key: T) {
+    if (last() is T) set(lastIndex, key) else add(key)
 }
 
 private fun NavBackStack<NavKey>.resetTo(vararg keys: NavKey) {
@@ -151,5 +209,6 @@ private fun NavBackStack<NavKey>.resetTo(vararg keys: NavKey) {
 }
 
 object NavTestTags {
-    const val DOWNLOADS = "nav_downloads"
+    const val DOWNLOADS = "nav_Downloads"
+    fun tab(name: String) = "nav_$name"
 }

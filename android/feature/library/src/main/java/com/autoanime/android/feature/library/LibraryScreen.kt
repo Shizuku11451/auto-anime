@@ -185,5 +185,9 @@ object LibraryTestTags {
     /** Also exposed as a resource id for the scroll benchmark. */
     const val GRID = "anime_list"
     const val DAY_FILTER = "day_filter"
+    const val DETAIL_MENU = "detail_menu"
+    const val SAVE_ANIME = "save_anime"
+    const val SAVE_CORRECTION = "save_correction"
+    fun correct(itemId: Long) = "correct_$itemId"
     fun day(day: Int?) = "day_${day ?: "all"}"
 }

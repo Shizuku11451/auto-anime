@@ -7,6 +7,11 @@ import com.autoanime.android.core.data.SessionState
 import com.autoanime.android.core.model.Anime
 import com.autoanime.android.core.model.AnimeDetail
 import com.autoanime.android.core.model.AnimePage
+import com.autoanime.android.core.model.CorrectInput
+import com.autoanime.android.core.model.CorrectResult
+import com.autoanime.android.core.model.Episode
+import com.autoanime.android.core.model.MediaItem
+import com.autoanime.android.core.model.Season
 import com.autoanime.android.core.model.AppError
 import com.autoanime.android.core.model.ScheduleDay
 import com.autoanime.android.core.model.SetupState
@@ -122,6 +127,27 @@ class LibraryViewModelTest {
         assertNull(model.state.value.dayCounts)
     }
 
+    @Test fun correctionIsSentOnceAndReloadsTheDetail() = scope.runTest {
+        connect("https://nas.example/")
+        val api = apis.last()
+        val model = DetailViewModel(7, sessions, dispatcher)
+        runCurrent()
+        val item = MediaItem(70, "[G] Title - 01", "已保存", episode = "1", anime_id = 7)
+        api.details.single().complete(AnimeDetail(7, "Title", seasons = listOf(Season(1, listOf(Episode("1", listOf(item)))))))
+        runCurrent()
+        val input = CorrectInput(season = 2, episode = "13", rearchive = true, anime_id = 7)
+        model.correct(item, input)
+        model.correct(item, input)
+        runCurrent()
+        assertEquals(listOf(70L to input), api.corrections)
+        assertEquals(2, api.details.size)
+    }
+
+    @Test fun bindQueryDropsReleaseTagsLikeTheWebClient() {
+        assertEquals("葬送的芙莉莲", cleanTitle("[Group] 葬送的芙莉莲 (2023) / Sousou no Frieren"))
+        assertEquals("Title", cleanTitle("【字幕组】Title | Other"))
+    }
+
     @Test fun lateDetailResponseCannotReplaceRetry() = scope.runTest {
         connect("https://nas.example/")
         val api = apis.last()
@@ -154,6 +180,11 @@ private class GatedApi : AnimeApi(OkHttpClient(), ServerConnection.parse("https:
     val pageCalls = mutableListOf<PageCall>()
     val details = mutableListOf<CompletableDeferred<AnimeDetail>>()
     var nonCancellableDetail = false
+    val corrections = mutableListOf<Pair<Long, CorrectInput>>()
+    override suspend fun correctItem(id: Long, input: CorrectInput): CorrectResult {
+        corrections += id to input
+        return CorrectResult(moved = input.rearchive)
+    }
     override suspend fun setupStatus() = setup.await()
     override suspend fun probeSession() = Unit
     override suspend fun page(before: Long?, day: Int?, today: String?, counts: Boolean): AnimePage {

@@ -4,7 +4,6 @@
     <string name="season_number">第 %1$d 季</string>
     <string name="episode_number">第 %1$s 集</string>
     <string name="anime_cover">番剧封面</string>
-    <string name="no_saved_episodes">暂无已保存的剧集</string>
     <string name="select_anime">选择一部番剧</string>
     <string name="day_all">全部</string>
     <string name="day_unknown">待补充</string>
@@ -20,4 +19,43 @@
         <item>周六</item>
         <item>周日</item>
     </string-array>
+    <string name="no_episodes">暂无条目</string>
+    <string name="more">更多</string>
+    <string name="edit_anime">编辑番剧</string>
+    <string name="bind_metadata">绑定 Bangumi 资料</string>
+    <string name="rematch">重新匹配资料</string>
+    <string name="correct_item">纠错</string>
+    <string name="corrected">纠错已保存</string>
+    <string name="corrected_moved">纠错已保存，媒体文件已迁移</string>
+    <string name="rematch_queued">已开始重新匹配，稍后刷新查看</string>
+    <string name="move_to_anime">移到其他番剧（留空保持当前）</string>
+    <string name="item_season">季号</string>
+    <string name="item_season_invalid">季号必须是 0–999</string>
+    <string name="item_season_hint">0 表示跟随番剧设置</string>
+    <string name="item_season_hint_parsed">0 表示跟随番剧；标题识别为第 %1$d 季</string>
+    <string name="item_episode">集数</string>
+    <string name="rearchive">同时迁移已保存的文件</string>
+    <string name="rearchive_hint">按新的番剧、季和集重新归档；不开启则只修改记录</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="anime_saved">番剧已保存</string>
+    <string name="rules_applied">规则已应用，归并了 %1$d 条现有条目</string>
+    <string name="anime_title">番剧名称</string>
+    <string name="title_required">请填写番剧名称</string>
+    <string name="search_name">搜索名</string>
+    <string name="default_season">默认季号</string>
+    <string name="season_range">季号必须是 1–999</string>
+    <string name="update_day">每周更新日</string>
+    <string name="weekday_auto">自动（Bangumi）</string>
+    <string name="include_rules">包含规则</string>
+    <string name="include_required">应用规则前请填写包含关键词</string>
+    <string name="exclude_rules">排除规则</string>
+    <string name="save_and_apply">保存并应用到现有条目</string>
+    <string name="apply_rules_hint">按包含与排除规则把已有条目归并到这部番剧</string>
+    <string name="binding_saved">资料绑定已更新</string>
+    <string name="unbind">解除绑定</string>
+    <string name="bangumi_keyword">Bangumi 关键词</string>
+    <string name="keyword_too_short">请输入至少 2 个字符</string>
+    <string name="search">搜索</string>
+    <string name="no_candidates">没有找到匹配的条目</string>
 </resources>

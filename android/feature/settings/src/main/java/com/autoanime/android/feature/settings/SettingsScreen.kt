@@ -60,14 +60,19 @@ class SettingsViewModel @Inject constructor(
 }
 
 @Composable
-fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsRoute(onServerSettings: () -> Unit = {}, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsScreen(state, viewModel::setDynamicColor, viewModel::logout)
+    SettingsScreen(state, viewModel::setDynamicColor, viewModel::logout, onServerSettings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(state: SettingsUiState, onDynamicColor: (Boolean) -> Unit, onLogout: () -> Unit) {
+fun SettingsScreen(
+    state: SettingsUiState,
+    onDynamicColor: (Boolean) -> Unit,
+    onLogout: () -> Unit,
+    onServerSettings: () -> Unit = {},
+) {
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.settings)) }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
             ListItem(
@@ -78,6 +83,11 @@ fun SettingsScreen(state: SettingsUiState, onDynamicColor: (Boolean) -> Unit, on
             if (state.account.isNotBlank()) ListItem(
                 headlineContent = { Text(stringResource(R.string.account)) },
                 supportingContent = { Text(state.account) },
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.server_settings)) },
+                supportingContent = { Text(stringResource(R.string.server_settings_summary)) },
+                modifier = Modifier.clickable(onClick = onServerSettings).testTag(SettingsTestTags.SERVER_SETTINGS),
             )
             HorizontalDivider()
             if (supportsDynamicColor) ListItem(
@@ -99,4 +109,6 @@ fun SettingsScreen(state: SettingsUiState, onDynamicColor: (Boolean) -> Unit, on
 
 object SettingsTestTags {
     const val LOGOUT = "logout"
+    const val SERVER_SETTINGS = "server_settings"
+    const val SAVE_SERVER = "save_server_settings"
 }
