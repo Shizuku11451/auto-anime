@@ -47,7 +47,7 @@ type relocationPlan struct {
 	Saved  int      `json:"saved"`
 	Moving int      `json:"moving"`
 	From   []string `json:"from"`
-	To     string   `json:"to"`
+	To     []string `json:"to"`
 }
 
 var relocations = struct {
@@ -103,20 +103,26 @@ func itemSeriesDir(p string) string {
 	}
 }
 
-func planRelocation(items []savedItem, root string, animeSeason int) (moving []savedItem, from []string) {
+func planRelocation(items []savedItem, root string, animeSeason int) (moving []savedItem, from, to []string) {
 	seen := map[string]bool{}
 	for _, it := range items {
-		if pathWithin(it.FilePath, it.targetDir(root, animeSeason)) {
+		target := it.targetDir(root, animeSeason)
+		if pathWithin(it.FilePath, target) {
 			continue
 		}
 		moving = append(moving, it)
-		if dir := filepath.Dir(it.FilePath); !seen[dir] {
-			seen[dir] = true
+		if dir := filepath.Dir(it.FilePath); !seen["f"+dir] {
+			seen["f"+dir] = true
 			from = append(from, dir)
+		}
+		if !seen["t"+target] {
+			seen["t"+target] = true
+			to = append(to, target)
 		}
 	}
 	sort.Strings(from)
-	return moving, from
+	sort.Strings(to)
+	return moving, from, to
 }
 
 // POST /api/animes/{id}/relocation-preview：按尚未保存的名称/位置/季号预估要移动的文件，不改动任何内容。
@@ -161,12 +167,15 @@ func animeRelocationPreview(w http.ResponseWriter, r *http.Request, id int64) {
 		return
 	}
 	root := seriesRoot(title, storageDir)
-	moving, from := planRelocation(items, root, season)
+	moving, from, to := planRelocation(items, root, season)
 	if len(from) > 3 {
 		from = from[:3]
 	}
+	if len(to) > 3 {
+		to = to[:3]
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	jsonOut(w, relocationPlan{Saved: len(items), Moving: len(moving), From: append([]string{}, from...), To: root})
+	jsonOut(w, relocationPlan{Saved: len(items), Moving: len(moving), From: append([]string{}, from...), To: append([]string{}, to...)})
 }
 
 func relocationSnapshot(animeID int64) relocationStatus {
@@ -199,7 +208,7 @@ func startRelocation(animeID int64, only map[int64]bool) (relocationStatus, erro
 		}
 		items = filtered
 	}
-	moving, _ := planRelocation(items, seriesRoot(a.Title, a.StorageDir), a.Season)
+	moving, _, _ := planRelocation(items, seriesRoot(a.Title, a.StorageDir), a.Season)
 	relocations.Lock()
 	if st := relocations.jobs[animeID]; st != nil && st.Running {
 		relocations.Unlock()
