@@ -159,6 +159,12 @@ async function control(item: Item, action: 'download' | 'pause' | 'resume') {
   })
 }
 
+function openLocation(item: Item) {
+  const anime = store.animes.value.find(a => a.id === item.anime_id)
+  if (anime) dialogs.openAnimeEdit(anime, 'location')
+  else toast.error('找不到对应的番剧，请刷新后重试')
+}
+
 async function remove(item: Item) {
   if (isBusy(item.id) || batchIds.value.includes(item.id)) return
   const ok = await confirmDialog('移除记录', `确定移除「${item.anime_title || item.title}」${item.episode ? `第 ${item.episode} 集` : ''}？不会删除已保存的文件。`, {
@@ -343,7 +349,7 @@ function epNo(x: { episode: string }): number {
         @download="control(item, 'download')"
         @pause="control(item, 'pause')"
         @resume="control(item, 'resume')"
-        @storage="dialogs.openStorage(item.anime_title || item.title)"
+        @storage="openLocation(item)"
         @correct="dialogs.openCorrect(item)"
         @remove="remove(item)"
         @play="play(item)"

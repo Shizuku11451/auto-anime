@@ -219,17 +219,33 @@ export interface AnimeUpdateInput {
   title: string
   search_name: string
   season: number
-  storage_dir: string
+  /** 省略表示不改；改名时服务端只在省略时顺带重命名空番剧文件夹 */
+  storage_dir?: string
   include_rules: string
   exclude_rules: string
 }
 
-export interface StorageInfo {
-  anime_title: string
-  storage_dir: string
-  season: number
-  default_path: string
-  effective_path: string
+/** 按尚未保存的名称/位置/季号预估需要移动的已保存文件 */
+export interface RelocationPlan {
+  saved: number
+  moving: number
+  from: string[]
+  to: string[]
+}
+
+export interface RelocationStatus {
+  running: boolean
+  total: number
+  moved: number
+  skipped: number
+  failed: { id: number; title: string; error: string }[]
+  warning?: string
+}
+
+/** 删除记录时选择删除文件的结果 */
+export interface MediaDeleteResult {
+  deleted_files?: number
+  file_errors?: string[]
 }
 
 export interface RuntimeStatus {

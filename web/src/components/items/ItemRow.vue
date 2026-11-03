@@ -41,7 +41,7 @@ const progressHint = computed(() => {
         <span class="name">{{ item.anime_title || item.title }}</span>
         <span v-if="item.episode" class="ep">第 {{ item.episode }} 集</span>
         <span v-if="item.season > 0" class="tag">S{{ String(item.season).padStart(2, '0') }}</span>
-        <span v-if="item.manual" class="tag amber">已纠错</span>
+        <span v-if="item.manual" class="tag amber">已调整</span>
       </h3>
       <div class="meta-line">
         <span>{{ item.fansub_group || '未知字幕组' }}</span>
@@ -83,8 +83,8 @@ const progressHint = computed(() => {
         <div v-if="badge.tone === 'saved' && item.file_path"><dt>归档位置</dt><dd class="path">{{ item.file_path }}</dd></div>
       </dl>
       <div class="detail-actions">
-        <BaseButton v-if="item.anime_title" size="sm" :icon="FolderOpen" :disabled="busy" @click="emit('storage')">存储位置</BaseButton>
-        <BaseButton size="sm" :icon="PenLine" :disabled="busy" @click="emit('correct')">纠错</BaseButton>
+        <BaseButton v-if="item.anime_id" size="sm" :icon="FolderOpen" :disabled="busy" @click="emit('storage')">存储位置</BaseButton>
+        <BaseButton size="sm" :icon="PenLine" :disabled="busy" @click="emit('correct')">调整</BaseButton>
         <BaseButton size="sm" variant="danger" :icon="Trash2" :disabled="busy" @click="emit('remove')">移除记录</BaseButton>
         <span>移除记录不会删除已保存文件</span>
       </div>

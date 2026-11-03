@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import FeedDialog from './FeedDialog.vue'
-import StorageDialog from './StorageDialog.vue'
 import AnimeDetailDialog from './AnimeDetailDialog.vue'
 import AnimeEditDialog from './AnimeEditDialog.vue'
 import BindDialog from './BindDialog.vue'
@@ -12,7 +11,6 @@ import UpdateDialog from './UpdateDialog.vue'
 
 <template>
   <FeedDialog />
-  <StorageDialog />
   <AnimeDetailDialog />
   <AnimeEditDialog />
   <BindDialog />

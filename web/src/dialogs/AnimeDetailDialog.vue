@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
-import { Inbox, Link, Pencil, Merge, Trash2, RefreshCw, Search } from '@lucide/vue'
+import { Inbox, Search, Settings2 } from '@lucide/vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import CoverImage from '@/components/ui/CoverImage.vue'
@@ -14,16 +14,12 @@ import { useAppStore } from '@/stores/app'
 import { useBusySet } from '@/composables/useBusy'
 import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
-import { confirmDialog } from '@/stores/confirm'
+import { confirmDialog, lastConfirmChecked } from '@/stores/confirm'
 import { seasonLabel } from '@/utils/format'
-import { BANGUMI_COLLECTION_LABELS, type MetaRematchResult, type ResourceItem } from '@/api/types'
+import { BANGUMI_COLLECTION_LABELS, type MediaDeleteResult, type ResourceItem } from '@/api/types'
 import { isDownloading } from '@/utils/status'
 import type { PlayerEntry } from '@/stores/dialogs'
-import { isWindows } from '@/utils/platform'
-/* Windows 本机没有 NAS 概念，删除记录只影响数据库记录。 */
-const mediaKeptHint = computed(() =>
-  isWindows(store.platformOS.value) ? '只删除这条资源记录，不会删除已保存的媒体文件。' : '只删除这条资源记录，不会删除 NAS 上已保存的文件。',
-)
+import { relocationSummary } from '@/composables/relocation'
 const dialogs = useDialogs()
 const store = useAppStore()
 const router = useRouter()
@@ -52,6 +48,17 @@ const resourceState = computed(() => {
 })
 const downloadingCount = computed(() => d.value?.seasons.flatMap(se => [...se.episodes.flatMap(ep => ep.items), ...se.loose]).filter(it => isDownloading(it.status)).length ?? 0)
 const { is: isBusy, run } = useBusySet()
+/** 当前番剧的文件迁移进度与结果（后台进行） */
+const relocation = computed(() => {
+  const r = dialogs.state.relocation
+  return d.value && r.animeId === d.value.id ? r.status : null
+})
+const relocationText = computed(() => {
+  const st = relocation.value
+  if (!st) return ''
+  if (st.running) return `正在移动文件 ${st.moved + st.skipped + st.failed.length}/${st.total}`
+  return st.failed.length ? relocationSummary(st) : ''
+})
 
 const displayName = computed(() => subject.value?.name_cn || d.value?.meta_name_cn || d.value?.title || '')
 
@@ -81,28 +88,6 @@ async function findResources() {
   } catch (e) { toast.error(errorMessage(e)) }
 }
 
-async function rematchMetadata() {
-  const anime = d.value
-  if (!anime || cloudOnly.value) return
-  if (anime.bangumi_id || anime.meta_source === 'manual') {
-    toast.error('该番剧已手动绑定元数据，请先在「元数据绑定」中解除绑定')
-    return
-  }
-  await run('rematch', async () => {
-    const ok = await confirmDialog('重新识别元数据', `将清除「${anime.title}」当前的封面和元数据匹配，并在后台重新获取。已设置的元数据搜索词会继续使用。`, {
-      okText: '重新识别',
-    })
-    if (!ok || !s.open || s.id !== anime.id) return
-    try {
-      await http.post<MetaRematchResult>(`/api/animes/${anime.id}/rematch`)
-      toast.success('已加入重新识别队列，结果将自动刷新')
-      await Promise.all([dialogs.reloadAnimeDetail(), store.refresh()])
-    } catch (e) {
-      toast.error(errorMessage(e))
-    }
-  })
-}
-
 async function download(item: ResourceItem) {
   await run(item.id, async () => {
     try {
@@ -116,14 +101,19 @@ async function download(item: ResourceItem) {
 }
 
 async function remove(item: ResourceItem) {
-  const ok = await confirmDialog('移除记录', mediaKeptHint.value, {
+  const saved = item.status === '已保存' && !!item.file_path
+  const ok = await confirmDialog('移除记录', saved ? '移除这条资源记录，已保存的文件默认保留。' : '移除这条资源记录。', {
     danger: true,
     okText: '移除',
+    checkLabel: saved ? '同时删除硬盘上的文件' : undefined,
   })
   if (!ok) return
+  const deleteFiles = saved && lastConfirmChecked()
+  if (deleteFiles && !(await confirmDialog('删除文件', `将从硬盘删除「${item.title}」已保存的文件，无法恢复。`, { danger: true, okText: '删除文件' }))) return
   try {
-    await http.delete(`/api/items/${item.id}`)
-    toast.success('已移除记录')
+    const r = await http.delete<MediaDeleteResult>(`/api/items/${item.id}` + (deleteFiles ? '?delete_files=1' : ''))
+    if (r?.file_errors?.length) toast.error(`记录已移除，文件未删除：${r.file_errors[0]}`)
+    else toast.success(deleteFiles ? '已移除记录并删除文件' : '已移除记录')
   } catch (e) {
     toast.error(errorMessage(e))
   }
@@ -237,14 +227,9 @@ function epNo(x: { episode: string }): number {
           </p>
           <p v-if="d.sources?.length" class="hero-sources">来源订阅：{{ d.sources.join('、') }}</p>
           <div v-if="!cloudOnly" class="hero-actions">
-            <BaseButton size="sm" :icon="Pencil" @click="dialogs.openAnimeEdit(d)">编辑番剧</BaseButton>
-            <BaseButton size="sm" :icon="Link" :variant="d.bangumi_id ? 'default' : 'soft'" @click="dialogs.openBind(d)">
-              {{ d.bangumi_id ? '更换元数据' : '元数据绑定' }}
-            </BaseButton>
-            <BaseButton size="sm" :icon="RefreshCw" :loading="isBusy('rematch')" @click="rematchMetadata">重新识别元数据</BaseButton>
-            <BaseButton size="sm" :icon="Merge" :disabled="store.animes.value.length < 2" @click="dialogs.openAnimeManage('merge', [d])">合并番剧</BaseButton>
-            <BaseButton size="sm" :icon="Trash2" variant="danger" @click="dialogs.openAnimeManage('delete', [d])">删除番剧</BaseButton>
+            <BaseButton size="sm" :icon="Settings2" @click="dialogs.openAnimeEdit(d)">管理</BaseButton>
           </div>
+          <p v-if="relocationText" class="relocation" :class="{ failed: !relocation?.running }" role="status">{{ relocationText }}</p>
         </div>
       </section>
 
@@ -322,6 +307,8 @@ function epNo(x: { episode: string }): number {
 .resource-status p { font-size: 13px; line-height: 1.7; color: var(--text-2); }
 .resource-status .resource-hint { font-size: 12px; color: var(--text-3); }
 .resource-error { color: var(--red); font-size: 13px; }
+.relocation { margin-top: 10px; font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.relocation.failed { color: var(--red); }
 /* 头图分三层，过渡连续无分界：底层是同一封面的模糊版；上层清晰封面用遮罩从中间向上下渐隐，
    露出底下的模糊版；最上层再把上下边缘平滑淡入弹窗背景色。没有封面时退回主题色渐变。 */
 /* 弹窗为 bleed 模式：正文无上内边距，头图直接贴到面板顶边，没有头部横条打断。 */

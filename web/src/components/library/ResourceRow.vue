@@ -23,7 +23,7 @@ const playable = computed(() => badgeInfo(props.item.status).tone === 'saved' &&
       <p class="res-meta">
         {{ item.fansub_group || '未知字幕组' }} · {{ item.quality || '未知清晰度' }}
         <template v-if="item.feed_name"> · 来源 {{ item.feed_name }}</template>
-        <span v-if="item.manual" class="tag amber">已纠错</span>
+        <span v-if="item.manual" class="tag amber">已调整</span>
       </p>
       <p v-if="item.file_path" class="path" :title="item.file_path">{{ item.file_path }}</p>
       <p v-if="badgeInfo(item.status).tone === 'downloading'" class="res-meta">{{ item.progress || 0 }}% · {{ formatSpeed(item.download_speed) }}</p>
@@ -40,7 +40,7 @@ const playable = computed(() => badgeInfo(props.item.status).tone === 'saved' &&
       >
         {{ isPending ? '下载' : '重试' }}
       </BaseButton>
-      <BaseButton size="sm" :icon="PenLine" @click="emit('correct')">纠错</BaseButton>
+      <BaseButton size="sm" :icon="PenLine" @click="emit('correct')">调整</BaseButton>
       <BaseButton size="sm" variant="danger" :icon="Trash2" @click="emit('remove')">移除</BaseButton>
     </div>
   </div>

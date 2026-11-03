@@ -43,7 +43,7 @@ watch(
     form.newTitle = ''
     form.season = item.value.season || 0
     form.episode = item.value.episode || ''
-    form.move = false
+    form.move = item.value.status === '已保存' && !!item.value.file_path
     msg.value = ''
   },
 )
@@ -73,7 +73,7 @@ async function save() {
   try {
     const r = await http.patch<CorrectResult>('/api/items/' + it.id, body)
     if (r.cleanup_warning) toast.info(r.cleanup_warning)
-    else toast.success(r.moved ? '纠错已保存，媒体文件已迁移' : '纠错已保存')
+    else toast.success(r.moved ? '已保存，文件已移到新位置' : '已保存')
     close()
     await Promise.all([store.refresh(), reloadAnimeDetail()])
   } catch (e) {
@@ -85,7 +85,7 @@ async function save() {
 </script>
 
 <template>
-  <BaseDialog :open="s.open" title="手动纠错" @close="close">
+  <BaseDialog :open="s.open" title="调整归属" @close="close">
     <p v-if="item" class="original">{{ item.title }}</p>
     <form @submit.prevent="save">
       <div class="field">
@@ -109,17 +109,17 @@ async function save() {
           <input id="cd-episode" v-model="form.episode" type="text" placeholder="例如 07" spellcheck="false" />
         </div>
       </div>
-      <label class="check">
+      <label v-if="item?.status === '已保存' && item.file_path" class="check">
         <input v-model="form.move" type="checkbox" />
-        同时迁移已保存的媒体文件到新位置
+        同时把已保存的文件移到新位置
       </label>
-      <p class="field-hint">纠错后的条目会标记为「已纠错」，不再被多来源规则重新归并。</p>
+      <p class="field-hint">调整后不再被多来源规则重新归并</p>
       <p class="form-msg" role="status">{{ msg }}</p>
       <button type="submit" hidden />
     </form>
     <template #footer>
       <BaseButton @click="close">取消</BaseButton>
-      <BaseButton variant="primary" :loading="saving" @click="save">保存纠错</BaseButton>
+      <BaseButton variant="primary" :loading="saving" @click="save">保存</BaseButton>
     </template>
   </BaseDialog>
 </template>

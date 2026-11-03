@@ -7,6 +7,8 @@ export interface ConfirmOptions {
   cancelText?: string
   /** 危险操作：确认按钮使用红色 */
   danger?: boolean
+  /** 附带一个默认不勾选的选项（如"同时删除文件"），结果见 lastConfirmChecked */
+  checkLabel?: string
 }
 
 interface ConfirmState {
@@ -16,6 +18,8 @@ interface ConfirmState {
   okText: string
   cancelText: string
   danger: boolean
+  checkLabel: string
+  checked: boolean
 }
 
 const state = reactive<ConfirmState>({
@@ -25,6 +29,8 @@ const state = reactive<ConfirmState>({
   okText: '确定',
   cancelText: '取消',
   danger: false,
+  checkLabel: '',
+  checked: false,
 })
 
 let resolver: ((ok: boolean) => void) | null = null
@@ -37,6 +43,8 @@ export function confirmDialog(title: string, text: string, options: ConfirmOptio
   state.okText = options.okText ?? '确定'
   state.cancelText = options.cancelText ?? '取消'
   state.danger = !!options.danger
+  state.checkLabel = options.checkLabel ?? ''
+  state.checked = false
   state.open = true
   return new Promise<boolean>((resolve) => {
     resolver = resolve
@@ -48,6 +56,11 @@ export function resolveConfirm(ok: boolean) {
   const r = resolver
   resolver = null
   r?.(ok)
+}
+
+/** 最近一次确认框里附带选项是否勾选；只在 confirmDialog 返回 true 后读取 */
+export function lastConfirmChecked() {
+  return state.checked
 }
 
 export function useConfirm() {

@@ -1,7 +1,9 @@
 /* 全局弹窗状态：各视图只负责"打开"，弹窗组件统一挂在 App 根部读取这里的状态。 */
 import { reactive, watch } from 'vue'
 import { http } from '@/api/client'
-import type { AnimeDetail, AnimeSummary, BangumiCollectionType, BangumiSubject, Feed, Item, LibraryAnime, ResourceItem } from '@/api/types'
+import type { AnimeDetail, AnimeSummary, BangumiCollectionType, BangumiSubject, Feed, Item, LibraryAnime, RelocationStatus, ResourceItem } from '@/api/types'
+
+export type AnimeManageTab = 'basic' | 'location' | 'metadata' | 'danger'
 
 export type FeedPrefill = Partial<Feed> & { url?: string; name?: string; from_discover?: boolean; requires_season_confirmation?: boolean }
 
@@ -31,37 +33,33 @@ export interface PlayerSource {
 
 interface DialogState {
   feed: { open: boolean; feed: FeedPrefill | null }
-  storage: { open: boolean; title: string }
   correct: { open: boolean; item: Item | ResourceItem | null }
   animeDetail: { open: boolean; id: number | null; data: AnimeDetail | null; collectionType: BangumiCollectionType | null; loading: boolean; error: string; subject: BangumiSubject | null; subjectLoading: boolean; subjectError: string }
-  animeEdit: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
+  animeEdit: { open: boolean; anime: AnimeDetail | AnimeSummary | null; tab: AnimeManageTab }
   bind: { open: boolean; anime: AnimeDetail | AnimeSummary | null }
   animeManage: { open: boolean; action: 'delete' | 'merge'; animes: (AnimeDetail | AnimeSummary)[] }
   player: { open: boolean; items: PlayerEntry[]; index: number }
+  /** 番剧文件迁移进度（后台进行，详情页展示） */
+  relocation: { animeId: number; status: RelocationStatus | null }
   /** 新版本详情与一键更新 */
   update: { open: boolean }
 }
 
 const state = reactive<DialogState>({
   feed: { open: false, feed: null },
-  storage: { open: false, title: '' },
   correct: { open: false, item: null },
   animeDetail: { open: false, id: null, data: null, collectionType: null, loading: false, error: '', subject: null, subjectLoading: false, subjectError: '' },
-  animeEdit: { open: false, anime: null },
+  animeEdit: { open: false, anime: null, tab: 'basic' },
   bind: { open: false, anime: null },
   animeManage: { open: false, action: 'delete', animes: [] },
   player: { open: false, items: [], index: 0 },
+  relocation: { animeId: 0, status: null },
   update: { open: false },
 })
 
 function openFeed(feed: FeedPrefill | null = null) {
   state.feed.feed = feed
   state.feed.open = true
-}
-
-function openStorage(title: string) {
-  state.storage.title = title
-  state.storage.open = true
 }
 
 function openCorrect(item: Item | ResourceItem) {
@@ -146,9 +144,37 @@ async function reloadAnimeDetail() {
   if (state.animeDetail.open && state.animeDetail.id) await loadAnimeDetail(state.animeDetail.id)
 }
 
-function openAnimeEdit(anime: AnimeDetail | AnimeSummary | null = null) {
+function openAnimeEdit(anime: AnimeDetail | AnimeSummary | null = null, tab: AnimeManageTab = 'basic') {
   state.animeEdit.anime = anime
+  state.animeEdit.tab = anime ? tab : 'basic'
   state.animeEdit.open = true
+}
+
+let relocationTimer: ReturnType<typeof setTimeout> | undefined
+let relocationVersion = 0
+
+/** 跟踪番剧文件迁移：每秒读取进度直到结束，结束后回调（刷新列表与详情）。同一时间只跟踪一部番剧。 */
+function watchRelocation(animeId: number, status: RelocationStatus | null, onDone: (status: RelocationStatus) => void) {
+  clearTimeout(relocationTimer)
+  const version = ++relocationVersion
+  state.relocation.animeId = animeId
+  state.relocation.status = status
+  const poll = async () => {
+    try {
+      const next = await http.get<RelocationStatus>(`/api/animes/${animeId}/relocation`)
+      if (version !== relocationVersion) return
+      state.relocation.status = next
+      if (!next.running) {
+        onDone(next)
+        return
+      }
+    } catch {
+      if (version !== relocationVersion) return
+    }
+    relocationTimer = setTimeout(poll, 1000)
+  }
+  if (status && !status.running) onDone(status)
+  else relocationTimer = setTimeout(poll, 500)
 }
 
 function openAnimeManage(action: 'delete' | 'merge', animes: (AnimeDetail | AnimeSummary)[]) {
@@ -188,12 +214,12 @@ export function useDialogs() {
   return {
     state,
     openFeed,
-    openStorage,
     openCorrect,
     openAnimeDetail,
     reloadAnimeDetail,
     reloadBangumiSubject,
     openAnimeEdit,
+    watchRelocation,
     openBind,
     openAnimeManage,
     openPlayer,

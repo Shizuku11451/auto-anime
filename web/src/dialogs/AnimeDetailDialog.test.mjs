@@ -11,17 +11,17 @@ const setup = parse(source).descriptor.scriptSetup.content
 const compile = (text) => ts.transpileModule(text, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText
-const compiled = compile(setup + '\nexport { rematchMetadata, resourceState, downloadingCount, findResources, metaBits, subject, rating, summary, cover };')
+const compiled = compile(setup + '\nexport { remove, resourceState, downloadingCount, findResources, metaBits, subject, rating, summary, cover };')
 const busyCompiled = compile(readFileSync(new URL('../composables/useBusy.ts', import.meta.url), 'utf8'))
 const typesContext = { exports: {} }, statusContext = { exports: {} }
 runInNewContext(compile(readFileSync(new URL('../api/types.ts', import.meta.url), 'utf8')), typesContext)
 runInNewContext(compile(readFileSync(new URL('../utils/status.ts', import.meta.url), 'utf8')), statusContext)
 
 function detailDialog(options = {}) {
-  const state = vue.reactive({ animeDetail: { open: true, id: 1, loading: false, error: '', data: {
+  const state = vue.reactive({ relocation: { animeId: 0, status: null }, animeDetail: { open: true, id: 1, loading: false, error: '', data: {
     id: 1, title: '测试动画', bangumi_id: options.binding ?? 0, meta_source: options.source ?? 'bangumi', item_count: 0, saved_count: 0, seasons: [],
   } } })
-  const posts = [], successes = [], errors = [], confirmations = [], refreshed = [], routes = []
+  const posts = [], deletes = [], successes = [], errors = [], confirmations = [], refreshed = [], routes = []
   const BS = String.fromCharCode(92)
   const platform = {
     isWindows: os => os === 'windows',
@@ -44,12 +44,16 @@ function detailDialog(options = {}) {
       posts.push(url)
       if (options.error) throw new Error(options.error)
       return { ok: true, queued: true }
+    }, delete: async (url) => {
+      deletes.push(url)
+      return options.deleteResult ?? {}
     } }, errorMessage: (e) => e.message },
+    '@/composables/relocation': { relocationSummary: () => '' },
     '@/stores/toast': { toast: { success: (message) => successes.push(message), error: (message) => errors.push(message) } },
     '@/stores/confirm': { confirmDialog: async (...args) => {
       confirmations.push(args)
-      return options.confirm ? options.confirm() : true
-    } },
+      return options.confirm ? options.confirm(args) : true
+    }, lastConfirmChecked: () => !!options.checked },
   }
   const evaluate = (code) => {
     const context = { exports: {}, require: (id) => {
@@ -60,18 +64,8 @@ function detailDialog(options = {}) {
     return context.exports
   }
   modules['@/composables/useBusy'] = evaluate(busyCompiled)
-  return { state, component: evaluate(compiled), posts, successes, errors, confirmations, refreshed, routes }
+  return { state, component: evaluate(compiled), posts, deletes, successes, errors, confirmations, refreshed, routes }
 }
-
-test('确认重新识别后调用当前番剧接口，并刷新详情与列表', async () => {
-  const h = detailDialog()
-  await h.component.rematchMetadata()
-  assert.deepEqual(h.posts, ['/api/animes/1/rematch'])
-  assert.deepEqual(h.refreshed.sort(), ['detail', 'list'])
-  assert.equal(h.confirmations[0][0], '重新识别元数据')
-  assert.equal(h.successes.length, 1)
-  assert.equal(h.errors.length, 0)
-})
 
 test('展示当前绑定的 Bangumi 评分和简介，资料不覆盖本地资源或错误绑定', () => {
   const h = detailDialog({ binding: 101 })
@@ -87,41 +81,6 @@ test('展示当前绑定的 Bangumi 评分和简介，资料不覆盖本地资�
   assert.equal(h.component.subject.value, null)
   assert.equal(h.component.rating.value, 7)
   assert.equal(h.component.summary.value, '本地缓存简介')
-})
-
-test('取消确认保留当前匹配', async () => {
-  const h = detailDialog({ confirm: () => false })
-  await h.component.rematchMetadata()
-  assert.equal(h.posts.length, 0)
-  assert.equal(h.refreshed.length, 0)
-})
-
-test('手动绑定与旧 manual 记录都提示先解绑', async () => {
-  for (const options of [{ binding: 42 }, { source: 'manual' }]) {
-    const h = detailDialog(options)
-    await h.component.rematchMetadata()
-    assert.equal(h.posts.length, 0)
-    assert.equal(h.confirmations.length, 0)
-    assert.match(h.errors[0], /解除绑定/)
-  }
-})
-
-test('接口失败显示中文错误且不报告已入队', async () => {
-  const h = detailDialog({ error: '元数据队列繁忙，请稍后重试' })
-  await h.component.rematchMetadata()
-  assert.deepEqual(h.errors, ['元数据队列繁忙，请稍后重试'])
-  assert.equal(h.successes.length, 0)
-  assert.equal(h.refreshed.length, 0)
-})
-
-test('确认期间详情已关闭或切换时不发送旧操作', async () => {
-  let confirm
-  const h = detailDialog({ confirm: () => new Promise((resolve) => { confirm = resolve }) })
-  const operation = h.component.rematchMetadata()
-  h.state.animeDetail.open = false
-  confirm(true)
-  await operation
-  assert.equal(h.posts.length, 0)
 })
 
 test('详情区分资源记录、已保存与下载中，不把收藏状态当成本地进度', () => {
@@ -169,4 +128,36 @@ test('路由被未保存更改保护拦截时保留详情', async () => {
   const h = detailDialog({ navigationFailure: { type: 4 } })
   await h.component.findResources()
   assert.equal(h.state.animeDetail.open, true)
+})
+
+const savedItem = { id: 7, title: '第 1 集', status: '已保存', file_path: '/media/a.mkv' }
+
+test('移除记录默认保留文件，删除文件需要勾选并再次确认', async () => {
+  const keep = detailDialog()
+  await keep.component.remove(savedItem)
+  assert.deepEqual(keep.deletes, ['/api/items/7'])
+  assert.equal(keep.confirmations.length, 1)
+  assert.equal(keep.confirmations[0][2].checkLabel, '同时删除硬盘上的文件')
+
+  const drop = detailDialog({ checked: true })
+  await drop.component.remove(savedItem)
+  assert.deepEqual(drop.deletes, ['/api/items/7?delete_files=1'])
+  assert.equal(drop.confirmations[1][0], '删除文件')
+
+  const cancelled = detailDialog({ checked: true, confirm: (args) => args[0] !== '删除文件' })
+  await cancelled.component.remove(savedItem)
+  assert.equal(cancelled.deletes.length, 0)
+})
+
+test('未保存的记录不提供删除文件选项', async () => {
+  const h = detailDialog({ checked: true })
+  await h.component.remove({ id: 8, title: '第 2 集', status: '下载中', file_path: '' })
+  assert.deepEqual(h.deletes, ['/api/items/8'])
+  assert.equal(h.confirmations[0][2].checkLabel, undefined)
+})
+
+test('文件删除失败时说明记录已移除', async () => {
+  const h = detailDialog({ checked: true, deleteResult: { deleted_files: 0, file_errors: ['a.mkv：不在媒体目录内，已保留'] } })
+  await h.component.remove(savedItem)
+  assert.match(h.errors[0], /记录已移除，文件未删除/)
 })
