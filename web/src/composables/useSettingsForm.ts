@@ -202,7 +202,8 @@ export function useSettingsForm() {
       const body: StorageCheckInput = { path }
       const result = await api<SetupStorageResult>('/api/settings/storage', { method: 'POST', json: body, signal: controller.signal })
       if (version !== storageVersion || path !== form.library_dir.trim()) return
-      if (result.path !== (path || info.value?.download_dir) || typeof result.writable !== 'boolean' || typeof result.message !== 'string' || !['mapped', 'unmapped', 'unknown', 'not_required'].includes(result.mount_status)) throw new Error('目录检测结果不完整')
+      // 服务端会规范化路径（Windows 存为正斜杠），不能拿原始输入比对；过期结果已由 version 与当前输入排除。
+      if (typeof result.path !== 'string' || !result.path || typeof result.writable !== 'boolean' || typeof result.message !== 'string' || !['mapped', 'unmapped', 'unknown', 'not_required'].includes(result.mount_status)) throw new Error('目录检测结果不完整')
       storageResult.value = result
     } catch (e) {
       if (version === storageVersion) storageError.value = errorMessage(e)

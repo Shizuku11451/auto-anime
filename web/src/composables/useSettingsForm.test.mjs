@@ -285,6 +285,17 @@ test('目录检测失败可重试，更换目录取消请求且旧结果不得�
   assert.equal(h.writes.length, 0)
 })
 
+test('未保存的目录也能检测，服务端规范化后的路径不会被当成异常', async () => {
+  const h = setup()
+  await h.state.load()
+  h.state.form.library_dir = 'D:\番剧'
+  h.probe(async () => ({ path: 'D:/番剧', writable: true, mount_status: 'not_required', message: '可以写入' }))
+  await h.state.checkStorage()
+  assert.equal(h.state.storageError.value, '')
+  assert.equal(h.state.storageResult.value.path, 'D:/番剧')
+  assert.equal(h.writes.length, 0)
+})
+
 test('Ctrl+S 保存当前可编辑分类，只读分类不拦截', async () => {
   const h = setup()
   await h.state.load()
