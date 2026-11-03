@@ -1,6 +1,6 @@
 # Android client
 
-Requires JDK 17 and Android SDK platform 36 with Build Tools 36.0.0. The Gradle 8.13 wrapper is checked in and checksum-pinned.
+Requires JDK 17 or newer (verified with JDK 21) and Android SDK platform 37 (`platforms;android-37.0`) with Build Tools 37.0.0. The Gradle 9.8.2 wrapper is checked in and checksum-pinned; dependency and plugin versions live in `gradle/libs.versions.toml`.
 
 From this directory:
 

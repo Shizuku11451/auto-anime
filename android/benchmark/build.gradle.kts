@@ -1,12 +1,11 @@
 plugins {
-    id("com.android.test")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.test)
 }
 
 android {
     experimentalProperties["android.experimental.self-instrumenting"] = true
     namespace = "com.autoanime.android.benchmark.test"
-    compileSdk = 36
+    compileSdk = 37
     targetProjectPath = ":app"
     buildTypes {
         create("benchmark") {
@@ -18,7 +17,7 @@ android {
     }
     defaultConfig {
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -27,7 +26,6 @@ android {
     }
 }
 
-kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation("androidx.arch.core:core-runtime:2.2.0")
