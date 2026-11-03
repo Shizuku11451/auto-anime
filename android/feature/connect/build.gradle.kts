@@ -3,3 +3,7 @@ plugins {
 }
 
 android { namespace = "com.autoanime.android.feature.connect" }
+
+dependencies {
+    implementation(libs.androidx.activity.compose)
+}

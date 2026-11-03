@@ -11,6 +11,7 @@ object AppIcons {
     @DrawableRes val Close = R.drawable.ic_close
     @DrawableRes val Play = R.drawable.ic_play_circle
     @DrawableRes val Server = R.drawable.ic_dns
+    @DrawableRes val Phone = R.drawable.ic_smartphone
     @DrawableRes val Refresh = R.drawable.ic_refresh
     @DrawableRes val Download = R.drawable.ic_download
     @DrawableRes val Pause = R.drawable.ic_pause

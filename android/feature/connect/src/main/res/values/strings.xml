@@ -11,4 +11,10 @@
     <string name="url_query">地址中不能包含查询参数或片段。</string>
     <string name="url_trailing_slash">地址路径需以 / 结尾。</string>
     <string name="url_http_not_allowed">HTTP 地址需要先打开“允许 HTTP”。</string>
+    <string name="app_title">Auto-Anime</string>
+    <string name="choose_mode">选择使用方式</string>
+    <string name="mode_remote">连接 NAS</string>
+    <string name="mode_remote_summary">使用 NAS 上运行的 Auto-Anime 服务端</string>
+    <string name="mode_local">在本机运行</string>
+    <string name="mode_local_summary">不需要 NAS，即将推出</string>
 </resources>

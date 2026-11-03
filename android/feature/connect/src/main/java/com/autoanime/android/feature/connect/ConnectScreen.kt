@@ -19,7 +19,10 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +56,7 @@ import com.autoanime.android.core.data.SessionState
 import com.autoanime.android.core.designsystem.AppIcons
 import com.autoanime.android.core.designsystem.message
 import com.autoanime.android.core.network.InvalidServerUrl
+import com.autoanime.android.core.designsystem.R as DesignR
 
 @Composable
 fun ConnectRoute(viewModel: ConnectViewModel = hiltViewModel()) {
@@ -69,6 +73,14 @@ fun ConnectScreen(
     state: SessionState.SignedOut,
     onConnect: (url: String, allowHttp: Boolean, account: String, password: String) -> InvalidServerUrl.Reason?,
 ) {
+    // A fresh start offers the choice of mode first; after logout or expiry the form comes straight back.
+    val fresh = state.form == null && state.error == null
+    var choosing by rememberSaveable { mutableStateOf(fresh) }
+    if (choosing) {
+        ModeChooser(onRemote = { choosing = false })
+        return
+    }
+    BackHandler(enabled = fresh) { choosing = true }
     // Prefilled once per visit; later state updates must not overwrite what the user is typing.
     var url by rememberSaveable { mutableStateOf(state.form?.url.orEmpty()) }
     var allowHttp by rememberSaveable { mutableStateOf(state.form?.allowHttp ?: false) }
@@ -105,6 +117,9 @@ fun ConnectScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             Column(Modifier.widthIn(max = 480.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (fresh) IconButton(onClick = { choosing = true }, modifier = Modifier.testTag(ConnectTestTags.BACK_TO_MODES)) {
+                    Icon(painterResource(AppIcons.Back), contentDescription = stringResource(DesignR.string.back))
+                }
                 Icon(
                     painterResource(AppIcons.Server),
                     contentDescription = null,
@@ -181,6 +196,67 @@ fun ConnectScreen(
     }
 }
 
+/**
+ * Remote mode uses a server on the user's NAS. Standalone mode, which runs the same server inside
+ * the app, is planned and shown disabled until it exists.
+ */
+@Composable
+private fun ModeChooser(onRemote: () -> Unit) {
+    Scaffold { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Column(Modifier.widthIn(max = 480.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(stringResource(R.string.app_title), style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    stringResource(R.string.choose_mode),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ModeCard(
+                    icon = AppIcons.Server,
+                    title = R.string.mode_remote,
+                    summary = R.string.mode_remote_summary,
+                    enabled = true,
+                    onClick = onRemote,
+                    modifier = Modifier.testTag(ConnectTestTags.MODE_REMOTE),
+                )
+                ModeCard(
+                    icon = AppIcons.Phone,
+                    title = R.string.mode_local,
+                    summary = R.string.mode_local_summary,
+                    enabled = false,
+                    onClick = {},
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeCard(icon: Int, title: Int, summary: Int, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedCard(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Icon(
+                painterResource(icon),
+                contentDescription = null,
+                tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(32.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(summary),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun InvalidServerUrl.Reason.message(): String = stringResource(
     when (this) {
@@ -198,4 +274,6 @@ object ConnectTestTags {
     const val USERNAME = "username"
     const val PASSWORD = "password"
     const val CONNECT = "connect"
+    const val MODE_REMOTE = "mode_remote"
+    const val BACK_TO_MODES = "back_to_modes"
 }

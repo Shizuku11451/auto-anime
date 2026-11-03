@@ -193,6 +193,12 @@ class ClientFlowInstrumentedTest {
     }
 
     private fun connect(expectLibrary: Boolean = true) {
+        // A fresh process first asks which mode to use; after an earlier test logged out in the
+        // same process, the signed-out state keeps its form and goes straight to it.
+        compose.waitUntilAtLeastOneExists(hasTestTag(ConnectTestTags.MODE_REMOTE) or hasTestTag(ConnectTestTags.SERVER_URL), TIMEOUT)
+        if (compose.onAllNodes(hasTestTag(ConnectTestTags.MODE_REMOTE)).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNode(hasTestTag(ConnectTestTags.MODE_REMOTE)).performClick()
+        }
         compose.waitUntilExactlyOneExists(hasTestTag(ConnectTestTags.SERVER_URL), TIMEOUT)
         // Toggle before typing: the keyboard animation shifts the layout under injected taps.
         val allowHttp = compose.onNode(hasTestTag(ConnectTestTags.ALLOW_HTTP))

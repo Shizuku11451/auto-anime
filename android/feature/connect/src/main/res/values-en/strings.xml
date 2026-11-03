@@ -11,4 +11,10 @@
     <string name="url_query">The URL must not contain a query or fragment.</string>
     <string name="url_trailing_slash">The URL path must end with /.</string>
     <string name="url_http_not_allowed">Turn on Allow HTTP to use an HTTP URL.</string>
+    <string name="app_title">Auto-Anime</string>
+    <string name="choose_mode">Choose how to use the app</string>
+    <string name="mode_remote">Connect to a NAS</string>
+    <string name="mode_remote_summary">Use the Auto-Anime server running on your NAS</string>
+    <string name="mode_local">Run on this device</string>
+    <string name="mode_local_summary">No NAS needed. Coming soon</string>
 </resources>
