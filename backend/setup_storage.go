@@ -70,7 +70,7 @@ func probeSetupStorage(dir string) setupStorageResult {
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		if runtime.GOOS == "windows" {
-			out.Message = "媒体目录不存在或无法访问。请先创建文件夹，并确认当前用户可以写入。"
+			out.Message = "保存目录不存在或无法访问，请先创建文件夹并确认可以写入。"
 		} else {
 			out.Message = "媒体目录不存在或无法访问。请在 NAS 创建文件夹，检查目录映射与权限后重新部署。"
 		}
@@ -98,7 +98,7 @@ func probeSetupStorage(dir string) setupStorageResult {
 	f, err := os.CreateTemp(resolved, ".auto-anime-check-*")
 	if err != nil {
 		if runtime.GOOS == "windows" {
-			out.Message = "媒体目录无法写入，请检查目录权限与磁盘剩余空间。"
+			out.Message = "保存目录无法写入，请检查权限与剩余空间。"
 		} else {
 			out.Message = "媒体目录无法写入，请检查 NAS 文件夹权限、只读挂载与剩余空间。"
 		}
@@ -125,7 +125,7 @@ func probeSetupStorage(dir string) setupStorageResult {
 		out.Message = "媒体目录已映射，可以写入。"
 	case "not_required":
 		if runtime.GOOS == "windows" {
-			out.Message = "媒体目录可以写入。程序直接使用该目录，无需容器映射。"
+			out.Message = "保存目录可以写入。"
 		} else {
 			out.Message = "媒体目录可以写入；当前环境无需 Docker 挂载检查。"
 		}

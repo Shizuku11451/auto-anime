@@ -15,7 +15,7 @@ const isWindowsOS = computed(() => isWindows(info.value?.os))
 </script>
 
 <template>
-  <SettingsSection id="update" title="版本更新" :icon="Rocket" description="启动后自动检查新版本；有新版本时侧边栏会出现提醒，可一键更新并重启服务">
+  <SettingsSection id="update" title="版本更新" :icon="Rocket" description="启动时自动检查，可一键更新并重启">
     <div class="meta-line update-meta">
       <span>当前版本 <code>{{ update.info.value?.version || 'dev' }}</code></span>
       <span v-if="update.info.value?.commit">提交 <code>{{ update.info.value.commit.slice(0, 7) }}</code></span>
@@ -34,10 +34,10 @@ const isWindowsOS = computed(() => isWindows(info.value?.os))
       <template v-if="update.info.value?.checked_at">（上次检查 {{ update.info.value.checked_at }}）</template>
     </p>
     <p v-if="update.updateAvailable.value" class="field-hint hot">
-      发现新版本 {{ update.info.value?.latest }}，可在弹窗中查看更新内容并一键更新。
+      发现新版本 {{ update.info.value?.latest }}，可在弹窗中查看并更新。
     </p>
     <p v-else-if="update.pending.value" class="field-hint hot">
-      已下载的新版本正在等待生效：{{ isWindowsOS ? '退出并重新打开程序后即为新版本。' : '重启容器后即为新版本。' }}
+      新版本已下载，{{ isWindowsOS ? '重新打开程序后生效。' : '重启容器后生效。' }}
     </p>
     <p v-if="update.installHint.value" class="field-hint">{{ update.installHint.value }}</p>
     <p v-if="update.checkError.value" class="form-msg" role="alert">{{ update.checkError.value }}</p>

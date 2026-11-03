@@ -17,7 +17,7 @@ func TestSetupStorageProbeCleansTemporaryFile(t *testing.T) {
 	out := probeSetupStorage(dir)
 	if runtime.GOOS == "windows" {
 		// Windows 本机没有容器卷映射：探测只验证目录存在与可写。
-		if !out.Writable || out.MountStatus != "not_required" || !strings.Contains(out.Message, "无需容器映射") {
+		if !out.Writable || out.MountStatus != "not_required" || !strings.Contains(out.Message, "可以写入") {
 			t.Fatalf("unexpected result: %+v", out)
 		}
 	} else if !out.Writable || out.MountStatus != "unknown" || !strings.Contains(out.Message, "无法确认挂载") {

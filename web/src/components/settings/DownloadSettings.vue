@@ -11,11 +11,11 @@ const isWindowsOS = computed(() => isWindows(info.value?.os))
 
 const ALL_MODES = ['native', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const MODE_DESC: Record<string, string> = {
-  native: '程序内置 BT 引擎下载磁力与种子，完成后归档；普通直链仍由本程序下载，无需安装 qBittorrent',
-  direct: 'HTTP/HTTPS 直链由本程序直接下载，磁力与种子需要外部下载器',
-  aria2: '通过 JSON-RPC 提交任务，完成后从映射路径复制归档',
-  qbittorrent: '通过 WebUI 接口提交任务并按标签跟踪进度',
-  transmission: '通过 RPC 提交任务并轮询完成状态',
+  native: '内置 BT 引擎，磁力、种子和直链都由本程序下载',
+  direct: '只下载 HTTP 直链，磁力和种子需要外部下载器',
+  aria2: '通过 RPC 提交任务，完成后从映射路径复制归档',
+  qbittorrent: '通过 WebUI 提交并跟踪任务',
+  transmission: '通过 RPC 提交并跟踪任务',
 }
 /* 列表外的旧值也要保留，不能在保存时被悄悄改掉。 */
 const availableModes = computed(() => {
@@ -26,7 +26,7 @@ const availableModes = computed(() => {
 </script>
 
 <template>
-  <SettingsSection id="download" title="下载方式" :icon="HardDrive" description="切换仅影响新任务，不会更改已有下载任务">
+  <SettingsSection id="download" title="下载方式" :icon="HardDrive" description="只影响新任务">
     <fieldset class="mode-options">
       <legend>下载模式</legend>
       <label v-for="m in availableModes" :key="m" class="mode-option" :class="{ active: form.download_mode === m }">
@@ -38,9 +38,9 @@ const availableModes = computed(() => {
 
     <Transition name="fade" mode="out-in">
       <div v-if="form.download_mode === 'native'" key="native" class="mode-panel">
-        <p class="field-hint">任务和续传数据保存在数据目录的 <code>bt</code> 子目录，重启后继续。</p>
-        <p v-if="isWindowsOS" class="field-hint">首次使用时 Windows 防火墙可能询问网络访问，请允许专用网络；默认从 BT 端口 6881 开始监听。</p>
-        <p v-else class="field-hint">容器需要把 BT 端口段映射进来（默认 6881-6890，一个任务占一个端口）；换端口时按部署说明同时改端口映射与 <code>NATIVE_BT_PORT</code>。</p>
+        <p class="field-hint">任务数据存在数据目录的 <code>bt</code> 子目录，重启后继续。</p>
+        <p v-if="isWindowsOS" class="field-hint">防火墙询问时请允许专用网络（端口从 6881 起）。</p>
+        <p v-else class="field-hint">需映射 BT 端口段（默认 6881-6890）；改端口时同时修改映射与 <code>NATIVE_BT_PORT</code>。</p>
       </div>
       <div v-else-if="form.download_mode === 'aria2'" key="aria2" class="mode-panel">
         <div class="field-row">
