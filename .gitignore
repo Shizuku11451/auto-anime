@@ -1,7 +1,5 @@
 # 本地数据、数据库与下载文件
 data/
-# Android 源码中的 core/data 模块与同名包目录不属于运行数据
-!/android/**/data/
 docker-data/
 *.db
 *.db-shm
@@ -10,10 +8,8 @@ docker-data/
 # 本地可执行文件与构建产物
 /dist/
 *.exe
-*.exe~
 *.test
 auto-anime
-/auto-anime.exe
 /backend/search-server
 
 # 缓存与日志

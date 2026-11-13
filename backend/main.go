@@ -11,13 +11,11 @@ import (
 	"io"
 	"log"
 	_ "modernc.org/sqlite"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -31,9 +29,9 @@ import (
 var db *sql.DB
 var downloadDir = env("DOWNLOAD_DIR", filepath.Join(defaultDataDir(), "downloads"))
 var dbFile = defaultDBPath()
-var libraryDir = env("LIBRARY_DIR", defaultLibraryDir())
+var libraryDir = env("LIBRARY_DIR", "")
 var pollMinutes = 30
-var downloadMode = env("DOWNLOAD_MODE", defaultDownloadMode())
+var downloadMode = env("DOWNLOAD_MODE", "direct")
 var aria2URL = env("ARIA2_URL", "")
 var aria2Token = env("ARIA2_TOKEN", "")
 var qbitURL = strings.TrimRight(env("QBIT_URL", ""), "/")
@@ -170,80 +168,8 @@ type rssLink struct {
 	Rel  string `xml:"rel,attr"`
 }
 
-// defaultDownloadMode 是未设置 DOWNLOAD_MODE 时的默认下载方式。Windows 本机与
-// 容器镜像都默认使用进程内 BT 下载器，不再要求随包 qBittorrent（镜像不再安装，
-// Windows 桌面包只作旧版回退）；源码运行保持 direct，需要时用 DOWNLOAD_MODE 指定。
-func defaultDownloadMode() string {
-	if runtime.GOOS == "windows" {
-		return "native"
-	}
-	return "direct"
-}
-
-// defaultDataDir 是未配置环境变量时数据目录的默认值：容器与 Linux 服务器沿用 /data
-// （与镜像、compose 和文档一致），Windows 本机改成程序同级的 data\——「/data」这类有根
-// 无盘符的路径在 Windows 上按当前盘解析成 <盘根>:\data，既反直觉，盘根不可写时还会
-// 直接启动失败。
-func defaultDataDir() string {
-	if runtime.GOOS == "windows" {
-		if dir := windowsDataDir(); dir != "" {
-			return dir
-		}
-	}
-	return "/data"
-}
-
-// windowsProgramDir 给出 Windows 本机的程序目录：exe 所在目录；`go run`/`go test`
-// 的程序在临时构建目录里（退出即清理），此时退回当前目录，否则开发时的数据会跟着
-// 临时目录一起消失。
-func windowsProgramDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	dir := filepath.Dir(exe)
-	if isTemporaryBuildDir(dir) {
-		cwd, err := os.Getwd()
-		if err != nil || cwd == "" {
-			return ""
-		}
-		dir = cwd
-	}
-	return dir
-}
-
-// windowsDataDir 给出 Windows 本机的默认数据目录：程序同级的 data\。
-func windowsDataDir() string {
-	dir := windowsProgramDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "data")
-}
-
-// defaultLibraryDir 是未配置 LIBRARY_DIR 时媒体库根目录的默认值。容器与 Linux 服务
-// 端沿用空值（归档落下载目录，部署模板显式设置 /media）；Windows 桌面版结构与容器
-// 不同——没有部署时的卷映射，因此给归档一个程序同级的 media\，与下载器源文件所在
-// 的 data\ 分开，媒体服务器可以直接扫描。
-func defaultLibraryDir() string {
-	if runtime.GOOS != "windows" {
-		return ""
-	}
-	dir := windowsProgramDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "media")
-}
-
-// isTemporaryBuildDir 判断目录是不是 go 工具的临时构建目录。
-func isTemporaryBuildDir(dir string) bool {
-	if strings.HasPrefix(filepath.Base(dir), "go-build") {
-		return true
-	}
-	tmp := os.TempDir()
-	return tmp != "" && strings.HasPrefix(filepath.Clean(dir), filepath.Clean(tmp))
-}
+// defaultDataDir 是未配置环境变量时数据目录的默认值，与镜像、compose 和文档一致。
+func defaultDataDir() string { return "/data" }
 
 // defaultDBPath 是未设置 DB_PATH 时的数据库路径，跟着数据目录走。
 func defaultDBPath() string {
@@ -752,62 +678,16 @@ func sanitizeStorageDir(raw string) (string, error) {
 	if d == "" {
 		return "", nil
 	}
-	if runtime.GOOS == "windows" {
-		// Windows 本机没有容器：只有盘符路径或 UNC 共享是完整绝对路径。"/番剧"、
-		// "\\番剧" 会按当前盘解析，可能让文件落在用户没预期的位置，直接拒绝并给出示例。
-		if !windowsAbsolutePath(d) {
-			return "", fmt.Errorf("存储位置必须是绝对路径，例如 %s", storageExampleDir())
-		}
-	} else if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, "\\") {
-		// "/volume1/..." is absolute inside the Linux container even though
-		// Windows builds report it as relative.
-		return "", fmt.Errorf("存储位置必须是绝对路径，例如 %s", storageExampleDir())
+	if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, "\\") {
+		return "", fmt.Errorf("存储位置必须是绝对路径，例如 %s", storageExampleDir)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(d), "/") {
 		if part == ".." {
 			return "", fmt.Errorf("存储位置不能包含 ..")
 		}
 	}
-	// Persist forward slashes while retaining the host filesystem's volume
-	// semantics, including Windows UNC shares.
+	// Persist forward slashes.
 	return cleanStoragePath(d), nil
-}
-
-// warnStoredPathsForPlatform 在启动时提示与当前平台不匹配的历史保存位置：从 Linux/
-// 容器数据库搬到 Windows 后，"/vol1/1000/番剧" 这类路径会按当前盘解析，归档写到用户
-// 没预期的位置。这里只提示如何处理，不直接改写数据库（用户可能仍要参考原值）。
-func warnStoredPathsForPlatform() {
-	if runtime.GOOS != "windows" {
-		return
-	}
-	var items []string
-	collect := func(kind, name, dir string) {
-		if _, err := sanitizeStorageDir(dir); err != nil {
-			items = append(items, fmt.Sprintf("%s「%s」：%s", kind, name, strings.TrimSpace(dir)))
-		}
-	}
-	if rows, err := db.Query("SELECT COALESCE(name,''),COALESCE(storage_dir,'') FROM feeds WHERE COALESCE(storage_dir,'')<>'' ORDER BY id"); err == nil {
-		for rows.Next() {
-			var name, dir string
-			if rows.Scan(&name, &dir) == nil {
-				collect("订阅", name, dir)
-			}
-		}
-		rows.Close()
-	}
-	if rows, err := db.Query("SELECT title,COALESCE(storage_dir,'') FROM animes WHERE COALESCE(storage_dir,'')<>'' ORDER BY id"); err == nil {
-		for rows.Next() {
-			var title, dir string
-			if rows.Scan(&title, &dir) == nil {
-				collect("番剧", title, dir)
-			}
-		}
-		rows.Close()
-	}
-	if len(items) == 0 {
-		return
-	}
-	log.Printf("以下保存位置不适用于 Windows（缺少盘符或 UNC 共享），归档会写到当前盘根：%s；请改为 %s 形式", strings.Join(items, "；"), storageExampleDir())
 }
 
 // animeStorageAPI keeps the legacy /api/anime/{title}/storage endpoint working
@@ -972,7 +852,7 @@ func feedStorageDir(field *string) (string, error) {
 		if strings.Contains(err.Error(), "..") {
 			return "", fmt.Errorf("保存位置不能包含 ..")
 		}
-		return "", fmt.Errorf("保存位置必须是绝对路径，例如 %s", storageExampleDir())
+		return "", fmt.Errorf("保存位置必须是绝对路径，例如 %s", storageExampleDir)
 	}
 	return clean, nil
 }
@@ -1508,9 +1388,6 @@ func items(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, out)
 }
 func main() {
-	// 发布包是 GUI 子系统：从终端查询版本或运行服务时附着父控制台，让输出可见；
-	// 没有父控制台（双击桌面版）时什么也不做，不会新开窗口。
-	attachParentConsole()
 	// -version：供容器启动脚本与脚本化部署查询版本，不触碰数据库。
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -1521,10 +1398,6 @@ func main() {
 	}
 	// 启动引导：若上一次更新把新版本暂存在数据目录，先应用它再启动服务。
 	bootstrapStagedUpdate()
-	if desktopRequested() {
-		runDesktop()
-		return
-	}
 	// 仅用于演练/联调：让重启后的新进程与旧进程错开端口释放时间。
 	if raw := os.Getenv("AUTO_ANIME_STARTUP_DELAY_SECONDS"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 60 {
@@ -1540,17 +1413,10 @@ func main() {
 func runApplication() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return runApplicationContext(ctx, nil, nil)
+	return runApplicationContext(ctx)
 }
 
-// Desktop owns the listener from startup, so no port probe/rebind race can
-// navigate the window to an unrelated local server.
-func runApplicationContext(ctx context.Context, listener net.Listener, ready func()) error {
-	releaseLock, err := acquireApplicationLock(env("DB_PATH", defaultDBPath()))
-	if err != nil {
-		return err
-	}
-	defer releaseLock()
+func runApplicationContext(ctx context.Context) error {
 	initDB()
 	defer db.Close()
 	cleanupSessions()
@@ -1573,9 +1439,8 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	} else {
 		log.Printf("媒体库目录：%s", libraryDir)
 	}
-	warnStoredPathsForPlatform()
 	if err := startNativeDownloader(); err != nil {
-		// BT 引擎故障不应让整个桌面窗口打不开；设置页可切换下载方式，轮询/提交
+		// BT 引擎故障不应让整个服务起不来；设置页可切换下载方式，轮询/提交
 		// 时会继续按退避重试。健康检查在该状态下返回 503。
 		log.Printf("内置 BT 下载器暂不可用：%v", err)
 	}
@@ -1650,8 +1515,6 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	http.HandleFunc("/api/update", updateHandler)
 	http.HandleFunc("/api/covers/", serveCover)
 	http.HandleFunc("/api/status", runtimeStatus)
-	// 桌面窗口的原生标题栏跟随应用主题（服务模式返回 applied=false）。
-	http.HandleFunc("/api/desktop/theme", desktopThemeHandler)
 	http.HandleFunc("/api/items/", itemsEntryAPI)
 	http.HandleFunc("/api/sync/", syncFeedHandler)
 	go func() {
@@ -1669,16 +1532,7 @@ func runApplicationContext(ctx context.Context, listener net.Listener, ready fun
 	log.Printf("自动追番运行在 :%s", listenPort)
 	server := &http.Server{Addr: ":" + listenPort, Handler: auth(http.DefaultServeMux), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
-	go func() {
-		if listener != nil {
-			if ready != nil {
-				ready()
-			}
-			serveErr <- server.Serve(listener)
-		} else {
-			serveErr <- server.ListenAndServe()
-		}
-	}()
+	go func() { serveErr <- server.ListenAndServe() }()
 	select {
 	case <-ctx.Done():
 	case err := <-serveErr:

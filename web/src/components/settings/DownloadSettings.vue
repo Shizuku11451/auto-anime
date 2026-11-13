@@ -4,10 +4,8 @@ import { HardDrive } from '@lucide/vue'
 import SettingsSection from './SettingsSection.vue'
 import { useSettings } from '@/composables/useSettingsForm'
 import { MODE_LABEL } from '@/api/types'
-import { isWindows } from '@/utils/platform'
 
 const { form, info } = useSettings()
-const isWindowsOS = computed(() => isWindows(info.value?.os))
 
 const ALL_MODES = ['native', 'direct', 'aria2', 'qbittorrent', 'transmission'] as const
 const MODE_DESC: Record<string, string> = {
@@ -39,8 +37,7 @@ const availableModes = computed(() => {
     <Transition name="fade" mode="out-in">
       <div v-if="form.download_mode === 'native'" key="native" class="mode-panel">
         <p class="field-hint">任务数据存在数据目录的 <code>bt</code> 子目录，重启后继续。</p>
-        <p v-if="isWindowsOS" class="field-hint">防火墙询问时请允许专用网络（端口从 6881 起）。</p>
-        <p v-else class="field-hint">需映射 BT 端口段（默认 6881-6890）；改端口时同时修改映射与 <code>NATIVE_BT_PORT</code>。</p>
+        <p class="field-hint">需映射 BT 端口段（默认 6881-6890）；改端口时同时修改映射与 <code>NATIVE_BT_PORT</code>。</p>
       </div>
       <div v-else-if="form.download_mode === 'aria2'" key="aria2" class="mode-panel">
         <div class="field-row">

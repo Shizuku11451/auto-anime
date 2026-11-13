@@ -88,7 +88,7 @@ func testDatabase(t *testing.T) {
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "state.db"))
 	initDB()
 	oldDir, oldMode, oldURL, oldToken := downloadDir, downloadMode, aria2URL, aria2Token
-	// 媒体库默认值跟随平台（Windows 目录与下载目录分开）；测试统一回退到「未设置」，
+	// 媒体库测试统一回退到「未设置」，
 	// 需要媒体库的用例自行设置 libraryDir。
 	oldLibrary := libraryDir
 	libraryDir = ""

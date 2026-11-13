@@ -3,20 +3,14 @@ package main
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func makeArchiveDirectoryLink(t *testing.T, destination, link string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, destination).CombinedOutput(); err != nil {
-			t.Fatalf("create temporary junction: %v %s", err, out)
-		}
-	} else if err := os.Symlink(destination, link); err != nil {
+	if err := os.Symlink(destination, link); err != nil {
 		t.Fatal(err)
 	}
 }

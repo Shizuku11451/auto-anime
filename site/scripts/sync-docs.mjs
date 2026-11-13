@@ -12,7 +12,6 @@ const repoBlob = 'https://github.com/Shizuku11451/auto-anime/blob/main/'
 export const pages = {
   'docs/FNOS_APP.md': 'install/fnos-app',
   'docs/FNOS.md': 'install/fnos-compose',
-  'docs/WINDOWS.md': 'install/windows',
   'docs/USAGE.md': 'guide/usage',
   'docs/CONFIGURATION.md': 'guide/configuration',
   'docs/MAINTENANCE.md': 'guide/maintenance',

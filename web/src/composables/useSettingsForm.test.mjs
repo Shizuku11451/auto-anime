@@ -23,9 +23,7 @@ function setup() {
   const modules = {
     vue: { ...vue, onBeforeUnmount: () => {} },
     '@/utils/platform': {
-      isAbsoluteStoragePath: (value, os) => (os === 'windows'
-        ? /^[a-zA-Z]:/.test(value) || value.startsWith(BS + BS) || value.startsWith('//')
-        : value.startsWith('/') || value.startsWith(BS) || /^[a-zA-Z]:/.test(value)),
+      isAbsoluteStoragePath: value => value.startsWith('/') || value.startsWith(BS) || /^[a-zA-Z]:/.test(value),
     },
     '@/api/client': { api: (...args) => probe(...args), http: {
       get: async () => { if (fail) throw new Error('模拟读取失败'); return { ...data } },
@@ -199,7 +197,6 @@ test('其他分类的校验错误不阻止当前分类保存', async () => {
 test('目录与账户校验，密码长度按 Unicode 字符计算', async () => {
   const h = setup()
   h.data.web_user = 'existing-admin'
-  h.data.os = 'windows'
   h.data.library_dir = 'D:/temporary/library'
   await h.state.load()
   h.state.active.value = 'library'

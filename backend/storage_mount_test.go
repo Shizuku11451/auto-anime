@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,8 +22,7 @@ const hostMountTable = `36 25 8:1 / / rw,relatime - ext4 /dev/sda1 rw
 1234 36 8:2 / /mnt/disk rw,relatime - btrfs /dev/sdb1 rw
 `
 
-// useMountInfo 让检测读取给定的挂载表内容；content 为空时模拟读不到（Windows
-// 源码运行）。测试结束恢复原值。
+// useMountInfo 让检测读取给定的挂载表内容；content 为空时模拟读不到。测试结束恢复原值。
 func useMountInfo(t *testing.T, content string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "mountinfo")
@@ -116,13 +114,6 @@ func TestLibraryDirRejectsWhenUnmapped(t *testing.T) {
 	t.Cleanup(func() { setupDone = false; webHash = ""; libraryDir = old })
 	base := filepath.ToSlash(t.TempDir())
 	rec := settingsPUT(t, `{"library_dir":"`+base+`"}`)
-	if runtime.GOOS == "windows" {
-		// Windows 本机没有容器卷映射，目录可写即可用。
-		if rec.Code != 200 || libraryDir == old {
-			t.Fatalf("windows local directory rejected: %d %s", rec.Code, rec.Body.String())
-		}
-		return
-	}
 	if rec.Code != 400 || libraryDir != old || !strings.Contains(rec.Body.String(), "未映射") {
 		t.Fatalf("unmapped directory accepted: %d %s", rec.Code, rec.Body.String())
 	}

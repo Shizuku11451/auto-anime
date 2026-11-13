@@ -13,8 +13,7 @@ import (
 	"testing"
 )
 
-// samePath 比较两个路径是否指向同一位置：容器内是 POSIX 路径，Windows 本机
-// 可能是盘符，比较前统一为斜杠形式。
+// samePath 比较两个路径是否指向同一位置，比较前统一为斜杠形式。
 func samePath(a, b string) bool {
 	return path.Clean(filepath.ToSlash(a)) == path.Clean(filepath.ToSlash(b))
 }

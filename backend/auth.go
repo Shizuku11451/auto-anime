@@ -232,7 +232,6 @@ func loginPage(w http.ResponseWriter, r *http.Request) {
 func isPublicPath(p string) bool {
 	return p == "/api/health" || p == "/login" || p == "/api/login" ||
 		p == "/setup" || p == "/install" || p == "/api/setup" || p == "/api/setup/status" || p == "/api/setup/storage" ||
-		p == "/api/desktop/theme" || // 登录页也要同步标题栏主题，接口只设置窗口配色
 		strings.HasPrefix(p, "/static/")
 }
 

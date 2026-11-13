@@ -109,7 +109,7 @@ func TestParseChecksumList(t *testing.T) {
 
 func TestPickAssetForPlatform(t *testing.T) {
 	tag := "v1.2.0"
-	names := []string{"auto-anime_v1.2.0_linux_amd64", "auto-anime_v1.2.0_linux_arm64", "auto-anime_v1.2.0_windows_amd64.exe", "checksums.txt"}
+	names := []string{"auto-anime_v1.2.0_linux_amd64", "auto-anime_v1.2.0_linux_arm64", "auto-anime_v1.2.0_" + platformPair(), "checksums.txt"}
 	lookup := func(name string) string { return "https://example.test/" + name }
 	chosen, url := pickAssetForPlatform(tag, names, lookup)
 	if chosen == "" || url == "" {
@@ -130,13 +130,6 @@ func TestPickAssetForPlatform(t *testing.T) {
 }
 
 func platformPair() string { return runtime.GOOS + "_" + runtime.GOARCH }
-
-func exeSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
-}
 
 func TestNotesToText(t *testing.T) {
 	html := `<h2>新增</h2><ul><li>一键更新</li><li>版本检查</li></ul><p>修复：<code>size</code> 计算</p>`
@@ -182,7 +175,7 @@ func privateReleaseServer(t *testing.T, repo, tag string, payload []byte, checks
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
-			assetName := "auto-anime_" + tag + "_" + platformPair() + exeSuffix()
+			assetName := "auto-anime_" + tag + "_" + platformPair()
 			sumName := "checksums.txt"
 			release["assets"] = []map[string]any{
 				{
@@ -218,7 +211,7 @@ func TestDownloadUsesReleaseAssetsAPI(t *testing.T) {
 	const repo = "owner/private-repo"
 	dir := t.TempDir()
 	t.Setenv("DB_PATH", filepath.Join(dir, "auto-anime.db"))
-	exe := filepath.Join(dir, "auto-anime"+exeSuffix())
+	exe := filepath.Join(dir, "auto-anime")
 	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +222,7 @@ func TestDownloadUsesReleaseAssetsAPI(t *testing.T) {
 	payload := make([]byte, 2<<20)
 	copy(payload, []byte("private release binary"))
 	sum := sha256.Sum256(payload)
-	assetName := "auto-anime_v1.2.0_" + platformPair() + exeSuffix()
+	assetName := "auto-anime_v1.2.0_" + platformPair()
 	server := privateReleaseServer(t, repo, "v1.2.0", payload, hex.EncodeToString(sum[:])+"  "+assetName+"\n")
 	defer server.Close()
 	useRewriteTransport(t, server)
@@ -346,8 +339,8 @@ func TestRunUpdateCheckFindsNewRelease(t *testing.T) {
 	const repo = "owner/repo"
 	tag := "v1.2.0"
 	assets := map[string]string{
-		"auto-anime_v1.2.0_" + platformPair() + exeSuffix(): "binary",
-		"checksums.txt": "sums",
+		"auto-anime_v1.2.0_" + platformPair(): "binary",
+		"checksums.txt":                       "sums",
 	}
 	server := githubReleaseServer(t, repo, tag, "### 更新内容\n- 支持一键更新", assets)
 	defer server.Close()
@@ -373,7 +366,7 @@ func TestRunUpdateCheckFindsNewRelease(t *testing.T) {
 
 func TestRunUpdateCheckSameVersionKeepsQuiet(t *testing.T) {
 	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "", map[string]string{
-		"auto-anime_v1.2.0_" + platformPair() + exeSuffix(): "binary",
+		"auto-anime_v1.2.0_" + platformPair(): "binary",
 	})
 	defer server.Close()
 	withUpdateGlobals(t, "", "1.2.0")
@@ -406,7 +399,7 @@ func TestRunUpdateCheckWithoutPlatformAsset(t *testing.T) {
 
 func TestRunUpdateCheckDevVersionNeverInstalls(t *testing.T) {
 	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "notes", map[string]string{
-		"auto-anime_v1.2.0_" + platformPair() + exeSuffix(): "binary",
+		"auto-anime_v1.2.0_" + platformPair(): "binary",
 	})
 	defer server.Close()
 	withUpdateGlobals(t, "", "dev")
@@ -448,12 +441,12 @@ func TestVerifyDownloadWithChecksumFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, hex.EncodeToString(sum[:])+"  auto-anime_v1.2.0_"+platformPair()+exeSuffix()+"\n")
+		fmt.Fprint(w, hex.EncodeToString(sum[:])+"  auto-anime_v1.2.0_"+platformPair()+"\n")
 	}))
 	defer server.Close()
 
 	rel := &releaseInfo{
-		AssetName: "auto-anime_v1.2.0_" + platformPair() + exeSuffix(),
+		AssetName: "auto-anime_v1.2.0_" + platformPair(),
 		AssetURL:  server.URL + "/auto-anime",
 		SumURL:    server.URL + "/checksums.txt",
 	}
@@ -720,7 +713,7 @@ func TestRunUpdateCheckKeepsNotesWhenVersionUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("DB_PATH", filepath.Join(dir, "auto-anime.db"))
 	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "", map[string]string{
-		"auto-anime_v1.2.0_" + platformPair() + exeSuffix(): "binary",
+		"auto-anime_v1.2.0_" + platformPair(): "binary",
 	})
 	defer server.Close()
 	withUpdateGlobals(t, "", "1.1.0")
@@ -796,13 +789,8 @@ func TestRunUpdateCheckReportsPendingUpdate(t *testing.T) {
 	if !check.Pending {
 		t.Fatalf("存在暂存更新包时应标记 pending：%+v", check)
 	}
-	// Windows 不能替换运行中的 exe：提示下次启动生效；容器/Linux 提示重启服务。
-	wantHint := "重启"
-	if runtime.GOOS == "windows" {
-		wantHint = "下次启动"
-	}
-	if !strings.Contains(check.InstallHint, wantHint) {
-		t.Fatalf("pending 提示未给出 %s 说明：%q", wantHint, check.InstallHint)
+	if !strings.Contains(check.InstallHint, "重启") {
+		t.Fatalf("pending 提示未给出重启说明：%q", check.InstallHint)
 	}
 }
 
@@ -820,7 +808,7 @@ func TestApplyUpdateDownloadsAndStages(t *testing.T) {
 	payload := make([]byte, 2<<20)
 	copy(payload, []byte("new release binary"))
 	sum := sha256.Sum256(payload)
-	assetName := "auto-anime_v1.2.0_" + platformPair() + exeSuffix()
+	assetName := "auto-anime_v1.2.0_" + platformPair()
 	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "notes", map[string]string{
 		assetName:       string(payload),
 		"checksums.txt": hex.EncodeToString(sum[:]) + "  " + assetName + "\n",
@@ -874,7 +862,7 @@ func TestApplyUpdateRejectsChecksumMismatch(t *testing.T) {
 
 	payload := make([]byte, 2<<20)
 	copy(payload, []byte("new release binary"))
-	assetName := "auto-anime_v1.2.0_" + platformPair() + exeSuffix()
+	assetName := "auto-anime_v1.2.0_" + platformPair()
 	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "notes", map[string]string{
 		assetName:       string(payload),
 		"checksums.txt": strings.Repeat("0", 64) + "  " + assetName + "\n",
@@ -894,7 +882,7 @@ func TestApplyUpdateRejectsChecksumMismatch(t *testing.T) {
 
 func TestUpdateHandlerRefreshQueriesSource(t *testing.T) {
 	server := githubReleaseServer(t, "owner/repo", "v1.2.0", "新版本", map[string]string{
-		"auto-anime_v1.2.0_" + platformPair() + exeSuffix(): "binary",
+		"auto-anime_v1.2.0_" + platformPair(): "binary",
 	})
 	defer server.Close()
 	withUpdateGlobals(t, "", "1.1.0")

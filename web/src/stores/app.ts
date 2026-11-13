@@ -15,8 +15,6 @@ const runtimeError = ref(false)
 
 const counts = computed<Record<string, number>>(() => status.value?.counts ?? {})
 const authEnabled = computed(() => !!status.value?.auth_enabled)
-/* 运行平台（/api/status）：Windows 桌面版与容器/Linux 的文案与路径示例不同。 */
-const platformOS = computed(() => status.value?.os || '')
 const totalItems = computed(() => Object.values(counts.value).reduce((a, b) => a + b, 0))
 
 const itemFilter = ref('全部')
@@ -128,7 +126,6 @@ export function useAppStore() {
     status,
     counts,
     totalItems,
-    platformOS,
     authEnabled,
     search,
     loaded,

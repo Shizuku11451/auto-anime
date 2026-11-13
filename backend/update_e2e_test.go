@@ -25,9 +25,7 @@ func TestEndToEndOneClickUpdate(t *testing.T) {
 		t.Skip("端到端演练在 -short 模式下跳过")
 	}
 	if _, err := exec.LookPath("go"); err != nil {
-		if _, statErr := os.Stat(goToolPath()); statErr != nil {
-			t.Skipf("未找到 go 工具链：%v", err)
-		}
+		t.Skipf("未找到 go 工具链：%v", err)
 	}
 	goTool := resolveGoTool(t)
 
@@ -47,15 +45,15 @@ func TestEndToEndOneClickUpdate(t *testing.T) {
 			t.Fatalf("构建 %s 失败：%v\n%s", output, err, out)
 		}
 	}
-	build("-X main.version=1.0.0 -X main.commit=e2e0001", filepath.Join(work, "app-old"+exeSuffix()))
-	build("-X main.version=1.2.0 -X main.commit=e2e0002", filepath.Join(work, "app-new"+exeSuffix()))
+	build("-X main.version=1.0.0 -X main.commit=e2e0001", filepath.Join(work, "app-old"))
+	build("-X main.version=1.2.0 -X main.commit=e2e0002", filepath.Join(work, "app-new"))
 
-	appOld := filepath.Join(work, "auto-anime"+exeSuffix())
-	if err := copyFile(filepath.Join(work, "app-old"+exeSuffix()), appOld); err != nil {
+	appOld := filepath.Join(work, "auto-anime")
+	if err := copyFile(filepath.Join(work, "app-old"), appOld); err != nil {
 		t.Fatal(err)
 	}
 	payload := filepath.Join(work, "payload.bin")
-	if err := copyFile(filepath.Join(work, "app-new"+exeSuffix()), payload); err != nil {
+	if err := copyFile(filepath.Join(work, "app-new"), payload); err != nil {
 		t.Fatal(err)
 	}
 	payloadBytes, err := os.ReadFile(payload)
@@ -65,7 +63,7 @@ func TestEndToEndOneClickUpdate(t *testing.T) {
 	payloadSum := sha256.Sum256(payloadBytes)
 
 	// 假更新源：latest.json + 更新包（清单里直接给出 sha256）
-	assetName := "auto-anime-1.2.0-" + runtime.GOOS + "-" + runtime.GOARCH + exeSuffix()
+	assetName := "auto-anime-1.2.0-" + runtime.GOOS + "-" + runtime.GOARCH
 	var release *httptest.Server
 	release = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -202,14 +200,8 @@ func TestEndToEndOneClickUpdate(t *testing.T) {
 		t.Fatalf("未写入暂存更新包校验记录（status=%q message=%q），日志：\n%s", st.Status, st.Message, readFileTail(appLog, 60))
 	}
 
-	// Unix 上会就地替换并自动重启；Windows 无法替换运行中的文件，只会暂存。
-	if runtime.GOOS == "windows" {
-		st := updateStatus(client, baseURL)
-		if st.Status == "failed" {
-			t.Fatalf("更新失败：%s，日志：\n%s", st.Message, readFileTail(appLog, 60))
-		}
-		t.Logf("已暂存更新包（等待重启生效）：status=%q pending=%v message=%q", st.Status, st.Pending, st.Message)
-	} else if !waitForVersion(versionOf, "1.2.0", 90*time.Second) {
+	// 就地替换并自动重启。
+	if !waitForVersion(versionOf, "1.2.0", 90*time.Second) {
 		t.Fatalf("未自动重启到 1.2.0（当前 %q），日志：\n%s", versionOf(), readFileTail(appLog, 60))
 	} else {
 		t.Logf("就地更新后版本：%s", versionOf())
@@ -362,30 +354,6 @@ func resolveGoTool(t *testing.T) string {
 	if path, err := exec.LookPath("go"); err == nil {
 		return path
 	}
-	if path := goToolPath(); path != "" {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
 	t.Skip("未找到 go 工具链，跳过端到端演练")
-	return ""
-}
-
-// goToolPath 覆盖本机常见安装位置（Windows 上 go 不在 PATH 时）。
-func goToolPath() string {
-	candidates := []string{
-		filepath.Join(os.Getenv("ProgramFiles"), "Go", "bin", "go"+exeSuffix()),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Go", "bin", "go"+exeSuffix()),
-		`E:\go-sdk\go\bin\go.exe`,
-		"C:\\Go\\bin\\go.exe",
-	}
-	for _, path := range candidates {
-		if path == "" {
-			continue
-		}
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
 	return ""
 }

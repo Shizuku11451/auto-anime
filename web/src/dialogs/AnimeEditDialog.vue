@@ -25,8 +25,6 @@ const live = computed<AnimeDetail | AnimeSummary | null>(() => {
   if (state.animeDetail.data?.id === id) return state.animeDetail.data
   return store.animes.value.find(x => x.id === id) ?? a.value
 })
-/* Windows 与容器/Linux 的绝对路径示例不同（盘符/UNC vs NAS 挂载）。 */
-const pathExample = computed(() => storageDirExample(store.platformOS.value))
 
 const tabs = computed<{ key: AnimeManageTab; label: string }[]>(() => a.value
   ? [{ key: 'basic', label: '基本信息' }, { key: 'location', label: '位置与季号' }, { key: 'metadata', label: '元数据' }, { key: 'danger', label: '合并与删除' }]
@@ -281,7 +279,7 @@ async function restoreAuto() {
       <div v-show="s.tab === 'location'" id="ae-panel-location" role="tabpanel" aria-labelledby="ae-tab-location">
         <div class="field">
           <label for="ae-dir">存储位置</label>
-          <input id="ae-dir" v-model="form.storage_dir" type="text" :placeholder="`留空使用默认位置，例如 ${pathExample}`" spellcheck="false" />
+          <input id="ae-dir" v-model="form.storage_dir" type="text" :placeholder="`留空使用默认位置，例如 ${storageDirExample}`" spellcheck="false" />
         </div>
         <div class="field">
           <label for="ae-season">默认季号</label>

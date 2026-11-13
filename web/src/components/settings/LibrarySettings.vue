@@ -1,30 +1,26 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { FolderTree } from '@lucide/vue'
 import SettingsSection from './SettingsSection.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useSettings } from '@/composables/useSettingsForm'
-import { isWindows, storageDirExample } from '@/utils/platform'
+import { storageDirExample } from '@/utils/platform'
 
 const { form, info, fieldError, ready, saving, storageLoading, storageResult, storageError, checkStorage } = useSettings()
-const isWindowsOS = computed(() => isWindows(info.value?.os))
-const pathExample = computed(() => storageDirExample(info.value?.os))
 </script>
 
 <template>
   <SettingsSection id="library" title="媒体库" :icon="FolderTree" description="一部番一个文件夹，适配飞牛影视、Emby、Jellyfin">
     <div class="field">
-      <label for="st-library">{{ isWindowsOS ? '保存目录' : '媒体库目录' }}</label>
+      <label for="st-library">媒体库目录</label>
       <div class="storage-control">
-        <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" :placeholder="`例如 ${pathExample}`" :aria-invalid="!!fieldError('library_dir')" :aria-describedby="fieldError('library_dir') ? 'st-library-error' : undefined" />
+        <input id="st-library" v-model="form.library_dir" type="text" spellcheck="false" :placeholder="`例如 ${storageDirExample}`" :aria-invalid="!!fieldError('library_dir')" :aria-describedby="fieldError('library_dir') ? 'st-library-error' : undefined" />
         <BaseButton :icon="FolderTree" :loading="storageLoading" :disabled="!ready || saving" @click="checkStorage">检测目录</BaseButton>
       </div>
       <p v-if="fieldError('library_dir')" id="st-library-error" class="form-msg" role="alert">{{ fieldError('library_dir') }}</p>
       <p v-if="storageResult" class="storage-result" :class="storageResult.writable && storageResult.mount_status !== 'unmapped' ? 'ok' : 'warning'" role="status">{{ storageResult.message }}</p>
       <p v-if="storageError" class="form-msg" role="alert">{{ storageError }}</p>
       <p class="field-hint">留空使用下载目录 <code>{{ info?.download_dir || '未知' }}</code>；修改后已有文件不会搬迁。</p>
-      <p v-if="isWindowsOS" class="field-hint">支持盘符路径或 UNC 共享。</p>
-      <p v-else class="field-hint">
+      <p class="field-hint">
         目录需映射进容器。飞牛应用先在「应用设置 → 访问权限」授权并重启应用；Compose 可用<a href="/install" target="_blank" rel="noopener noreferrer">部署配置页</a>修改映射。
       </p>
     </div>

@@ -49,9 +49,9 @@ Jackett 配置持久化在 `deploy/search/jackett-config/`，含密钥及可能�
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `AGGREGATE_SEARCH_URL` | `https://search.115415.xyz` | 独立在线 API 根地址；自建可覆盖，显式空值禁用；不要加 `/v1/search` |
-| `AGGREGATE_SEARCH_TOKEN` | 空；默认公共服务无需令牌 | 自建私有地址需与 `SEARCH_API_TOKEN` 一致；显式空值禁止旧 Windows 凭据回退，不禁用默认公共服务 |
+| `AGGREGATE_SEARCH_TOKEN` | 空；默认公共服务无需令牌 | 自建私有地址需与 `SEARCH_API_TOKEN` 一致；显式空值不禁用默认公共服务 |
 
-Windows、Linux、Docker 与飞牛版本均默认直接使用 `https://search.115415.xyz`，不携带令牌也可搜索资源，不需要在正式安装包中嵌入共享密钥。仅这个精确默认地址允许无令牌；自建私有地址仍需有效令牌，显式空地址禁用聚合。公网地址必须 HTTPS，仅 `localhost`、`127.0.0.1`、`::1` 可 HTTP。根地址不接受内嵌账号密码、查询参数和片段。Windows 未设置令牌变量且使用默认地址时继续兼容程序同级 `secrets/aggregate-token.dpapi`，缺失或无法解密时使用公共访问；自建地址不会收到旧凭据。文件不能跨电脑或 Windows 用户复用，不随安装包分发。变量和凭据不进入网页设置或 JSON 备份。Docker 的 `localhost` 指当前容器，不是宿主机。
+Linux、Docker 与飞牛版本均默认直接使用 `https://search.115415.xyz`，不携带令牌也可搜索资源，不需要在正式安装包中嵌入共享密钥。仅这个精确默认地址允许无令牌；自建私有地址仍需有效令牌，显式空地址禁用聚合。公网地址必须 HTTPS，仅 `localhost`、`127.0.0.1`、`::1` 可 HTTP。根地址不接受内嵌账号密码、查询参数和片段。变量不进入网页设置或 JSON 备份。Docker 的 `localhost` 指当前容器，不是宿主机。
 
 ## 在线端启动变量
 
@@ -80,7 +80,7 @@ Windows、Linux、Docker 与飞牛版本均默认直接使用 `https://search.11
 
 默认显式直连，不读取系统代理。NAS 到在线服务的请求沿用 NAS 的 `PROXY_URL`；在线程序自己的 Bangumi 与 Jackett 请求直连，站点请求由 Jackett 执行，需要时在其管理页显式配置代理，不默认依赖代理或境外服务。
 
-网络要求分开看：源码镜像构建需要取得 Go/Alpine 基础镜像和 Alpine CA 软件包；Jackett 镜像需要访问所选镜像仓库；运行时需要服务器访问 Bangumi 和已授权站点，NAS 需要访问你的 HTTPS 服务。Windows 编译或模拟接口测试不能代替 Linux 容器、真实站点和 NAS 验收。
+网络要求分开看：源码镜像构建需要取得 Go/Alpine 基础镜像和 Alpine CA 软件包；Jackett 镜像需要访问所选镜像仓库；运行时需要服务器访问 Bangumi 和已授权站点，NAS 需要访问你的 HTTPS 服务。模拟接口测试不能代替 Linux 容器、真实站点和 NAS 验收。
 
 ## 验收建议
 

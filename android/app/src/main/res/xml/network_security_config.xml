@@ -1,4 +1,0 @@
-<network-security-config>
-    <!-- Runtime URL validation still requires explicit per-connection HTTP opt-in. -->
-    <base-config cleartextTrafficPermitted="true" />
-</network-security-config>

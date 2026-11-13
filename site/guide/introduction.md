@@ -9,7 +9,7 @@ Auto-Anime 是一个为 NAS 打造的自动追番工具。订阅番剧后，自�
 - 自动整理文件、生成封面与 NFO，支持手动纠正识别结果。
 - 同步 Bangumi 收藏，按星期浏览番剧库。
 
-支持飞牛 fnOS、Linux 和 Windows 10/11，安装方法见[快速开始](/guide/quick-start)。详细支持范围见[功能边界](/guide/features)。
+支持飞牛 fnOS 与 Linux，安装方法见[快速开始](/guide/quick-start)。详细支持范围见[功能边界](/guide/features)。
 
 ## 使用须知
 

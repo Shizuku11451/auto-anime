@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,7 +19,7 @@ import (
 const defaultAggregateSearchURL = "https://search.115415.xyz"
 
 var aggregateSearchURL = configuredAggregateSearchURL()
-var aggregateSearchToken = configuredAggregateSearchToken(aggregateSearchURL)
+var aggregateSearchToken = configuredAggregateSearchToken()
 var discoverAggregateSlots = make(chan struct{}, 4)
 
 func configuredAggregateSearchURL() string {
@@ -30,20 +29,8 @@ func configuredAggregateSearchURL() string {
 	return defaultAggregateSearchURL
 }
 
-func configuredAggregateSearchToken(address string) string {
-	if value, ok := os.LookupEnv("AGGREGATE_SEARCH_TOKEN"); ok {
-		return value
-	}
-	// A custom endpoint must never receive the default service's local credential.
-	if address != defaultAggregateSearchURL {
-		return ""
-	}
-	value, err := localAggregateSearchToken()
-	if err != nil {
-		log.Print("本机聚合服务凭据无法读取，将使用默认公共聚合服务")
-		return ""
-	}
-	return value
+func configuredAggregateSearchToken() string {
+	return os.Getenv("AGGREGATE_SEARCH_TOKEN")
 }
 
 func aggregateConfigured() bool {

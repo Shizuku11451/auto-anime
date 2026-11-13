@@ -8,14 +8,10 @@ import { useAppStore } from '@/stores/app'
 import { api, http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import type { AvailabilityItem, AvailabilityVerdict, Feed, PreviewResult } from '@/api/types'
-import { isAbsoluteStoragePath, isWindows, storageDirExample } from '@/utils/platform'
+import { isAbsoluteStoragePath, storageDirExample } from '@/utils/platform'
 
 const { state } = useDialogs()
 const store = useAppStore()
-/* 当前运行平台（/api/status）：Windows 与容器/Linux 的路径示例、映射说明不同。 */
-const platformOS = computed(() => store.platformOS.value)
-const pathExample = computed(() => storageDirExample(platformOS.value))
-const isWindowsOS = computed(() => isWindows(platformOS.value))
 const s = state.feed
 
 const editing = computed(() => !!(s.feed && s.feed.id))
@@ -234,9 +230,9 @@ async function runAvailability() {
 
 type FeedSaveResult = { storage_path?: string; storage_warning?: string }
 
-// 与后端一致的绝对路径判断：容器内是 /...，Windows 本机要求盘符或 UNC 共享。
+// 与后端一致的绝对路径判断：容器内是 /...。
 function isAbsolutePath(value: string) {
-  return isAbsoluteStoragePath(value, platformOS.value)
+  return isAbsoluteStoragePath(value)
 }
 
 async function save() {
@@ -260,7 +256,7 @@ async function save() {
   }
   const storage = form.storage.trim()
   if (storage && !isAbsolutePath(storage)) {
-    msg.value = `保存位置必须是绝对路径，例如 ${pathExample.value}`
+    msg.value = `保存位置必须是绝对路径，例如 ${storageDirExample}`
     return
   }
   if (storage.split(/[\\/]+/).includes('..')) {
@@ -401,11 +397,10 @@ async function save() {
             </div>
             <div class="field">
               <label for="f-storage">保存位置（番剧根目录）</label>
-              <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" :placeholder="`留空使用默认位置，例如 ${pathExample}`" />
+              <input id="f-storage" v-model="form.storage" type="text" spellcheck="false" :placeholder="`留空使用默认位置，例如 ${storageDirExample}`" />
               <p class="field-hint">
                 按 <code>根目录/番剧名/Season 01/…</code> 归档，留空使用默认位置。
-                <template v-if="isWindowsOS">网络共享需当前用户有写入权限。</template>
-                <template v-else>自定义目录需映射进容器，否则 NAS 上看不到文件。</template>
+                自定义目录需映射进容器，否则 NAS 上看不到文件。
               </p>
               <p v-if="storagePreview" class="field-hint">实际保存到：<code>{{ storagePreview }}/</code></p>
               <p v-else-if="saveBase" class="field-hint">识别番剧后，在此目录下建立番剧文件夹。</p>

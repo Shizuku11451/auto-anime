@@ -26,8 +26,8 @@ import (
 
 // 版本检查与一键更新。
 //
-// 发布方式：GitHub Releases 上每个 tag 附带 linux/amd64、linux/arm64 与
-// windows/amd64 三个可执行文件，以及一份 sha256 校验文件。客户端读取
+// 发布方式：GitHub Releases 上每个 tag 附带 linux/amd64 与 linux/arm64
+// 两个可执行文件，以及一份 sha256 校验文件。客户端读取
 // Release API 拿到最新 tag、更新说明与附件地址，下载与当前平台匹配的文件，
 // 校验 SHA-256 后替换自身可执行文件并重启。
 //
@@ -244,7 +244,7 @@ func runUpdateCheck() {
 		return
 	}
 	// 已有的更新包与版本检查无关：即使更新源不可达也要提示重启生效。
-	pendingHint := applyPendingState(&check, !inPlaceExec())
+	pendingHint := applyPendingState(&check)
 	base, label, err := resolveUpdateSource(updateSource)
 	if err != nil {
 		check.State = "error"
@@ -290,7 +290,7 @@ func runUpdateCheck() {
 			rel.UpdateHint = "当前环境不允许自动替换程序文件，请手动更新镜像或可执行文件。"
 		}
 	}
-	check.Pending = imageVersionDrift() || (!inPlaceExec() && installReady())
+	check.Pending = imageVersionDrift()
 	check.CanInstall = rel.InstallOK && check.UpdateAvailable
 	if check.InstallHint == "" {
 		check.InstallHint = rel.UpdateHint
@@ -306,14 +306,13 @@ func runUpdateCheck() {
 
 // applyPendingState marks an already staged update and returns the hint that
 // belongs with it. A package counts as pending when the running binary is not
-// the one the image shipped (a container rebuild brought the old layer back),
-// or when this platform needs a start to apply it (Windows). After a
-// successful in-place update the staged file is just a rebuild-proof cache.
-func applyPendingState(check *versionCheck, stagedOnStart bool) string {
+// the one the image shipped (a container rebuild brought the old layer back).
+// After a successful in-place update the staged file is just a rebuild-proof cache.
+func applyPendingState(check *versionCheck) string {
 	if !installReady() {
 		return ""
 	}
-	check.Pending = imageVersionDrift() || stagedOnStart
+	check.Pending = imageVersionDrift()
 	if !check.Pending {
 		return ""
 	}
@@ -321,18 +320,11 @@ func applyPendingState(check *versionCheck, stagedOnStart bool) string {
 }
 
 func pendingUpdateHint() string {
-	if runtime.GOOS == "windows" {
-		return "已下载的新版本会在下次启动时生效：退出程序后重新打开即可运行新版本。"
-	}
 	return "已下载的新版本需要重启后生效：重启服务（容器）即可运行新版本。"
 }
 
-// restartFailureHint 说明替换程序后自动重启失败时用户该做什么；容器与 Windows
-// 桌面版的重启方式不同。
+// restartFailureHint 说明替换程序后自动重启失败时用户该做什么。
 func restartFailureHint() string {
-	if runtime.GOOS == "windows" {
-		return "新版本已就绪，但自动重启失败，请手动退出并重新打开程序："
-	}
 	return "新版本已就绪，但自动重启失败，请手动重启容器："
 }
 
@@ -357,10 +349,6 @@ func imageVersionDrift() bool {
 // start (for example the executable lives in a read-only image layer).
 func reportPendingUpdate() {
 	if !installReady() {
-		return
-	}
-	if runtime.GOOS == "windows" {
-		logUpdate("检测到待生效的更新包；若本次启动未能替换程序文件，请检查 %s 是否可写，程序文件被占用时会在下次启动重试", executableDisplay())
 		return
 	}
 	logUpdate("检测到待生效的更新包；若本次启动未能替换程序文件，请检查 %s 是否可写或重建容器", executableDisplay())
@@ -660,7 +648,6 @@ func pickAssetForPlatform(tag string, names []string, lookup func(string) string
 		fmt.Sprintf("auto-anime-%s-%s-%s", strings.TrimPrefix(tag, "v"), runtime.GOOS, runtime.GOARCH),
 	} {
 		candidates[name] = true
-		candidates[name+".exe"] = true
 	}
 	for _, name := range names {
 		if !candidates[name] {
@@ -673,7 +660,7 @@ func pickAssetForPlatform(tag string, names []string, lookup func(string) string
 	// 旧版本发布可能没有带版本号的文件名。
 	fallback := fmt.Sprintf("auto-anime-%s-%s", runtime.GOOS, runtime.GOARCH)
 	for _, name := range names {
-		if name == fallback || name == fallback+".exe" {
+		if name == fallback {
 			if url := lookup(name); url != "" {
 				return name, url
 			}
@@ -984,9 +971,6 @@ func applyUpdate(ctx context.Context) (bool, error) {
 		logUpdate("写入校验记录失败：%v", err)
 	}
 
-	if !inPlaceExec() {
-		return false, nil
-	}
 	if err := replaceRunningExecutable(exe, tmpPath); err != nil {
 		logUpdate("未能替换运行中的程序（%v），更新包已暂存，将在下次启动时生效", err)
 		return false, nil
@@ -1396,8 +1380,7 @@ func renameInto(src, dst string) error {
 }
 
 // reExecAfterUpdate starts the freshly installed binary in place of this
-// process. Unix replaces the process image; Windows cannot, so the caller
-// reports the pending state and the next container start applies it.
+// process by replacing the process image.
 func reExecAfterUpdate() error {
 	exe, err := executableFile()
 	if err != nil {
@@ -1405,13 +1388,10 @@ func reExecAfterUpdate() error {
 	}
 	target := strings.TrimSuffix(exe, updateBackupSuffix)
 	logUpdate("正在重启以运行 %s", versionLabel())
-	if restartInPlace() {
-		if err := execReplace(target, os.Args); err != nil {
-			return fmt.Errorf("重启失败：%w", err)
-		}
-		return errors.New("重启失败：进程替换未生效")
+	if err := execReplace(target, os.Args); err != nil {
+		return fmt.Errorf("重启失败：%w", err)
 	}
-	return startProcess(target, os.Args)
+	return errors.New("重启失败：进程替换未生效")
 }
 
 func startReplacementProcess(args []string) error {
@@ -1426,7 +1406,6 @@ func startProcess(exe string, args []string) error {
 	cmd := exec.Command(exe, args[1:]...)
 	cmd.Env = os.Environ()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	configureChildProcess(cmd)
 	return cmd.Start()
 }
 
@@ -1534,7 +1513,7 @@ func startUpdate() {
 			return
 		}
 		if !inPlace {
-			// 更新包已写好：等待重启（Windows 与只读镜像层由启动引导替换）
+			// 更新包已写好：等待重启（只读镜像层由启动引导替换）
 			setUpdateProgress("installing", "更新包已就绪，重启服务后生效", true)
 			logUpdate("更新包已写入暂存位置，重启后生效")
 			return
@@ -1553,7 +1532,7 @@ func startUpdate() {
 }
 
 // setUpdateProgress 记录一键更新的实时进度；staged 为 true 表示更新包已写好、
-// 等待重启生效（Windows 与只读镜像层）。
+// 等待重启生效（只读镜像层）。
 func setUpdateProgress(status, message string, staged bool) {
 	versionStateMu.Lock()
 	versionState.Status = status

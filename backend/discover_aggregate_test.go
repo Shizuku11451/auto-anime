@@ -22,20 +22,17 @@ func TestAggregateServiceDefaultsAndCredentialIsolation(t *testing.T) {
 	if configuredAggregateSearchURL() != defaultAggregateSearchURL {
 		t.Fatal("default service address missing")
 	}
-	if configuredAggregateSearchToken("https://custom.example") != "" {
-		t.Fatal("local credential leaked to custom endpoint")
-	}
 	t.Setenv("AGGREGATE_SEARCH_URL", " https://custom.example/ ")
 	if configuredAggregateSearchURL() != "https://custom.example" {
 		t.Fatal("custom address ignored")
 	}
 	t.Setenv("AGGREGATE_SEARCH_TOKEN", "test-explicit-token-not-a-real-secret")
-	if configuredAggregateSearchToken("https://custom.example") != os.Getenv("AGGREGATE_SEARCH_TOKEN") {
+	if configuredAggregateSearchToken() != os.Getenv("AGGREGATE_SEARCH_TOKEN") {
 		t.Fatal("explicit credential ignored")
 	}
 	t.Setenv("AGGREGATE_SEARCH_URL", "")
 	t.Setenv("AGGREGATE_SEARCH_TOKEN", "")
-	if configuredAggregateSearchURL() != "" || configuredAggregateSearchToken(defaultAggregateSearchURL) != "" {
+	if configuredAggregateSearchURL() != "" || configuredAggregateSearchToken() != "" {
 		t.Fatal("explicit empty configuration must disable defaults")
 	}
 }

@@ -29,7 +29,7 @@ function editDialog(options = {}) {
     '@/components/ui/BaseDialog.vue': {},
     '@/components/ui/BaseButton.vue': {},
     '@/stores/dialogs': { useDialogs: () => ({ state, reloadAnimeDetail: async () => {}, openAnimeManage: () => {}, openBind: () => {} }) },
-    '@/stores/app': { useAppStore: () => ({ animes: vue.ref([anime]), platformOS: vue.ref(''), refresh: async () => {} }) },
+    '@/stores/app': { useAppStore: () => ({ animes: vue.ref([anime]), refresh: async () => {} }) },
     '@/api/client': {
       http: {
         put: async (url, body) => { calls.push(['PUT', url, body]); return {} },
@@ -47,7 +47,7 @@ function editDialog(options = {}) {
       return options.confirm ? options.confirm() : true
     } },
     '@/composables/relocation': { startRelocation: async (id) => relocations.push(id) },
-    '@/utils/platform': { storageDirExample: () => '/vol1/1000/番剧' },
+    '@/utils/platform': { storageDirExample: '/vol1/1000/番剧' },
     '@/components/library/schedule': { localDate: () => '2026-11-04' },
   }
   const context = { exports: {}, setTimeout, clearTimeout, require: (id) => {

@@ -1,17 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { RefreshCw, Rocket } from '@lucide/vue'
 import SettingsSection from './SettingsSection.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import { useSettings } from '@/composables/useSettingsForm'
 import { useDialogs } from '@/stores/dialogs'
 import { useUpdateStore } from '@/stores/update'
-import { isWindows } from '@/utils/platform'
 
 const update = useUpdateStore()
 const { openUpdate } = useDialogs()
-const { info } = useSettings()
-const isWindowsOS = computed(() => isWindows(info.value?.os))
 </script>
 
 <template>
@@ -37,7 +32,7 @@ const isWindowsOS = computed(() => isWindows(info.value?.os))
       发现新版本 {{ update.info.value?.latest }}，可在弹窗中查看并更新。
     </p>
     <p v-else-if="update.pending.value" class="field-hint hot">
-      新版本已下载，{{ isWindowsOS ? '重新打开程序后生效。' : '重启容器后生效。' }}
+      新版本已下载，重启容器后生效。
     </p>
     <p v-if="update.installHint.value" class="field-hint">{{ update.installHint.value }}</p>
     <p v-if="update.checkError.value" class="form-msg" role="alert">{{ update.checkError.value }}</p>

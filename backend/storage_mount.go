@@ -103,9 +103,7 @@ func containerRootFS(fsType string) bool {
 // 无需提示时返回空字符串。目录为空表示「沿用默认位置」，由调用方自行处理。
 func unmappedPathWarning(dir string) string {
 	clean := path.Clean(filepath.ToSlash(strings.TrimSpace(dir)))
-	// 容器内是 POSIX 路径（/vol1/...）；Windows 源码运行时盘符路径也接受，
-	// 但那里读不到挂载表，不会提示。
-	if clean == "." || (!strings.HasPrefix(clean, "/") && !filepath.IsAbs(filepath.FromSlash(clean))) {
+	if clean == "." || !strings.HasPrefix(clean, "/") {
 		return ""
 	}
 	mounts := readMountPoints()

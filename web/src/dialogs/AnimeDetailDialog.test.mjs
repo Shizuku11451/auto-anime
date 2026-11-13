@@ -22,15 +22,6 @@ function detailDialog(options = {}) {
     id: 1, title: '测试动画', bangumi_id: options.binding ?? 0, meta_source: options.source ?? 'bangumi', item_count: 0, saved_count: 0, seasons: [],
   } } })
   const posts = [], deletes = [], successes = [], errors = [], confirmations = [], refreshed = [], routes = []
-  const BS = String.fromCharCode(92)
-  const platform = {
-    isWindows: os => os === 'windows',
-    storageDirExample: os => (os === 'windows' ? `D:${BS}番剧` : '/vol1/1000/番剧'),
-    isAbsoluteStoragePath: (value, os) => (os === 'windows'
-      ? /^[a-zA-Z]:/.test(value) || value.startsWith(BS + BS) || value.startsWith('//')
-      : value.startsWith('/') || value.startsWith(BS) || /^[a-zA-Z]:/.test(value)),
-    isWindowsPlatform: value => !!value && value.split('/')[0] === 'windows',
-  }
   const modules = {
     vue,
     'vue-router': { useRouter: () => ({ push: async route => { routes.push(route); return options.navigationFailure } }) },
@@ -38,8 +29,7 @@ function detailDialog(options = {}) {
     '@/utils/status': statusContext.exports,
     '@vueuse/core': { useDocumentVisibility: () => vue.ref('visible'), useIntervalFn: () => {} },
     '@/stores/dialogs': { useDialogs: () => ({ state, reloadAnimeDetail: async () => refreshed.push('detail') }) },
-    '@/stores/app': { useAppStore: () => ({ platformOS: vue.ref(''), refresh: async () => refreshed.push('list') }) },
-    '@/utils/platform': platform,
+    '@/stores/app': { useAppStore: () => ({ refresh: async () => refreshed.push('list') }) },
     '@/api/client': { http: { post: async (url) => {
       posts.push(url)
       if (options.error) throw new Error(options.error)

@@ -150,11 +150,10 @@ export function useSettingsForm() {
 
   const validationErrors = computed(() => {
     const errors: FieldError[] = []
-    const os = info.value?.os
     if (!Number.isInteger(form.poll_minutes) || form.poll_minutes < 5 || form.poll_minutes > 1440) {
       errors.push({ section: 'network', field: 'poll_minutes', id: 'st-poll', message: '请输入 5–1440 之间的整数' })
     }
-    if (form.library_dir.trim() && !isAbsoluteStoragePath(form.library_dir.trim(), os)) {
+    if (form.library_dir.trim() && !isAbsoluteStoragePath(form.library_dir.trim())) {
       errors.push({ section: 'library', field: 'library_dir', id: 'st-library', message: '请填写绝对路径' })
     }
     if ((form.web_password || info.value?.web_user) && !form.web_user.trim()) {
@@ -202,7 +201,7 @@ export function useSettingsForm() {
       const body: StorageCheckInput = { path }
       const result = await api<SetupStorageResult>('/api/settings/storage', { method: 'POST', json: body, signal: controller.signal })
       if (version !== storageVersion || path !== form.library_dir.trim()) return
-      // 服务端会规范化路径（Windows 存为正斜杠），不能拿原始输入比对；过期结果已由 version 与当前输入排除。
+      // 服务端会规范化路径，不能拿原始输入比对；过期结果已由 version 与当前输入排除。
       if (typeof result.path !== 'string' || !result.path || typeof result.writable !== 'boolean' || typeof result.message !== 'string' || !['mapped', 'unmapped', 'unknown', 'not_required'].includes(result.mount_status)) throw new Error('目录检测结果不完整')
       storageResult.value = result
     } catch (e) {

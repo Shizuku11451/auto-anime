@@ -42,6 +42,5 @@ features:
 | --- | --- |
 | 飞牛 fnOS · x86-64 | [FPK 应用包](/install/fnos-app)（推荐） |
 | Linux · amd64 / arm64 | [Docker / 独立程序](/install/docker) |
-| Windows 10/11 · x64 | [桌面版](/install/windows) |
 
 </div>

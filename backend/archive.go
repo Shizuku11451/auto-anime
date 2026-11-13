@@ -258,7 +258,7 @@ func uniqueChildName(dir, base string) string {
 // target name is taken.
 func commitLinked(workPath, dstPath string) error {
 	if err := os.Link(workPath, dstPath); err != nil {
-		return commitWithoutHardlink(workPath, dstPath, err)
+		return err
 	}
 	return os.Remove(workPath)
 }

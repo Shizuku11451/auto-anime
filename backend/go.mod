@@ -6,7 +6,6 @@ replace github.com/cenkalti/rain => ./third_party/rain
 
 require (
 	github.com/cenkalti/rain v1.13.0
-	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/longbridgeapp/opencc v0.3.13
 	golang.org/x/crypto v0.41.0
 	golang.org/x/net v0.43.0
@@ -25,7 +24,6 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/jackpal/bencode-go v1.0.0 // indirect
-	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/juju/ratelimit v1.0.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/liuzl/cedar-go v0.0.0-20170805034717-80a9c64b256d // indirect

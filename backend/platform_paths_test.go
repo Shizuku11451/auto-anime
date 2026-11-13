@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bytes"
-	"log"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -50,78 +46,15 @@ func TestMapRemotePathHandlesWindowsSeparators(t *testing.T) {
 	if got := mapRemotePath(`C:\Downloads\Show\01.mkv`, remote, remote); got != "C:/Downloads/Show/01.mkv" {
 		t.Errorf("identical roots = %q", got)
 	}
-	if runtime.GOOS == "windows" {
-		// Windows 文件系统大小写不敏感：盘符大小写不同也要匹配。
-		if got := mapRemotePath(`c:\downloads\Show\01.mkv`, remote, local); got != want {
-			t.Errorf("case-insensitive map = %q, want %q", got, want)
-		}
-	} else if got := mapRemotePath(`c:\downloads\show\01.mkv`, remote, local); got != "c:/downloads/show/01.mkv" {
+	if got := mapRemotePath(`c:\downloads\show\01.mkv`, remote, local); got != "c:/downloads/show/01.mkv" {
 		t.Errorf("case-sensitive host must not map: %q", got)
 	}
 }
 
-// Windows 的完整绝对路径只有盘符路径和 UNC 共享两种；"/番剧"、"\\番剧" 会按当前盘
-// 解析，必须被识别出来。
-func TestWindowsAbsolutePath(t *testing.T) {
-	valid := []string{`D:\番剧`, `d:/media`, `\\NAS\动画`, `//NAS/动画/番剧`, `\\?\D:\番剧`}
-	for _, value := range valid {
-		if !windowsAbsolutePath(value) {
-			t.Errorf("%q 应当是完整绝对路径", value)
-		}
-	}
-	invalid := []string{``, `番剧`, `/番剧`, `\番剧`, `C:`, `D:番剧`, `1:\番剧`, `\\NAS`, `//NAS`, `\\NAS\`}
-	for _, value := range invalid {
-		if windowsAbsolutePath(value) {
-			t.Errorf("%q 不应当是完整绝对路径", value)
-		}
-	}
-}
-
-// 存储位置校验按平台区分：Windows 必须有盘符或 UNC，容器/Linux 沿用挂载路径。
-func TestSanitizeStorageDirFollowsPlatform(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		for _, raw := range []string{`/番剧`, `\番剧`, `/vol1/1000/番剧`, `C:`, `D:番剧`} {
-			if _, err := sanitizeStorageDir(raw); err == nil {
-				t.Errorf("Windows 上应拒绝没有盘符或 UNC 的路径：%q", raw)
-			}
-		}
-		clean, err := sanitizeStorageDir(`D:\番剧\夏日`)
-		if err != nil || clean != "D:/番剧/夏日" {
-			t.Fatalf("盘符路径：%q %v", clean, err)
-		}
-		return
-	}
+// 存储位置沿用 NAS 挂载路径。
+func TestSanitizeStorageDirKeepsMountPath(t *testing.T) {
 	clean, err := sanitizeStorageDir("/vol1/1000/番剧")
 	if err != nil || clean != "/vol1/1000/番剧" {
 		t.Fatalf("容器路径：%q %v", clean, err)
-	}
-}
-
-// 从 Linux/容器数据库搬到 Windows 的历史保存位置要在启动时提示，且不能静默改写数据。
-func TestWarnStoredPathsForPlatformKeepsData(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows 专用提示")
-	}
-	testDatabase(t)
-	if _, err := db.Exec("INSERT INTO feeds(name,url,storage_dir) VALUES('旧订阅','https://example.test/rss','/vol1/1000/番剧')"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO animes(title,storage_dir) VALUES('旧番剧','/volume1/anime/old')"); err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	old := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(old)
-	warnStoredPathsForPlatform()
-	out := buf.String()
-	for _, want := range []string{"旧订阅", "旧番剧", "当前盘根"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("启动提示缺少 %q：%q", want, out)
-		}
-	}
-	var stored string
-	if err := db.QueryRow("SELECT storage_dir FROM feeds WHERE name='旧订阅'").Scan(&stored); err != nil || stored != "/vol1/1000/番剧" {
-		t.Fatalf("不应改写数据库：%q %v", stored, err)
 	}
 }

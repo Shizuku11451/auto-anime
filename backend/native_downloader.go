@@ -19,7 +19,7 @@ import (
 	raintorrent "github.com/cenkalti/rain/torrent"
 )
 
-// native downloader 是 Windows 版默认的进程内 BT 引擎。它不依赖 qBittorrent，
+// native downloader 是进程内 BT 引擎。它不依赖 qBittorrent，
 // 但仍复用现有条目、任务身份、并发名额、归档与源文件清理。
 //
 // 新任务身份为 infohash-itemID；旧 40 位 hash 继续恢复。取消/清理使用本地

@@ -22,15 +22,6 @@ function setup() {
   let confirm = async () => true
   let unmount
   const stub = { render: () => null }
-  const BS = String.fromCharCode(92)
-  const platform = {
-    isWindows: os => os === 'windows',
-    storageDirExample: os => (os === 'windows' ? `D:${BS}番剧` : '/vol1/1000/番剧'),
-    isAbsoluteStoragePath: (value, os) => (os === 'windows'
-      ? /^[a-zA-Z]:/.test(value) || value.startsWith(BS + BS) || value.startsWith('//')
-      : value.startsWith('/') || value.startsWith(BS) || /^[a-zA-Z]:/.test(value)),
-    isWindowsPlatform: value => !!value && value.split('/')[0] === 'windows',
-  }
   const modules = {
     vue: { ...vue, onMounted() {}, onBeforeUnmount(fn) { unmount = fn } },
     '@lucide/vue': new Proxy({}, { get: () => stub }),
@@ -39,7 +30,6 @@ function setup() {
     '@/components/ui/ConfirmHost.vue': stub,
     '@/stores/confirm': { confirmDialog: async (...args) => { confirmations.push(args); return confirm() } },
     '@/api/types': { MODE_LABEL: { native: '内置 BT 下载器', direct: '本地直链' } },
-    '@/utils/platform': platform,
   }
   const context = { exports: {}, URL, AbortController, setTimeout, clearTimeout, location: { replace: value => redirects.push(value) },
     fetch: async (url, init) => {
@@ -61,7 +51,6 @@ test('首次向导在容器上接受并显示内置 BT 下载器，不再列出�
   h.status(async () => response({
     required: true,
     download_mode: 'native',
-    os: 'linux',
     library_dir: '/media',
     download_dir: '/data/downloads',
     keep_source_files: true,

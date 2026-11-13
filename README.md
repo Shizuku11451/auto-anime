@@ -9,7 +9,7 @@
   <br>
   <p>
     <a href="https://github.com/Shizuku11451/auto-anime/releases"><img src="https://img.shields.io/github/v/release/Shizuku11451/auto-anime?style=for-the-badge&label=Release&color=0284c7" alt="GitHub Release"></a>
-    <a href="#平台适配范围"><img src="https://img.shields.io/badge/Platform-fnOS%20%7C%20Linux%20%7C%20Windows-0284c7?style=for-the-badge" alt="平台：fnOS、Linux、Windows"></a>
+    <a href="#平台适配范围"><img src="https://img.shields.io/badge/Platform-fnOS%20%7C%20Linux-0284c7?style=for-the-badge" alt="平台：fnOS、Linux"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-65a30d?style=for-the-badge" alt="MIT License"></a>
   </p>
   <p>
@@ -48,15 +48,12 @@
 | --- | --- |
 | **飞牛 fnOS** · 主要维护平台（x86-64） | [FPK 应用包](https://autoanime.top/install/fnos-app)（推荐）/ [Docker Compose](https://autoanime.top/install/fnos-compose) |
 | **Linux** · amd64 / arm64 | [Docker Compose / 独立服务端程序](https://autoanime.top/install/docker) |
-| **Windows 10/11** · x64 | [单文件程序或便携桌面 ZIP](https://autoanime.top/install/windows)，需要 WebView2 Runtime |
 
 其他 NAS 与 macOS 暂不专门适配。各版本提供的制品以 [Release 页面](https://github.com/Shizuku11451/auto-anime/releases)为准。
 
 ## 快速安装
 
 **飞牛 fnOS**：从 Release 下载 `.fpk`，在「应用中心 → 手动安装」导入。FPK 自带镜像，安装时无需联网拉取，但要先装好 Docker。详见 [FPK 安装说明](https://autoanime.top/install/fnos-app)。
-
-**Windows**：下载单文件 `.exe` 或 `-desktop.zip`，放到有写权限的目录后双击运行。数据保存在程序旁的 `data\`，归档媒体在 `media\`。详见 [Windows 桌面版](https://autoanime.top/install/windows)。
 
 **Docker Compose**（Linux 或其他支持 Docker 的环境，详见 [Docker / Linux 安装](https://autoanime.top/install/docker)）：
 
@@ -103,7 +100,6 @@ docker compose up -d
 | 快速上手 | [快速开始](https://autoanime.top/guide/quick-start) |
 | 飞牛 FPK / Compose 安装 | [FPK 应用包](https://autoanime.top/install/fnos-app) · [Compose 图形安装](https://autoanime.top/install/fnos-compose) |
 | Docker / Linux | [Docker / Linux 安装](https://autoanime.top/install/docker) |
-| Windows 桌面版 | [Windows 桌面版](https://autoanime.top/install/windows) |
 | 自建聚合搜索服务 | [在线聚合搜索服务](https://autoanime.top/advanced/search-server) |
 | 已实现与未实现范围 | [功能边界](https://autoanime.top/guide/features) |
 | 源码开发与参与贡献 | [贡献指南](https://autoanime.top/develop/contributing) |

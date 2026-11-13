@@ -6,7 +6,6 @@
 | --- | --- |
 | 飞牛 fnOS | [FPK 应用包](/install/fnos-app)，需预装 Docker |
 | Linux / Docker | [Docker Compose](/install/docker) |
-| Windows 10/11 | [桌面版](/install/windows) |
 
 以 Docker Compose 为例：
 

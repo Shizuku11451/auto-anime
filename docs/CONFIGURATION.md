@@ -12,18 +12,18 @@
 
 设置页统一保存下载器、媒体库、代理、同步周期、账户等设置。媒体库目录发生变化时先检测写入，失败整份设置不保存。下载目录、数据库路径及内置下载器端口等启动参数不在网页中修改。
 
-首次向导沿用部署默认值；完整环境账户可跳过向导。代理输入留空沿用部署代理，关闭已有代理请在初始化后的设置页操作。通用、飞牛及 Windows 安装步骤分别见对应[安装文档](README.md)。
+首次向导沿用部署默认值；完整环境账户可跳过向导。代理输入留空沿用部署代理，关闭已有代理请在初始化后的设置页操作。通用与飞牛安装步骤分别见对应[安装文档](README.md)。
 
 ## 基础环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DB_PATH` | Linux `/data/auto-anime.db`；Windows 程序同级 `data/auto-anime.db` | SQLite 路径，一个数据库只运行一个实例 |
+| `DB_PATH` | Linux `/data/auto-anime.db` | SQLite 路径，一个数据库只运行一个实例 |
 | `DOWNLOAD_DIR` | 默认数据目录下 `downloads` | 默认下载/归档目录，媒体库留空时使用 |
-| `LIBRARY_DIR` | Windows 程序同级 `media\`；其它平台空 | 媒体根目录（番剧文件夹的父目录）；飞牛模板显式设为 `/media`，Windows 清空界面设置时回退下载目录 |
+| `LIBRARY_DIR` | 空 | 媒体根目录（番剧文件夹的父目录）；飞牛模板显式设为 `/media` |
 | `COVERS_DIR` | 数据库同级 `covers` | 本地封面缓存 |
-| `PORT` | `8000` | HTTP 监听端口；桌面模式仅回环，服务模式不限定回环 |
-| `DOWNLOAD_MODE` | Windows 与容器 `native`；其它源码 `direct` | 内置 BT 下载器；数据库值优先 |
+| `PORT` | `8000` | HTTP 监听端口 |
+| `DOWNLOAD_MODE` | 容器 `native`；源码 `direct` | 内置 BT 下载器；数据库值优先 |
 | `POLL_MINUTES` | `30` | RSS 同步间隔，分钟，最小 5 |
 | `DOWNLOADER_POLL_SECONDS` | `10` | 下载器轮询间隔，秒，最小 5 |
 | `KEEP_SOURCE_FILES` | `true` | 归档成功后保留下载器源文件做种 |
@@ -31,7 +31,7 @@
 | `BANGUMI_ENABLED` | `true` | 仅值为 `true` 时开启自动元数据获取；关闭可用 `false` |
 | `BANGUMI_API` | `https://api.bgm.tv` | Bangumi API 根地址 |
 | `AGGREGATE_SEARCH_URL` | `https://search.115415.xyz` | 聚合服务 HTTPS 根地址；自建可覆盖，显式空值禁用；仅回环地址可用 HTTP，不在网页设置中修改 |
-| `AGGREGATE_SEARCH_TOKEN` | 空；默认公共服务无需令牌 | 自建私有服务需至少 32 字符，仅后端持有；兼容已有 Windows 加密凭据，显式空值禁用凭据回退但不禁用默认公共服务 |
+| `AGGREGATE_SEARCH_TOKEN` | 空；默认公共服务无需令牌 | 自建私有服务需至少 32 字符，仅后端持有；显式空值不禁用默认公共服务 |
 | `WEB_USER` / `WEB_PASSWORD` | 空 | 同时配置启用认证，缺一项不算完整账户 |
 | `WEBHOOK_URL` | 空 | 事件 JSON POST 接收地址 |
 | `UPDATE_CHECK` | `1` | `0` / `false` / `off` / `no` 关闭联网版本检查和一键更新 |
@@ -39,9 +39,9 @@
 | `GITHUB_TOKEN` | 空 | 可选 GitHub API 令牌，提高额度或读取私有仓库 |
 | `UPDATE_PROXY` | 空 | 更新流量专用代理，留空沿用 `PROXY_URL` |
 
-Linux 源码运行同样默认 `/data`，不是 `backend/data`；普通用户开发应显式设置独立目录。Windows 可执行文件默认程序同级 `data`（媒体库默认同级的 `media`），`go run` / `go test` 退回当前工作目录。程序打印实际数据库、下载、封面与媒体库路径。早期盘根数据不自动迁移，继续使用需显式配置旧路径。Windows 上的存储位置只接受盘符路径或 UNC 共享，`/vol1/...` 这类容器路径会被拒绝，已在数据库里的旧值会在启动日志提示。
+Linux 源码运行同样默认 `/data`，不是 `backend/data`；普通用户开发应显式设置独立目录。程序打印实际数据库、下载、封面与媒体库路径。
 
-Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；Windows 上返回 404，设置页不显示入口。
+Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供，设置页不显示入口。
 
 ## 在线聚合搜索
 
@@ -49,7 +49,7 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 
 资源列表提供标题关键词、来源、字幕组 / 发布组和清晰度组合筛选，无需新增环境变量。选项来自完整返回结果，未知字幕组或清晰度可单独选择；切换番剧或重新加载资源时重置，不持久化，也不影响订阅匹配规则或服务端结果上限。
 
-「搜索」先查询 Bangumi，返回最多 8 个番剧候选，不要求配置 RSS。所有平台默认使用 `https://search.115415.xyz` 公共服务，无需令牌或额外凭据文件；用户展开条目才由 NAS 后端发送 Bangumi ID 到独立服务，结果显示在该条目下面。服务器会收到请求者 IP 和条目 ID，公共服务受限流与上游可用性约束。设置 `AGGREGATE_SEARCH_URL` 为空可禁用；改用自建私有地址时仍需配置至少 32 字符的 `AGGREGATE_SEARCH_TOKEN`。Windows 未设置令牌变量时继续兼容程序同级 `secrets/aggregate-token.dpapi`，文件缺失或无法解密时回退到默认公共访问；已有凭据不会发送到其他地址，也不随安装包或 JSON 备份分发。显式空令牌不再禁用默认公共服务，应使用空地址禁用。启动变量更改后需重建容器或重启程序，不会写入数据库。自动元数据开关 `BANGUMI_ENABLED` 不禁用此用户主动搜索。
+「搜索」先查询 Bangumi，返回最多 8 个番剧候选，不要求配置 RSS。所有平台默认使用 `https://search.115415.xyz` 公共服务，无需令牌或额外凭据文件；用户展开条目才由 NAS 后端发送 Bangumi ID 到独立服务，结果显示在该条目下面。服务器会收到请求者 IP 和条目 ID，公共服务受限流与上游可用性约束。设置 `AGGREGATE_SEARCH_URL` 为空可禁用；改用自建私有地址时仍需配置至少 32 字符的 `AGGREGATE_SEARCH_TOKEN`。显式空令牌不再禁用默认公共服务，应使用空地址禁用。启动变量更改后需重建容器或重启程序，不会写入数据库。自动元数据开关 `BANGUMI_ENABLED` 不禁用此用户主动搜索。
 
 在线端使用 Jackett 聚合明确启用的来源，按 InfoHash 去重、保留来源；不把名称匹配当作已验证的季度或资源归属，所有结果需人工核对。可复制磁力、打开来源页，或确认「订阅此版本」后持续追更；搜索本身不自动创建订阅或下载。NAS 请求沿用 `PROXY_URL`，拒绝向非回环明文 HTTP 发送令牌，不跟随重定向；上游失败不回传包含密钥的原始错误。来源条款、鉴权、缓存、限流、隐私、独立 Compose 部署及服务端变量见[在线聚合搜索服务](SEARCH_SERVER.md)。
 
@@ -57,7 +57,7 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 
 | 值 | 用途 |
 | --- | --- |
-| `native` | 进程内纯 Go BT 引擎；容器镜像与 Windows 默认，无需 qBittorrent |
+| `native` | 进程内纯 Go BT 引擎；容器镜像默认，无需 qBittorrent |
 | `direct` | HTTP(S) 文件，磁力和种子进入等待下载器状态 |
 | `qbittorrent` | 外部 qBittorrent WebUI API |
 | `aria2` | 外部 Aria2 JSON-RPC |
@@ -74,7 +74,7 @@ Docker Compose 专用的 `/install` 部署配置页只在容器/Linux 提供；W
 | `NATIVE_BT_PORT_RANGE` | `10` | 监听端口数量，1–100；限制同时驻留的 BT 任务数，不限制累计任务数 |
 | `NATIVE_DHT_PORT` | 同 `NATIVE_BT_PORT` | DHT UDP 端口 |
 
-Windows 未设置 `DOWNLOAD_MODE` 时默认 `native`，容器镜像用 `DOWNLOAD_MODE=native` 显式指定，源码运行仍是 `direct`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。新任务源文件在数据目录的 `bt/downloads/<infohash-条目ID>/`（Windows 为 `data\bt\downloads\`，容器为 `/data/bt/downloads/`），相同种子的不同条目独立下载和控制；旧 `<infohash>` 目录继续兼容，不自动搬迁。归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后释放会话状态，再按安全条件清理源文件，避免旧完成状态误用到重新创建的文件。
+容器镜像用 `DOWNLOAD_MODE=native` 显式指定，源码运行仍是 `direct`。BT 流量直连，不套用 `PROXY_URL`；种子文件名会在开始写文件前校验，拒绝 `..`、反斜杠、盘符和 Windows 保留名。新任务源文件在数据目录的 `bt/downloads/<infohash-条目ID>/`（容器为 `/data/bt/downloads/`），相同种子的不同条目独立下载和控制；旧 `<infohash>` 目录继续兼容，不自动搬迁。归档后默认保留做种，关闭 `KEEP_SOURCE_FILES` 后释放会话状态，再按安全条件清理源文件，避免旧完成状态误用到重新创建的文件。
 
 暂停保留任务身份与续传信息；取消/移除记录会释放会话和端口，但不删除源文件。端口不足时，已暂停任务和已归档的做种任务可卸载到 `session.db`，源文件不变；活动下载不会被挤出，超出容量的新任务等待端口。暂停任务继续时从会话恢复，不必重新访问种子 URL。被卸载的历史做种不会在本轮运行中自动抢回端口，下次启动会在容量允许时恢复。旧版若多个条目共用同一任务，独立暂停/继续会被拒绝并提示移除重复记录（保留媒体）；存在已暂停共用条目时，后台轮询也不会自动重启该任务。
 
@@ -112,7 +112,7 @@ volumes:
 
 所有标题路径经过安全规范化，不能用番名逃出所选目录。识别单集使用 `Season XX` 子目录；无明确单集编号保留原名或合集布局。改变默认根目录、订阅路径或自动规范番名不迁移旧媒体；在番剧管理里手动修改名称、存储位置或季号时可选择移动已保存的文件（默认移动）。
 
-Docker 内填写容器路径，NAS 文件夹必须先映射。例如 `/volume1/media/anime:/media` 后网页填 `/media`。保存目录时会检查 overlay 容器挂载表，未映射则提示；读不到挂载表、Windows 或非 overlay 环境不能当作已经完成 NAS 挂载确认。挂载提示不替代写权限、剩余空间或实机下载检查。
+Docker 内填写容器路径，NAS 文件夹必须先映射。例如 `/volume1/media/anime:/media` 后网页填 `/media`。保存目录时会检查 overlay 容器挂载表，未映射则提示；读不到挂载表或非 overlay 环境不能当作已经完成 NAS 挂载确认。挂载提示不替代写权限、剩余空间或实机下载检查。
 
 首次向导仅检测部署根目录；登录后的设置页可检测填写的目录。检测创建、写入、同步并删除临时文件，不创建缺失目录，不添加挂载，也不移动媒体。
 
@@ -139,7 +139,7 @@ Docker 内填写容器路径，NAS 文件夹必须先映射。例如 `/volume1/m
 
 资源可用性探测只看 tracker，未实现 DHT 探测，不保证资源一定可下载。管理页面的脚本、样式、图标不从公共 CDN 加载。
 
-Windows 与飞牛桌面的圆角矩形应用图标随各自程序/FPK 提供，无需配置；不改变默认目录或网页横版 Logo。更换飞牛图标需要升级 FPK，而不是只更新容器镜像；Windows 需要完全退出旧程序再启动新版本，任务栏固定项可能需要重新固定以刷新缓存。
+飞牛桌面的圆角矩形应用图标随 FPK 提供，无需配置；不改变默认目录或网页横版 Logo。更换飞牛图标需要升级 FPK，而不是只更新容器镜像。
 
 ## 网页专有设置与接口兼容
 
@@ -213,7 +213,7 @@ Webhook 事件为 `new_item`、`download_submitted`、`download_saved`、`downlo
 
 旧内置 Aria2 已移除，`EMBEDDED_ARIA2`、`EMBEDDED_ARIA2_PORT`、`ARIA2_PATH`、`ARIA2_BT_TRACKER` 不再生效，外部 Aria2 继续支持。旧配置、分片与媒体保留；能确认属于旧私有实例且不能继续运行的未完成任务标记失败，手动重试提交到当前下载器，不迁移 GID 或旧分片。
 
-旧 Windows 盘根数据、Docker 数据卷和已有存储位置不会自动搬迁。升级与回退前停止实例并备份，不要以重新初始化代替数据恢复。
+旧 Docker 数据卷和已有存储位置不会自动搬迁。升级与回退前停止实例并备份，不要以重新初始化代替数据恢复。
 
 ## Docker 部署的更新行为
 

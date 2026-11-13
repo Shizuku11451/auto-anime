@@ -1,6 +1,6 @@
 name: release
 
-# 打 tag（例如 v1.2.0）即触发：交叉编译三个平台的可执行文件、生成校验文件、
+# 打 tag（例如 v1.2.0）即触发：交叉编译两个 Linux 架构的可执行文件、生成校验文件、
 # 先验证公开镜像可拉取和启动，再公开包含 FPK 的 GitHub Release。
 on:
   push:
@@ -34,8 +34,6 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,17 +69,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          desktop_flags=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            desktop_flags="-H windowsgui -X main.desktopDefault=true"
-          fi
           go build -trimpath \
-            -ldflags "-s -w $desktop_flags -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }} -X main.defaultUpdateSource=${{ github.repository }}" \
-            -o "../dist/auto-anime-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" .
-      - name: Package Windows desktop
-        if: matrix.goos == 'windows'
-        run: |
-          python3 tools/package_windows.py "dist/auto-anime-${{ steps.meta.outputs.version }}-windows-amd64.exe"
+            -ldflags "-s -w -X main.version=${{ steps.meta.outputs.version }} -X main.commit=${{ steps.meta.outputs.commit }} -X main.buildTime=${{ steps.meta.outputs.build_time }} -X main.defaultUpdateSource=${{ github.repository }}" \
+            -o "../dist/auto-anime-${{ steps.meta.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}" .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

@@ -21,7 +21,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -272,8 +271,7 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 // Downloaders report paths in their own platform style: Aria2, qBittorrent and
 // Transmission on Windows answer with backslashes (C:\Downloads\anime), while
 // containers answer with slashes. The user-configured base path may use either
-// style. Comparisons therefore normalize separators first and ignore case only
-// on Windows, where the filesystem does as well.
+// style. Comparisons therefore normalize separators first.
 
 // normalizeRemotePath makes downloader-reported paths comparable. Trailing
 // separators are trimmed except for roots ("C:/", "//server/share" keeps its
@@ -291,26 +289,17 @@ func normalizeRemotePath(value string) string {
 	return value
 }
 
-// remotePathEqual compares two normalized remote paths the way the target
-// filesystem would.
-func remotePathEqual(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}
-
 // remoteRelative returns the part of path below base, when path is base or
 // lives under it.
 func remoteRelative(path, base string) (string, bool) {
-	if remotePathEqual(path, base) {
+	if path == base {
 		return "", true
 	}
 	prefix := base
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	if len(path) > len(prefix) && remotePathEqual(path[:len(prefix)], prefix) {
+	if len(path) > len(prefix) && path[:len(prefix)] == prefix {
 		return path[len(prefix):], true
 	}
 	return "", false
@@ -321,7 +310,7 @@ func remoteRelative(path, base string) (string, bool) {
 func mapRemotePath(remotePath, remoteBase, localBase string) string {
 	remoteBase = normalizeRemotePath(remoteBase)
 	remotePath = normalizeRemotePath(remotePath)
-	if localBase == "" || remoteBase == "" || remotePathEqual(normalizeRemotePath(localBase), remoteBase) {
+	if localBase == "" || remoteBase == "" || normalizeRemotePath(localBase) == remoteBase {
 		return remotePath
 	}
 	if rel, ok := remoteRelative(remotePath, remoteBase); ok {

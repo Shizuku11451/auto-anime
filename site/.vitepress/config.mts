@@ -44,7 +44,6 @@ export default defineConfig({
           { text: '飞牛 fnOS 应用包', link: '/install/fnos-app' },
           { text: '飞牛 Compose 安装', link: '/install/fnos-compose' },
           { text: 'Docker / Linux', link: '/install/docker' },
-          { text: 'Windows 桌面版', link: '/install/windows' },
         ],
       },
       {
