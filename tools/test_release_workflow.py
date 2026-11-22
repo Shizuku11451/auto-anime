@@ -39,11 +39,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn('pull_policy: never', compose)
         workflow = (ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8')
         self.assertIn('export IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"', workflow)
-        for file in ['deploy/fnos/build-fpk.ps1', 'deploy/fnos/build-fpk.sh']:
-            source = (ROOT / file).read_text(encoding='utf-8')
-            self.assertIn('normalize_fpk.py', source)
-            self.assertIn('image_tag' if file.endswith('.sh') else '$ImageTag', source)
-            self.assertIn('${IMAGE_REPOSITORY:-' if file.endswith('.sh') else '[string] $ImageRepository', source)
+        source = (ROOT / 'deploy/fnos/build-fpk.sh').read_text(encoding='utf-8')
+        self.assertIn('normalize_fpk.py', source)
+        self.assertIn('image_tag', source)
+        self.assertIn('${IMAGE_REPOSITORY:-', source)
 
     def test_lifecycle_waits_and_reports_failure(self):
         for name in ['main', 'config_callback']:

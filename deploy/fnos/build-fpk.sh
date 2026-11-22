@@ -23,14 +23,14 @@ image_repository="${IMAGE_REPOSITORY:-ghcr.io/shizuku11451/auto-anime}"
 command -v python3 >/dev/null || { echo '打包需要 Python 3，用于校验并保留 Linux 脚本执行权限。' >&2; exit 1; }
 out_dir="${OUT_DIR:-$repo_root/dist/fnos}"
 
-# 官方只发布了 windows-amd64 与 linux-amd64 两个 fnpack，版本与校验和需和 build-fpk.ps1 保持一致。
+# 官方只发布了 windows-amd64 与 linux-amd64 两个 fnpack。
 fnpack_version="1.2.3"
 fnpack_sha256="54B97FA7B70968C4D05C79840F5DAEFF508957D0BB2062FDB0376D00D9615C93"
 
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64 | Linux/amd64) fnpack_platform="linux-amd64" ;;
   *)
-    echo "官方目前只发布了 fnpack 的 windows-amd64 与 linux-amd64，当前平台 $(uname -s)/$(uname -m) 请用 deploy/fnos/build-fpk.ps1 或指定 FNPACK。" >&2
+    echo "官方目前只发布了 fnpack 的 windows-amd64 与 linux-amd64，当前平台 $(uname -s)/$(uname -m) 请指定 FNPACK。" >&2
     exit 1
     ;;
 esac

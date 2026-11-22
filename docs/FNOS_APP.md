@@ -54,10 +54,6 @@
 
 以下从仓库根目录运行，`1.2.0` 仅是示例，应替换为实际版本。
 
-```powershell
-pwsh deploy/fnos/build-fpk.ps1 -Version 1.2.0
-```
-
 ```bash
 deploy/fnos/build-fpk.sh 1.2.0
 ```
