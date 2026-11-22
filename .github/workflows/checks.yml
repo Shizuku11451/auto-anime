@@ -29,6 +29,7 @@ jobs:
         run: |
           node --experimental-strip-types --test $(find src -name '*.test.mjs')
           npm run build
+          git diff --exit-code -- backend/static deploy/fnos/install.html
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'

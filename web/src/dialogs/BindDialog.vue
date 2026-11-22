@@ -46,23 +46,30 @@ function close() {
   s.open = false
 }
 
+let searchController: AbortController | undefined
 async function search() {
   const q = query.value.trim()
   if (q.length < 2) {
     msg.value = '请输入至少 2 个字符的关键词'
     return
   }
+  // 新搜索取消旧请求，慢返回的旧结果不会覆盖新结果
+  searchController?.abort()
+  const controller = new AbortController()
+  searchController = controller
   msg.value = ''
   searching.value = true
   try {
-    const data = await http.get<{ items: MetaCandidate[] }>('/api/meta/search?q=' + encodeURIComponent(q))
+    const data = await http.get<{ items: MetaCandidate[] }>('/api/meta/search?q=' + encodeURIComponent(q), { signal: controller.signal })
+    if (controller.signal.aborted) return
     results.value = data.items ?? []
     searched.value = true
   } catch (e) {
+    if (controller.signal.aborted) return
     results.value = []
     msg.value = errorMessage(e)
   } finally {
-    searching.value = false
+    if (searchController === controller) searching.value = false
   }
 }
 

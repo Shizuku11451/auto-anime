@@ -18,8 +18,9 @@ import { http, errorMessage } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { confirmDialog } from '@/stores/confirm'
 import { CHIP_DEFS, chipCount, isPausable, isResumable, isRetryable } from '@/utils/status'
-import type { Item, ItemBatchResult } from '@/api/types'
+import type { AnimeDetail, Item, ItemBatchResult } from '@/api/types'
 import type { PlayerEntry } from '@/stores/dialogs'
+import { playerEntry, playerQueue } from '@/utils/playerQueue'
 
 const store = useAppStore()
 const dialogs = useDialogs()
@@ -183,28 +184,18 @@ async function remove(item: Item) {
   })
 }
 
-/** 播放：同番已保存的资源按季/集排序成连播列表 */
-function play(item: Item) {
-  const series = item.anime_title || item.title
-  const saved = store.items.value.filter(
-    (x) => x.status === '已保存' && x.file_path && (x.anime_title || x.title) === series,
-  )
-  const toEntry = (x: Item): PlayerEntry => ({
-    id: x.id,
-    title: series,
-    season: x.season > 0 ? x.season : (store.animes.value.find(a => a.id === x.anime_id)?.season || x.season_auto || 1),
-    episode: x.episode,
-    fansub_group: x.fansub_group,
-    quality: x.quality,
-  })
-  const entries = saved.map(toEntry)
-  entries.sort((a, b) => (a.season - b.season) || (epNo(a) - epNo(b)))
-  dialogs.openPlayer(entries.length ? entries : [toEntry(item)], item.id)
-}
-
-function epNo(x: { episode: string }): number {
-  const n = Number.parseFloat(x.episode)
-  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
+/** 播放：读取番剧详情，同番全部已保存资源按季/集排序成连播列表（不受当前分页和筛选限制） */
+async function play(item: Item) {
+  let entries: PlayerEntry[] = []
+  if (item.anime_id) {
+    try {
+      entries = playerQueue(await http.get<AnimeDetail>(`/api/animes/${item.anime_id}`))
+    } catch {
+      /* 详情读取失败时只播当前条目 */
+    }
+  }
+  const season = store.animes.value.find(a => a.id === item.anime_id)?.season || item.season_auto || 1
+  dialogs.openPlayer(entries.length ? entries : [playerEntry(item.anime_title || item.title, item, season)], item.id)
 }
 </script>
 

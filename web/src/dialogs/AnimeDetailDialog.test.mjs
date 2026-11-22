@@ -16,6 +16,8 @@ const busyCompiled = compile(readFileSync(new URL('../composables/useBusy.ts', i
 const typesContext = { exports: {} }, statusContext = { exports: {} }
 runInNewContext(compile(readFileSync(new URL('../api/types.ts', import.meta.url), 'utf8')), typesContext)
 runInNewContext(compile(readFileSync(new URL('../utils/status.ts', import.meta.url), 'utf8')), statusContext)
+const queueContext = { exports: {} }
+runInNewContext(compile(readFileSync(new URL('../utils/playerQueue.ts', import.meta.url), 'utf8')), queueContext)
 
 function detailDialog(options = {}) {
   const state = vue.reactive({ relocation: { animeId: 0, status: null }, animeDetail: { open: true, id: 1, loading: false, error: '', data: {
@@ -27,6 +29,7 @@ function detailDialog(options = {}) {
     'vue-router': { useRouter: () => ({ push: async route => { routes.push(route); return options.navigationFailure } }) },
     '@/api/types': typesContext.exports,
     '@/utils/status': statusContext.exports,
+    '@/utils/playerQueue': queueContext.exports,
     '@vueuse/core': { useDocumentVisibility: () => vue.ref('visible'), useIntervalFn: () => {} },
     '@/stores/dialogs': { useDialogs: () => ({ state, reloadAnimeDetail: async () => refreshed.push('detail') }) },
     '@/stores/app': { useAppStore: () => ({ refresh: async () => refreshed.push('list') }) },

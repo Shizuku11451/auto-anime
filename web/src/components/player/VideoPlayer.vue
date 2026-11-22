@@ -77,7 +77,7 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', onFsChange)
   window.addEventListener('pagehide', savePosition)
   const v = videoEl.value
-  if (v && props.source.src.toLowerCase().includes('.mkv')) {
+  if (v && props.source.file_path.toLowerCase().endsWith('.mkv')) {
     mkvMaybeUnsupported.value = v.canPlayType('video/x-matroska; codecs="avc1.640028, mp4a.40.2"') === ''
   }
 })
@@ -89,6 +89,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', savePosition)
   stopHideTimer()
   cancelNext()
+  window.clearTimeout(noteTimer)
+  window.clearTimeout(rippleTimer)
+  if (tapTimer != null) window.clearTimeout(tapTimer)
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {})
 })
 onClickOutside(rateWrap, () => (rateOpen.value = false))
@@ -142,7 +145,7 @@ function onMeta() {
       if (typeof s.t === 'number' && s.t > 10 && (!duration.value || s.t < duration.value - 20)) {
         v.currentTime = s.t
         resumeNote.value = `已从 ${fmtClock(s.t)} 继续播放`
-        window.setTimeout(() => (resumeNote.value = ''), 2600)
+        noteTimer = window.setTimeout(() => (resumeNote.value = ''), 2600)
       }
     }
   } catch {
@@ -389,6 +392,8 @@ function seekTo(t: number) {
 
 /* ---------- 画面区域点击/双击/双击快进 ---------- */
 let tapTimer: number | null = null
+let noteTimer: number | undefined
+let rippleTimer: number | undefined
 let lastTap = { at: 0, zone: '' }
 function onSurfaceTap(e: PointerEvent) {
   showControls()
@@ -405,7 +410,8 @@ function onSurfaceTap(e: PointerEvent) {
   if (double && zone !== 'c') {
     ripple.value = zone === 'l' ? 'l' : 'r'
     skip(zone === 'l' ? -10 : 10)
-    window.setTimeout(() => (ripple.value = ''), 450)
+    window.clearTimeout(rippleTimer)
+    rippleTimer = window.setTimeout(() => (ripple.value = ''), 450)
     return
   }
   if (double && zone === 'c' && e.pointerType !== 'touch') {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { useEventListener, useIntervalFn, useResizeObserver } from '@vueuse/core'
+import { useDocumentVisibility, useEventListener, useIntervalFn, useResizeObserver } from '@vueuse/core'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { Clapperboard, SearchX, Plus, ListChecks, Merge, Trash2, ServerOff, CalendarSearch, LayoutGrid, Rows3, CalendarDays } from '@lucide/vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -38,7 +38,8 @@ async function loadWishes() {
   }
 }
 onMounted(loadWishes)
-useIntervalFn(loadWishes, 30000)
+const visibility = useDocumentVisibility()
+useIntervalFn(() => { if (visibility.value === 'visible') void loadWishes() }, 30000)
 onBeforeUnmount(() => wishController?.abort())
 const library = computed<LibraryAnime[]>(() => {
   const collections = new Map((wishes.value?.items ?? []).map(w => [w.id, w]))

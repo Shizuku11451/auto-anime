@@ -106,15 +106,9 @@ function startPolling() {
     if (!loading) void load()
     void loadRuntime()
   }
-  const { pause, resume } = useIntervalFn(poll, 5000, { immediate: true, immediateCallback: true })
-  watch(visibility, (v) => {
-    if (v === 'visible') {
-      refresh()
-      resume()
-    } else {
-      pause()
-    }
-  })
+  // resume() 会立即轮询一次；immediate watch 让以隐藏状态打开的标签页不轮询
+  const { pause, resume } = useIntervalFn(poll, 5000, { immediate: false, immediateCallback: true })
+  watch(visibility, (v) => (v === 'visible' ? resume() : pause()), { immediate: true })
 }
 
 export function useAppStore() {

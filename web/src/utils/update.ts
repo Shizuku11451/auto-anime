@@ -65,5 +65,3 @@ export function noteBlocks(notes: string): NoteBlock[] {
   return blocks
 }
 
-/** 把版本写入 localStorage 的键名 */
-export const SKIPPED_VERSION_KEY = 'auto-anime:skipped-version'
