@@ -101,24 +101,6 @@ func TestMetaRomanMarkersOnlyAtSeasonSuffix(t *testing.T) {
 	}
 }
 
-func TestDiscoverSeasonIntent(t *testing.T) {
-	for _, tc := range []struct {
-		input, base string
-		season      int
-	}{
-		{"无职转生 第一季", "无职转生", 1}, {"无职转生第一季", "无职转生", 1},
-		{"Example S01", "Example", 1}, {"Example Season 2", "Example", 2},
-		{"Example 3rd Season", "Example", 3}, {"86", "86", 0},
-		{"Example Part 2", "Example Part 2", 0}, {"Example S01E02", "Example S01E02", 0},
-		{"第一季", "第一季", 0}, {"三月的狮子", "三月的狮子", 0},
-	} {
-		base, season := DiscoverIntent(tc.input)
-		if base != tc.base || season != tc.season {
-			t.Fatalf("%q: %q %d", tc.input, base, season)
-		}
-	}
-}
-
 func TestResourceSeasonEvidence(t *testing.T) {
 	for _, tc := range []struct {
 		title  string

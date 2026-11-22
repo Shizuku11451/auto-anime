@@ -72,6 +72,8 @@ var episodePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`第\s*([0-9]{1,4})\s*(?:话|集|話)`),
 	regexp.MustCompile(`(?i)(?:^|[\s._\-\[])\s*s[0-9]{1,3}\s*e([0-9]{1,3})(?:[^0-9a-z]|$)`),
 	regexp.MustCompile(`[\[【(]\s*([0-9]{1,4})(?:v[0-9]{1,2})?\s*[\]】)]`),
+	// 01.5 这类总集篇/半集：只认 .5，避免把「AAC 5.1」这类声道数当集数。
+	regexp.MustCompile(`(?:^|[\s_\-\[【(])([0-9]{1,4}\.5)(?:v[0-9]{1,2})?(?:\s*(?:话|集|話)|[^0-9a-z]|$)`),
 	regexp.MustCompile(`(?:^|[\s._-])([0-9]{1,4})(?:v[0-9]{1,2})?(?:\s*(?:话|集|話)|[^0-9a-z]|$)`),
 }
 
@@ -85,7 +87,7 @@ var episodeRangePatterns = []*regexp.Regexp{
 // seasonPatterns 从最明确到最含糊；命中都要从系列名里去掉，只保留季号。
 // 注意不含 SxxEyy：那是季集一体的标记，只用来读季号，整段留给集数解析。
 var seasonPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`第\s*([0-9一二三四五六七八九十]{1,3})\s*[季期部]`),
+	regexp.MustCompile(`第\s*([0-9一二三四五六七八九十]{1,3})\s*[季期]`),
 	regexp.MustCompile(`(?i)season\s*([0-9]{1,2})(?:[^0-9]|$)`),
 	ordinalSeasonPattern,
 	metaOrdinalSeason,
@@ -231,13 +233,11 @@ func analyzeTitle(raw string, stripGroup bool) Info {
 		if hasEpisodeRange {
 			break
 		}
-		m := pattern.FindStringSubmatch(clean)
-		if len(m) <= 1 || looksLikeYear(m[1]) {
-			continue
+		if whole, episode := findEpisode(pattern, clean); episode != "" {
+			info.Episode = episode
+			clean = strings.Replace(clean, whole, " ", 1)
+			break
 		}
-		info.Episode = m[1]
-		clean = strings.Replace(clean, m[0], " ", 1)
-		break
 	}
 	clean = stripResourceTags(clean)
 	clean = stripParenTags(clean)
@@ -270,6 +270,22 @@ func hasHan(text string) bool {
 		}
 	}
 	return false
+}
+
+// findEpisode 返回第一个不像年份的候选：「无职转生 [2024] [01]」要跳过 2024 取 01。
+// 从年份数字之后接着找，因为年份的匹配会吃掉后一个候选需要的分隔符。
+func findEpisode(pattern *regexp.Regexp, text string) (string, string) {
+	for start := 0; start < len(text); {
+		m := pattern.FindStringSubmatchIndex(text[start:])
+		if m == nil || m[2] < 0 {
+			return "", ""
+		}
+		if episode := text[start+m[2] : start+m[3]]; !looksLikeYear(episode) {
+			return text[start+m[0] : start+m[1]], episode
+		}
+		start += m[3]
+	}
+	return "", ""
 }
 
 // looksLikeYear 让「One Piece - 1100」这类 4 位集数保留，又不把标题里的年份当集数。

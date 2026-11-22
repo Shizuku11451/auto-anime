@@ -255,3 +255,25 @@ func TestAnalyzeTitlePrefersChineseName(t *testing.T) {
 		}
 	}
 }
+
+// 小数集、「部分」与年份候选：见 issue #5。
+func TestAnalyzeTitleDecimalPartAndYear(t *testing.T) {
+	cases := []struct {
+		raw     string
+		title   string
+		season  int
+		episode string
+	}{
+		{"[Sub] Show - 01.5 [1080p]", "Show", 0, "01.5"},
+		{"[Sub] Show - 05 [AAC 5.1][1080p]", "Show", 0, "05"},
+		{"Show 第2部分 01", "Show 第2部分", 0, "01"},
+		{"[LoliHouse] 无职转生 [2024] [01] [1080p]", "无职转生", 0, "01"},
+		{"[Group] Show 2024 01 [1080p]", "Show 2024", 0, "01"},
+	}
+	for _, c := range cases {
+		info := Extract(c.raw)
+		if info.Title != c.title || info.Season != c.season || info.Episode != c.episode {
+			t.Errorf("analyze %q:\n got  %+v\n want title=%q season=%d episode=%q", c.raw, info, c.title, c.season, c.episode)
+		}
+	}
+}
