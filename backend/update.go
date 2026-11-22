@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,8 +22,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/html"
 )
 
 // 版本检查与一键更新。
@@ -177,7 +177,48 @@ func compareVersions(a, b string) int {
 			return 1
 		}
 	}
-	return 0
+	return comparePrerelease(prerelease(a), prerelease(b))
+}
+
+// prerelease returns the "-rc1" part of a version without the "+build" metadata.
+func prerelease(v string) string {
+	v, _, _ = strings.Cut(strings.TrimSpace(v), "+")
+	_, pre, _ := strings.Cut(v, "-")
+	return pre
+}
+
+// comparePrerelease follows semver: a release outranks its pre-releases, and
+// dot-separated identifiers compare numerically when both are numbers.
+func comparePrerelease(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return 1
+	}
+	if b == "" {
+		return -1
+	}
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) && i < len(pb); i++ {
+		x, errX := strconv.Atoi(pa[i])
+		y, errY := strconv.Atoi(pb[i])
+		switch {
+		case errX == nil && errY == nil:
+			if c := cmp.Compare(x, y); c != 0 {
+				return c
+			}
+		case errX == nil:
+			return -1 // numeric identifiers rank below alphanumeric ones
+		case errY == nil:
+			return 1
+		default:
+			if c := strings.Compare(pa[i], pb[i]); c != 0 {
+				return c
+			}
+		}
+	}
+	return cmp.Compare(len(pa), len(pb))
 }
 
 // ---- 更新源解析 ----
@@ -209,20 +250,23 @@ func resolveUpdateSource(raw string) (base, label string, err error) {
 		}
 		return "https://api.github.com/repos/" + value + "/releases", "github.com/" + value, nil
 	}
+	if u, err := url.Parse(value); err != nil || !secureUpdateURL(u) {
+		return "", "", fmt.Errorf("更新源 %q 无效：必须使用 https（仅本机地址可用 http）", redactURL(value))
+	}
 	return strings.TrimSuffix(value, "/"), redactURL(value), nil
+}
+
+// secureUpdateURL: 更新包会被直接执行，所有更新流量必须走 https；仅本机回环地址允许 http。
+func secureUpdateURL(u *url.URL) bool {
+	if u.Scheme == "https" {
+		return true
+	}
+	ip := net.ParseIP(u.Hostname())
+	return u.Scheme == "http" && (u.Hostname() == "localhost" || (ip != nil && ip.IsLoopback()))
 }
 
 func isGitHubAPI(base string) bool {
 	return strings.Contains(base, "api.github.com")
-}
-
-// githubDownloadPrefix is the only place a checksum-less download may come from.
-func githubDownloadPrefix() string {
-	_, label, err := resolveUpdateSource(updateSource)
-	if err != nil {
-		return ""
-	}
-	return "https://github.com/" + strings.TrimPrefix(label, "github.com/")
 }
 
 func trimmedString(m map[string]any, key string) string {
@@ -266,10 +310,7 @@ func runUpdateCheck() {
 	check.Latest = rel.Tag
 	check.ReleaseURL = rel.HTMLURL
 	check.PublishedAt = rel.Published
-	if strings.TrimSpace(rel.Notes) == "" {
-		rel.Notes = fetchReleaseNotes(rel.HTMLURL)
-	}
-	check.Notes = rel.Notes
+	check.Notes = truncateNotes(rel.Notes)
 	if prevLatest, prevNotes := previousVersionInfo(); rel.Tag == prevLatest && check.Notes == "" {
 		check.Notes = prevNotes
 	}
@@ -278,7 +319,8 @@ func runUpdateCheck() {
 		rel.InstallOK = false
 		rel.UpdateHint = "当前是源码或本地构建（" + strings.TrimSpace(version) + "），不支持自动更新；请 git pull 后重新构建。"
 	} else {
-		check.UpdateAvailable = compareVersions(version, rel.Tag) < 0
+		// 正式版用户不接收预发布版本。
+		check.UpdateAvailable = compareVersions(version, rel.Tag) < 0 && (prerelease(rel.Tag) == "" || prerelease(version) != "")
 		rel.InstallOK = rel.AssetURL != ""
 		if !rel.InstallOK {
 			rel.UpdateHint = fmt.Sprintf("该版本没有提供 %s/%s 的更新包，请在 Release 页面手动更新。", runtime.GOOS, runtime.GOARCH)
@@ -489,11 +531,12 @@ func updateBodyRequest(ctx context.Context, method, target string) (*http.Reques
 	if err != nil {
 		return nil, err
 	}
+	if !secureUpdateURL(req.URL) {
+		return nil, fmt.Errorf("拒绝通过非 https 地址获取更新（%s）", redactURL(target))
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "auto-anime-updater")
-	if githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+githubToken)
-	}
+	setGitHubToken(req)
 	return req, nil
 }
 
@@ -501,9 +544,13 @@ func updateBodyRequest(ctx context.Context, method, target string) (*http.Reques
 // Authorization header only for GitHub hosts (S3 rejects foreign headers).
 func updateDownloadClient() *http.Client {
 	client := *updateHTTPClient()
+	client.Timeout = 0 // 大文件下载由调用方的 updateDownloadTime 上下文限时
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return errors.New("重定向次数过多")
+		}
+		if !secureUpdateURL(req.URL) {
+			return errors.New("更新源重定向到了非 https 地址")
 		}
 		if len(via) > 0 && isGitHubHost(req.URL.Hostname()) {
 			req.Header.Set("Authorization", via[0].Header.Get("Authorization"))
@@ -511,6 +558,13 @@ func updateDownloadClient() *http.Client {
 		return nil
 	}
 	return &client
+}
+
+// setGitHubToken 只把令牌发给 GitHub：自定义镜像和清单指定的资产主机都不能拿到。
+func setGitHubToken(req *http.Request) {
+	if githubToken != "" && isGitHubHost(req.URL.Hostname()) {
+		req.Header.Set("Authorization", "Bearer "+githubToken)
+	}
 }
 
 func isGitHubHost(host string) bool {
@@ -758,103 +812,7 @@ func redactURL(raw string) string {
 
 // ---- 更新说明 ----
 
-// fetchReleaseNotes reads the rendered release page; used when the release
-// body is empty (some projects only fill the page description).
-func fetchReleaseNotes(releaseURL string) string {
-	if strings.TrimSpace(releaseURL) == "" {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
-	defer cancel()
-	res, err := updateAPIRequest(ctx, http.MethodGet, releaseURL)
-	if err != nil {
-		return ""
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return ""
-	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-	if err != nil {
-		return ""
-	}
-	return notesToText(extractReleaseNotes(body))
-}
-
-const notesPayloadTag = `<script type="application/json" data-target="react-app.embeddedData">`
-
-func extractReleaseNotes(body []byte) string {
-	raw := string(body)
-	start := strings.Index(raw, notesPayloadTag)
-	if start < 0 {
-		return ""
-	}
-	start += len(notesPayloadTag)
-	end := strings.Index(raw[start:], "</script>")
-	if end < 0 {
-		return ""
-	}
-	var payload map[string]any
-	if json.Unmarshal([]byte(raw[start:start+end]), &payload) != nil {
-		return ""
-	}
-	release, _ := payload["payload"].(map[string]any)
-	if release == nil {
-		return ""
-	}
-	if nested, ok := release["release"].(map[string]any); ok {
-		release = nested
-	}
-	return strings.TrimSpace(trimmedString(release, "bodyHTML"))
-}
-
-// notesToText converts GitHub's rendered release HTML into readable text.
-func notesToText(raw string) string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return ""
-	}
-	if !strings.Contains(value, "<") {
-		return truncateNotes(value)
-	}
-	doc, err := html.Parse(strings.NewReader(value))
-	if err != nil {
-		return truncateNotes(value)
-	}
-	var out strings.Builder
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "br":
-				out.WriteString("\n")
-			case "li":
-				out.WriteString("\n• ")
-			case "p", "div", "section", "article", "ul", "ol", "pre", "blockquote", "table", "h1", "h2", "h3", "h4", "h5", "h6":
-				out.WriteString("\n")
-			case "td", "th":
-				out.WriteString("  ")
-			}
-		}
-		if n.Type == html.TextNode {
-			if text := strings.TrimSpace(n.Data); text != "" {
-				out.WriteString(text)
-			}
-		}
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			walk(child)
-		}
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "p", "div", "section", "article", "ul", "ol", "pre", "blockquote", "table", "h1", "h2", "h3", "h4", "h5", "h6":
-				out.WriteString("\n")
-			}
-		}
-	}
-	walk(doc)
-	return truncateNotes(out.String())
-}
-
+// truncateNotes 压缩空行并限制长度：说明会随每次状态轮询发给前端。
 func truncateNotes(text string) string {
 	cleaned := strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
 	lines := strings.Split(cleaned, "\n")
@@ -968,10 +926,11 @@ func applyUpdate(ctx context.Context) (bool, error) {
 	// 一旦新文件就位，旧校验记录必须消失，避免下次启动按旧值校验新文件。
 	removeFileIfExists(staged + ".sha256")
 	if err := os.WriteFile(staged+".sha256", []byte(sum+"\n"), 0o644); err != nil {
-		logUpdate("写入校验记录失败：%v", err)
+		removeFileIfExists(staged)
+		return false, fmt.Errorf("无法写入校验记录：%w", err)
 	}
 
-	if err := replaceRunningExecutable(exe, tmpPath); err != nil {
+	if err := installExecutable(exe, tmpPath); err != nil {
 		logUpdate("未能替换运行中的程序（%v），更新包已暂存，将在下次启动时生效", err)
 		return false, nil
 	}
@@ -979,16 +938,25 @@ func applyUpdate(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// replaceRunningExecutable swaps the file of the running process.
-func replaceRunningExecutable(exe, fresh string) error {
+// installExecutable 原子替换 exe：新文件先完整写入同目录的 exe.new 并 fsync，
+// 再一次 rename 覆盖，任何时刻 exe 都是完整可运行的。旧程序以硬链接（不支持时复制）
+// 保留为 exe.old。路径不变，重启时 os.Executable 指向的就是新版本。
+func installExecutable(exe, src string) error {
+	fresh := exe + ".new"
+	removeFileIfExists(fresh)
+	if err := copyFile(src, fresh); err != nil {
+		return fmt.Errorf("无法写入新程序：%w", err)
+	}
+	defer os.Remove(fresh)
 	backup := exe + updateBackupSuffix
 	removeFileIfExists(backup)
-	if err := os.Rename(exe, backup); err != nil {
-		return err
+	if err := os.Link(exe, backup); err != nil {
+		if err := copyFile(exe, backup); err != nil {
+			return fmt.Errorf("无法备份旧程序：%w", err)
+		}
 	}
-	if err := renameInto(fresh, exe); err != nil {
-		restoreBackup(backup, exe)
-		return err
+	if err := os.Rename(fresh, exe); err != nil {
+		return fmt.Errorf("无法替换 %s：%w", exe, err)
 	}
 	return nil
 }
@@ -1069,13 +1037,14 @@ func downloadRequest(ctx context.Context, target string, binaryAccept bool) (*ht
 	if err != nil {
 		return nil, err
 	}
+	if !secureUpdateURL(req.URL) {
+		return nil, fmt.Errorf("拒绝通过非 https 地址下载更新包（%s）", redactURL(target))
+	}
 	req.Header.Set("User-Agent", "auto-anime-updater")
 	if binaryAccept {
 		req.Header.Set("Accept", "application/octet-stream")
 	}
-	if githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+githubToken)
-	}
+	setGitHubToken(req)
 	res, err := updateDownloadClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("下载更新包失败：%w", err)
@@ -1084,8 +1053,7 @@ func downloadRequest(ctx context.Context, target string, binaryAccept bool) (*ht
 }
 
 // verifyDownload confirms the download belongs to the release and returns its
-// SHA-256. A published checksum is authoritative; if the release has none, only
-// a download directly from the configured GitHub repository is accepted.
+// SHA-256. A published checksum is required.
 func verifyDownload(rel *releaseInfo, path string) (string, error) {
 	sum, err := hashFile(path)
 	if err != nil {
@@ -1104,26 +1072,7 @@ func verifyDownload(rel *releaseInfo, path string) (string, error) {
 		}
 		return sum, nil
 	}
-	// 没有校验文件时，只接受来自配置仓库/更新源的下载。
-	if prefix := githubDownloadPrefix(); prefix != "" && strings.HasPrefix(rel.PublicURL, prefix) {
-		logUpdate("该 Release 未提供校验文件，按更新源仓库地址接受 %s", filepath.Base(rel.PublicURL))
-		return sum, nil
-	}
-	base, _, err := resolveUpdateSource(updateSource)
-	if err != nil {
-		return "", fmt.Errorf("更新源无效：%w", err)
-	}
-	if isGitHubAPI(base) {
-		// API 附件地址由 api.github.com 提供，仓库归属已在检查阶段确认。
-		if rel.AssetUseAPI {
-			logUpdate("该 Release 未提供校验文件，按更新源仓库地址接受 %s", rel.AssetName)
-			return sum, nil
-		}
-		return "", errors.New("更新源未提供 SHA-256 校验值，为安全起见已中止更新")
-	}
-	if !strings.HasPrefix(rel.AssetURL, base) {
-		return "", fmt.Errorf("更新包来自 %s，不在更新源 %s 下，已中止", redactURL(rel.AssetURL), sourceHost())
-	}
+	// 发布流程总会附带 checksums.txt；没有校验值的包一律拒绝。
 	return "", errors.New("更新源未提供 SHA-256 校验值，为安全起见已中止更新")
 }
 
@@ -1303,18 +1252,22 @@ func updateStageDirs() []string {
 }
 
 // adoptStagedUpdate replaces the running executable with a staged file. It
-// refuses anything that does not match the recorded checksum, and keeps the
+// refuses anything without a matching recorded checksum, and keeps the
 // previous file as <executable>.old.
 func adoptStagedUpdate(staged, expected string) (bool, error) {
 	info, err := os.Stat(staged)
 	if err != nil || info.IsDir() || info.Size() < 1<<20 {
 		return false, nil
 	}
+	if expected == "" {
+		os.Remove(staged)
+		return false, errors.New("启动升级包缺少校验记录，已丢弃")
+	}
 	sum, err := hashFile(staged)
 	if err != nil {
 		return false, err
 	}
-	if expected != "" && !strings.EqualFold(expected, sum) {
+	if !strings.EqualFold(expected, sum) {
 		os.Remove(staged)
 		os.Remove(staged + ".sha256")
 		return false, fmt.Errorf("启动升级包校验失败（%s）", shortHash(sum))
@@ -1328,55 +1281,10 @@ func adoptStagedUpdate(staged, expected string) (bool, error) {
 	if current, err := hashFile(exe); err == nil && strings.EqualFold(current, sum) {
 		return false, nil
 	}
-	if err := replaceExecutable(exe, staged); err != nil {
+	if err := installExecutable(exe, staged); err != nil {
 		return false, err
 	}
-	// 同目录更新会移动暂存文件；独立数据目录的副本与校验记录需要保留。
-	if filepath.Dir(staged) == filepath.Dir(exe) {
-		os.Remove(staged + ".sha256")
-	}
 	return true, nil
-}
-
-func replaceExecutable(exe, staged string) error {
-	backup := exe + updateBackupSuffix
-	os.Remove(backup)
-	if err := os.Rename(exe, backup); err != nil {
-		return fmt.Errorf("无法备份旧程序：%w", err)
-	}
-	if filepath.Dir(staged) == filepath.Dir(exe) {
-		if err := renameInto(staged, exe); err != nil {
-			restoreBackup(backup, exe)
-			return err
-		}
-		return nil
-	}
-	if err := copyFile(staged, exe); err != nil {
-		restoreBackup(backup, exe)
-		return fmt.Errorf("无法写入新程序：%w", err)
-	}
-	return nil
-}
-
-func restoreBackup(backup, exe string) {
-	if _, err := os.Stat(exe); err == nil {
-		os.Remove(exe)
-	}
-	os.Rename(backup, exe)
-}
-
-// renameInto retries briefly: Linux keeps the old inode busy until the running
-// process lets go (ETXTBSY).
-func renameInto(src, dst string) error {
-	var err error
-	for attempt := 0; attempt < 6; attempt++ {
-		if err = os.Rename(src, dst); err == nil {
-			return nil
-		}
-		os.Remove(dst)
-		time.Sleep(400 * time.Millisecond)
-	}
-	return fmt.Errorf("无法替换 %s：%w", dst, err)
 }
 
 // reExecAfterUpdate starts the freshly installed binary in place of this
@@ -1504,9 +1412,12 @@ func startUpdate() {
 		ctx, cancel := context.WithTimeout(context.Background(), updateDownloadTime)
 		defer cancel()
 		inPlace, err := applyUpdate(ctx)
-		updateStateMu.Lock()
-		updateStarting = false
-		updateStateMu.Unlock()
+		if err != nil || !inPlace {
+			// 已原地替换时保持 updateStarting 直到进程退出：重复请求会覆盖 .old 备份。
+			updateStateMu.Lock()
+			updateStarting = false
+			updateStateMu.Unlock()
+		}
 		if err != nil {
 			setUpdateProgress("failed", err.Error(), false)
 			logUpdate("更新失败：%v", err)

@@ -28,9 +28,13 @@ func TestCompareVersions(t *testing.T) {
 		{"1.2", "1.2.0", 0},
 		{"1.2.0.1", "1.2.0", 1},
 		{"2.0.0", "10.0.0", -1},
-		{"1.2.0-rc1", "1.2.0", 0}, // 预发布只比较数字主体
-		{"1.2.0+build5", "1.2.0", 0},
-		{"dev", "1.2.0", 0}, // 无法解析时不触发更新
+		{"1.2.0-rc1", "1.2.0", -1}, // 预发布低于正式版
+		{"1.3.0-rc1", "1.2.0", 1},
+		{"1.2.0-rc.2", "1.2.0-rc.10", -1},
+		{"1.2.0-alpha", "1.2.0-beta", -1},
+		{"1.2.0-rc.1", "1.2.0-rc.1.1", -1},
+		{"1.2.0+build5", "1.2.0", 0}, // 构建元数据不参与比较
+		{"dev", "1.2.0", 0},          // 无法解析时不触发更新
 		{"", "1.2.0", 0},
 		{"nightly", "1.0.0", 0},
 	}
@@ -69,6 +73,8 @@ func TestResolveUpdateSource(t *testing.T) {
 		{raw: "https://github.com/owner/repo.git", wantBase: "https://api.github.com/repos/owner/repo/releases", wantLabel: "github.com/owner/repo"},
 		{raw: "https://dl.example.com/anime/", wantBase: "https://dl.example.com/anime", wantLabel: "dl.example.com"},
 		{raw: "not a source", wantErr: true},
+		{raw: "http://dl.example.com/anime", wantErr: true},
+		{raw: "http://127.0.0.1:8080/anime", wantBase: "http://127.0.0.1:8080/anime", wantLabel: "127.0.0.1:8080"},
 	}
 	for _, c := range cases {
 		base, label, err := resolveUpdateSource(c.raw)
@@ -130,35 +136,6 @@ func TestPickAssetForPlatform(t *testing.T) {
 }
 
 func platformPair() string { return runtime.GOOS + "_" + runtime.GOARCH }
-
-func TestNotesToText(t *testing.T) {
-	html := `<h2>新增</h2><ul><li>一键更新</li><li>版本检查</li></ul><p>修复：<code>size</code> 计算</p>`
-	text := notesToText(html)
-	for _, want := range []string{"新增", "一键更新", "版本检查", "修复", "size"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("转换结果缺少 %q：%q", want, text)
-		}
-	}
-	if strings.Contains(text, "<") {
-		t.Errorf("转换结果仍含标签：%q", text)
-	}
-	if plain := notesToText("纯文本说明"); plain != "纯文本说明" {
-		t.Errorf("纯文本被改写：%q", plain)
-	}
-	if empty := notesToText("   "); empty != "" {
-		t.Errorf("空说明应返回空串：%q", empty)
-	}
-}
-
-func TestExtractReleaseNotes(t *testing.T) {
-	body := []byte(`<html><script type="application/json" data-target="react-app.embeddedData">{"payload":{"release":{"bodyHTML":"<p>修复了 <b>BUG</b></p>"}}}</script></html>`)
-	if got := extractReleaseNotes(body); !strings.Contains(got, "BUG") {
-		t.Fatalf("未提取到更新说明：%q", got)
-	}
-	if got := extractReleaseNotes([]byte(`<html>no payload</html>`)); got != "" {
-		t.Fatalf("无 payload 时应返回空：%q", got)
-	}
-}
 
 // privateReleaseServer 模拟私有仓库的 Release：只提供 /releases/assets/<id>
 // 下载（browser_download_url 会 404，与 GitHub 私有仓库行为一致）。
@@ -521,8 +498,40 @@ func TestAdoptStagedUpdateSwapsExecutable(t *testing.T) {
 	if err != nil || len(got) != len(payload) {
 		t.Fatalf("替换后的可执行文件不正确：%v %d", err, len(got))
 	}
-	if _, err := os.Stat(exe + updateBackupSuffix); err != nil {
-		t.Fatalf("应保留旧程序备份：%v", err)
+	if backup, err := os.ReadFile(exe + updateBackupSuffix); err != nil || string(backup) != "old binary" {
+		t.Fatalf("应保留旧程序备份：%q %v", backup, err)
+	}
+}
+
+func TestAdoptStagedUpdateRequiresChecksum(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, updateStageFileName)
+	if err := os.WriteFile(staged, make([]byte, 2<<20), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if swapped, err := adoptStagedUpdate(staged, ""); err == nil || swapped {
+		t.Fatalf("缺少校验记录时应拒绝：%v %v", swapped, err)
+	}
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Fatalf("未校验的暂存包应被删除：%v", err)
+	}
+}
+
+func TestGitHubTokenOnlyGoesToGitHub(t *testing.T) {
+	old := githubToken
+	githubToken = "secret"
+	t.Cleanup(func() { githubToken = old })
+	for target, want := range map[string]bool{
+		"https://api.github.com/repos/a/b/releases":         true,
+		"https://objects.githubusercontent.com/asset":       true,
+		"https://mirror.example.com/latest.json":            false,
+		"https://github.com.evil.example/a/b/releases/x.gz": false,
+	} {
+		req := httptest.NewRequest("GET", target, nil)
+		setGitHubToken(req)
+		if got := req.Header.Get("Authorization") != ""; got != want {
+			t.Errorf("%s: token sent=%v want %v", target, got, want)
+		}
 	}
 }
 
