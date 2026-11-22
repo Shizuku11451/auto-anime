@@ -491,7 +491,7 @@ func TestWebAuth(t *testing.T) {
 func TestAuthRequiresCompleteConfig(t *testing.T) {
 	oldUser, oldPassword := webUser, webPassword
 	oldSetupDone := setupDone
-	setupDone = true // 引导已跳过：部分 env 配置时保持完全开放
+	setupDone = true // 即使引导曾被跳过，凭据不完整时也必须回到首次安装引导
 	defer func() { webUser, webPassword = oldUser, oldPassword; setupDone = oldSetupDone }()
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })
 	for _, tc := range []struct{ user, password string }{
@@ -502,8 +502,8 @@ func TestAuthRequiresCompleteConfig(t *testing.T) {
 		webUser, webPassword = tc.user, tc.password
 		recorder := httptest.NewRecorder()
 		auth(next).ServeHTTP(recorder, httptest.NewRequest("GET", "/", nil))
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("partial config %q/%q should stay open, got %d", tc.user, tc.password, recorder.Code)
+		if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/setup" {
+			t.Fatalf("partial config %q/%q must route to setup, got %d", tc.user, tc.password, recorder.Code)
 		}
 	}
 }

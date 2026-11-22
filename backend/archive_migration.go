@@ -2,17 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 )
 
 var archiveMigrationMu sync.Mutex
+
+var errForeignArchive = errors.New("文件旁的归档记录不属于该条目")
 
 // Source media is retained until new media, sidecars and the item update have
 // all succeeded. A crash before the DB update may leave an extra copy, but
@@ -217,8 +221,13 @@ func publishMigrationFile(src, dst string) (err error) {
 	return err
 }
 
+// 只检查媒体根目录以下的路径组件：根目录本身及其祖先（如 macOS 的 /var）是用户环境，可以是符号链接。
 func checkMigrationParents(p string) error {
+	roots := mediaRoots()
 	for {
+		if slices.Contains(roots, p) {
+			return nil
+		}
 		info, err := os.Lstat(p)
 		if err != nil && !os.IsNotExist(err) {
 			return err
@@ -273,8 +282,13 @@ func migrationSource(oldPath string, id int64) (root, rel string, sidecars []str
 	}
 	base := strings.TrimSuffix(oldPath, filepath.Ext(oldPath))
 	if info.Mode().IsRegular() {
-		if _, err := readMeta(base + "-info.json"); err == nil {
+		_, err := readMeta(base + "-info.json")
+		if err == nil {
 			return oldPath, "", []string{base + ".nfo", base + "-info.json"}, nil
+		}
+		// 旁边的归档记录属于别的条目（或已损坏）时，这个文件不能当作本条目的裸文件处理。
+		if !os.IsNotExist(err) {
+			return "", "", nil, fmt.Errorf("%w：%v", errForeignArchive, err)
 		}
 	}
 	for dir := filepath.Dir(oldPath); ; dir = filepath.Dir(dir) {

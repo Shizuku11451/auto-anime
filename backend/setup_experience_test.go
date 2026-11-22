@@ -31,19 +31,13 @@ func TestSetupStatusPathsOnlyBeforeInitialization(t *testing.T) {
 	if out["required"] != true || out["library_dir"] != "/media" || out["download_dir"] != downloadDir || out["poll_minutes"] != float64(pollMinutes) || out["proxy_enabled"] != false {
 		t.Fatalf("missing defaults: %+v", out)
 	}
-	setupDone = true
-	out = read()
-	if out["required"] != false || out["library_dir"] != nil || out["download_dir"] != nil {
-		t.Fatalf("public paths after setup: %+v", out)
-	}
-	if out["poll_minutes"] != nil || out["proxy_enabled"] != nil || out["proxy_url"] != nil {
-		t.Fatalf("public network defaults after setup: %+v", out)
-	}
-	setupDone = false
 	webUser, webPassword = "admin", "test-password"
 	out = read()
 	if out["required"] != false || out["library_dir"] != nil || out["download_dir"] != nil {
 		t.Fatalf("public paths with environment credentials: %+v", out)
+	}
+	if out["poll_minutes"] != nil || out["proxy_enabled"] != nil || out["proxy_url"] != nil {
+		t.Fatalf("public network defaults after setup: %+v", out)
 	}
 }
 
@@ -57,7 +51,7 @@ func TestSetupReportsUnmappedArchiveRootAndPreservesSettings(t *testing.T) {
 			libraryDir, downloadDir = "", "/unmapped/downloads"
 			t.Cleanup(func() { libraryDir, downloadDir = oldLibrary, oldDownload })
 			useMountInfo(t, containerMountTable)
-			body, _ := json.Marshal(map[string]any{"library_dir": library, "download_mode": "direct"})
+			body, _ := json.Marshal(map[string]any{"library_dir": library, "download_mode": "direct", "web_user": "admin", "web_password": "test-password"})
 			rec := httptest.NewRecorder()
 			setupHandler(rec, httptest.NewRequest("POST", "/api/setup", strings.NewReader(string(body))))
 			var out struct {

@@ -167,7 +167,7 @@ func bangumiWishSync(ctx context.Context) error {
 
 func bangumiWishAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if r.Method != http.MethodGet && !allowSetupWrite(w, r) {
+	if r.Method != http.MethodGet && !allowSameOriginWrite(w, r) {
 		return
 	}
 	switch r.Method {
@@ -242,7 +242,7 @@ func bangumiWishSyncAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	if !allowSetupWrite(w, r) {
+	if !allowSameOriginWrite(w, r) {
 		return
 	}
 	if err := bangumiWishSync(r.Context()); err != nil {

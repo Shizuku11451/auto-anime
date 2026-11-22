@@ -317,8 +317,15 @@ func initDB() {
 
 type feedItem struct{ Title, Link, Pub, Description, PageURL string }
 
+// syncFeedContext syncs one feed with the per-round housekeeping around it;
+// syncEnabledFeedsContext runs that housekeeping once for the whole round.
 func syncFeedContext(ctx context.Context, id int) (int, error) {
 	processCompletedFeeds()
+	defer enqueueMissingMeta()
+	return syncFeedOnce(ctx, id)
+}
+
+func syncFeedOnce(ctx context.Context, id int) (int, error) {
 	var stopped bool
 	if err := db.QueryRow("SELECT enabled=0 AND completion_note<>'' FROM feeds WHERE id=?", id).Scan(&stopped); err != nil {
 		return 0, err
@@ -328,6 +335,7 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 	}
 	animeCleanupMu.RLock()
 	defer animeCleanupMu.RUnlock()
+	rules := loadAnimeRules() // under the lock so a deleted anime cannot be matched
 	var f Feed
 	var a int
 	e := db.QueryRow("SELECT id,name,url,include_words,exclude_words,auto_download,COALESCE(target_title,''),COALESCE(storage_dir,''),COALESCE(season_filter,0),COALESCE(allow_unknown_season,0),episode_offset FROM feeds WHERE id=?", id).Scan(&f.ID, &f.Name, &f.URL, &f.Include, &f.Exclude, &a, &f.TargetTitle, &f.StorageDir, &f.SeasonFilter, &f.AllowUnknownSeason, &f.EpisodeOffset)
@@ -412,7 +420,7 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 				continue
 			}
 			ownSeries = true
-		} else if id, title := matchAnimeRule(it.Title); id > 0 {
+		} else if id, title := rules.match(it.Title); id > 0 {
 			animeID, animeTitle = id, title
 		} else if animeTitle != "" {
 			animeID, _ = ensureAnime(animeTitle)
@@ -456,9 +464,6 @@ func syncFeedContext(ctx context.Context, id int) (int, error) {
 		lastError = writeErr.Error()
 	}
 	db.Exec("UPDATE feeds SET last_sync=?,last_error=? WHERE id=?", time.Now().Format(time.RFC3339), lastError, id)
-	// Cover lookups run in the background; a slow metadata source must not
-	// stretch the sync request.
-	enqueueMissingMeta()
 	return n, writeErr
 }
 func downloadItem(id int) {
@@ -777,7 +782,7 @@ func feeds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in FeedInput
-	if json.NewDecoder(r.Body).Decode(&in) != nil {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil {
 		http.Error(w, "请求参数无效", 400)
 		return
 	}
@@ -863,12 +868,16 @@ func preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in PreviewInput
-	if json.NewDecoder(r.Body).Decode(&in) != nil {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil {
 		http.Error(w, "请求参数无效", 400)
 		return
 	}
 	if !titleparse.ValidSeasonFilter(in.SeasonFilter) {
 		http.Error(w, "季数条件无效", 400)
+		return
+	}
+	if !validFeedURL(strings.TrimSpace(in.URL)) {
+		http.Error(w, "订阅地址无效", 400)
 		return
 	}
 	fetched, err := fetchSubscription(r.Context(), strings.TrimSpace(in.URL))
@@ -1190,21 +1199,33 @@ func deleteFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	// 先只读任务标识，再关掉结果集走网络：SQLite 连接池只有一条连接，持着 rows
+	// 事务内只读任务标识，提交后再走网络：SQLite 连接池只有一条连接，持着事务
 	// 调下载器（内置 qBittorrent 登录最长 30 秒）会阻塞其它数据库读写。
-	tasks := pendingDownloaderTasks(db, "SELECT downloader,task_id FROM items WHERE feed_id=? AND COALESCE(task_id,'')<>''", id)
-	_, _ = db.Exec("DELETE FROM items WHERE feed_id=?", id)
-	cancelDownloaderTasks(tasks)
-	result, err := db.Exec("DELETE FROM feeds WHERE id=?", id)
+	tx, err := db.Begin()
 	if err != nil {
 		http.Error(w, "删除失败", 500)
 		return
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback()
+	tasks := pendingDownloaderTasks(tx, "SELECT downloader,task_id FROM items WHERE feed_id=? AND COALESCE(task_id,'')<>''", id)
+	if _, err = tx.Exec("DELETE FROM items WHERE feed_id=?", id); err != nil {
+		http.Error(w, "删除失败", 500)
+		return
+	}
+	result, err := tx.Exec("DELETE FROM feeds WHERE id=?", id)
+	if err != nil {
+		http.Error(w, "删除失败", 500)
+		return
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
 		http.Error(w, "订阅不存在", 404)
 		return
 	}
+	if err = tx.Commit(); err != nil {
+		http.Error(w, "删除失败", 500)
+		return
+	}
+	cancelDownloaderTasks(tasks)
 	jsonOut(w, map[string]bool{"ok": true})
 }
 
@@ -1216,7 +1237,7 @@ func updateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in FeedInput
-	if json.NewDecoder(r.Body).Decode(&in) != nil || strings.TrimSpace(in.Name) == "" {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil || strings.TrimSpace(in.Name) == "" {
 		http.Error(w, "订阅参数无效", 400)
 		return
 	}
@@ -1448,8 +1469,6 @@ func runApplicationContext(ctx context.Context) error {
 	startUpdateChecker()
 	if authEnabled() {
 		log.Println("Web 登录已启用")
-	} else if setupDone {
-		log.Println("Web 登录未启用：已跳过首次安装引导，可在设置页配置")
 	} else if (webUser == "") != (webPassword == "") {
 		log.Println("Web 认证未启用：需要同时设置 WEB_USER 和 WEB_PASSWORD")
 	}
@@ -1566,8 +1585,12 @@ func syncEnabledFeedsContext(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	processCompletedFeeds()
+	// Cover lookups run in the background; a slow metadata source must not
+	// stretch the sync round.
+	defer enqueueMissingMeta()
 	for _, id := range ids {
-		if _, err := syncFeedContext(ctx, id); err != nil {
+		if _, err := syncFeedOnce(ctx, id); err != nil {
 			log.Printf("订阅 %d 同步失败: %v", id, err)
 		}
 	}

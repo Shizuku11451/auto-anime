@@ -138,6 +138,7 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 		}
 		seen[id] = true
 	}
+	roots := mediaRoots() // 删除番剧后其自定义存储目录就查不到了
 	tx, err := db.Begin()
 	if err != nil {
 		return bad(500, "操作失败，请重试")
@@ -230,7 +231,7 @@ func manageAnime(in animeManageInput) (animeManageResult, int, error) {
 	// 数据库已提交，此时取消下载器任务不再占用事务与唯一连接。
 	cancelDownloaderTasks(tasks)
 	if in.Action == "delete" && in.DeleteFiles {
-		out.mediaDeleteResult = deleteSavedMedia(media)
+		out.mediaDeleteResult = deleteSavedMedia(media, roots)
 	}
 	if in.Action == "merge" && in.MoveFiles && len(media) > 0 {
 		only := map[int64]bool{}

@@ -16,7 +16,7 @@ func settingsStorageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", http.StatusMethodNotAllowed)
 		return
 	}
-	if !allowSetupWrite(w, r) {
+	if !allowSameOriginWrite(w, r) {
 		return
 	}
 	if setupRequired() {
@@ -43,7 +43,7 @@ func settingsStorageHandler(w http.ResponseWriter, r *http.Request) {
 
 // Setup is unauthenticated, so only same-host browser requests may write.
 // CLI clients without browser headers remain supported.
-func allowSetupWrite(w http.ResponseWriter, r *http.Request) bool {
+func allowSameOriginWrite(w http.ResponseWriter, r *http.Request) bool {
 	allowed := r.Header.Get("Sec-Fetch-Site") != "cross-site"
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
 		u, err := url.Parse(origin)
@@ -123,7 +123,7 @@ func setupStorageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", http.StatusMethodNotAllowed)
 		return
 	}
-	if !allowSetupWrite(w, r) {
+	if !allowSameOriginWrite(w, r) {
 		return
 	}
 	settingsMu.Lock()

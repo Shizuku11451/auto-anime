@@ -239,15 +239,15 @@ func applyTaskUpdateLocked(t taskRef, s taskState) {
 			db.Exec("UPDATE items SET status='下载中',task_error=? WHERE id=? AND status IN ("+activeTaskStatusSQL+")", "归档失败："+err.Error(), t.ID)
 			return
 		}
+		// 提交前登记，崩溃后由 recoverArchiveCommits 补提交时清理仍会执行；
+		// 登记失败只保留源文件，不能阻止提交，否则条目会永远卡在「下载中」。
 		if !runtimeConfig().keepSourceFiles {
 			if err := queueSourceCleanup(t, path, s.Files); err != nil {
-				log.Printf("条目 %d 记录源文件清理失败: %v", t.ID, err)
-				return
+				log.Printf("条目 %d 记录源文件清理失败，已保留源文件: %v", t.ID, err)
 			}
 		}
 		if err := commitSavedArchive(t.ID, path); err != nil {
 			log.Printf("条目 %d 归档记录提交失败，下轮重试: %v", t.ID, err)
-			return
 		}
 		return
 	}

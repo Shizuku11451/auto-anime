@@ -99,20 +99,43 @@ func migrateAnimeData() error {
 // title. Include keywords are required so an exclude-only rule never grabs
 // every item; the longest include list wins as the most specific claim.
 func matchAnimeRule(rawTitle string) (int64, string) {
+	return loadAnimeRules().match(rawTitle)
+}
+
+type animeRule struct {
+	id     int64
+	title  string
+	filter keywordfilter.Filter
+}
+
+type animeRuleSet []animeRule
+
+// loadAnimeRules reads every rule once so a sync round does not re-query and
+// re-parse them for each RSS item.
+func loadAnimeRules() animeRuleSet {
 	rows, err := db.Query(`SELECT id,title,include_rules,COALESCE(exclude_rules,'') FROM animes
 		WHERE COALESCE(include_rules,'')!='' ORDER BY length(include_rules) DESC, id ASC`)
 	if err != nil {
-		return 0, ""
+		return nil
 	}
 	defer rows.Close()
+	var rules animeRuleSet
 	for rows.Next() {
-		var id int64
-		var title, include, exclude string
-		if rows.Scan(&id, &title, &include, &exclude) != nil {
+		var r animeRule
+		var include, exclude string
+		if rows.Scan(&r.id, &r.title, &include, &exclude) != nil {
 			continue
 		}
-		if keywordfilter.Allowed(rawTitle, include, exclude) {
-			return id, title
+		r.filter = keywordfilter.New(include, exclude)
+		rules = append(rules, r)
+	}
+	return rules
+}
+
+func (rules animeRuleSet) match(rawTitle string) (int64, string) {
+	for _, r := range rules {
+		if r.filter.Allows(rawTitle) {
+			return r.id, r.title
 		}
 	}
 	return 0, ""
@@ -887,6 +910,7 @@ func animeApplyRules(w http.ResponseWriter, id int64) {
 		http.Error(w, "请先在编辑中填写包含规则关键词", 400)
 		return
 	}
+	rules := loadAnimeRules()
 	rows, err := db.Query(`SELECT id,COALESCE(title,'') FROM items
 		WHERE anime_id!=? AND COALESCE(manual,0)=0 ORDER BY id DESC LIMIT 2000`, id)
 	if err != nil {
@@ -898,7 +922,12 @@ func animeApplyRules(w http.ResponseWriter, id int64) {
 	for rows.Next() {
 		var itemID int64
 		var title string
-		if rows.Scan(&itemID, &title) == nil && filter.Allows(title) {
+		if rows.Scan(&itemID, &title) != nil || !filter.Allows(title) {
+			continue
+		}
+		// Leave items whose most specific rule belongs to another anime, or
+		// two overlapping rules would steal items back and forth.
+		if owner, _ := rules.match(title); owner == 0 || owner == id {
 			candidates = append(candidates, itemID)
 		}
 	}

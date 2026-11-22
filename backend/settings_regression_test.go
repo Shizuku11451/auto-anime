@@ -61,13 +61,14 @@ func TestSettingsOrdinarySavePreservesLoginAndSetup(t *testing.T) {
 	if rec := settingsPUT(t, `{"web_user":"","poll_minutes":12}`); rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
-	if setupRequired() || authenticatedStatus(nil, "", "") != 200 {
-		t.Fatal("skipped setup reopened")
+	// 没有凭据就不能对局域网开放，即使 setup_done=1。
+	if !setupRequired() || authenticatedStatus(nil, "", "") != http.StatusUnauthorized {
+		t.Fatal("instance without credentials stayed open")
 	}
 	setupDone = false
 	loadSettings()
-	if setupRequired() || pollMinutes != 12 {
-		t.Fatal("skipped setup lost on restart")
+	if !setupRequired() || pollMinutes != 12 {
+		t.Fatal("settings lost on restart")
 	}
 }
 

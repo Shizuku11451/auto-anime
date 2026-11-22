@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -69,11 +71,25 @@ func transportForProxy(u *url.URL) *http.Transport {
 		IdleConnTimeout:     90 * time.Second,
 		DisableCompression:  true,
 		ForceAttemptHTTP2:   true,
+		DialContext:         (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: rejectLinkLocal}).DialContext,
 	}
 	if u != nil {
 		transport.Proxy = http.ProxyURL(u)
 	}
 	return transport
+}
+
+// rejectLinkLocal 在连接时（DNS 解析与重定向之后）拒绝链路本地地址，例如云主机元数据
+// 169.254.169.254：订阅、种子与预览地址都来自用户或第三方订阅源。局域网地址仍允许。
+func rejectLinkLocal(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	if ip := net.ParseIP(host); ip == nil || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return fmt.Errorf("拒绝访问链路本地或无效地址 %s", host)
+	}
+	return nil
 }
 
 func newClient(timeout time.Duration) *http.Client {

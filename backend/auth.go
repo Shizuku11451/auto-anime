@@ -273,6 +273,10 @@ func auth(next http.Handler) http.Handler {
 	// requests are redirected to /login. A brand-new instance without any
 	// credentials is routed to the first-run setup wizard instead.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// SameSite 不区分端口，同一 NAS 上其他应用的页面也会带上 cookie：所有写请求都要求同源。
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !allowSameOriginWrite(w, r) {
+			return
+		}
 		if !authEnabled() {
 			if setupRequired() && !isPublicPath(r.URL.Path) {
 				if strings.HasPrefix(r.URL.Path, "/api/") {

@@ -463,7 +463,7 @@ func udpTrackerAnnounce(ctx context.Context, u *url.URL, infohashHex string, lef
 	if u.Port() == "" {
 		host = net.JoinHostPort(u.Hostname(), "80")
 	}
-	dialer := net.Dialer{Timeout: availabilityUDPTTimeout}
+	dialer := net.Dialer{Timeout: availabilityUDPTTimeout, Control: rejectLinkLocal}
 	conn, err := dialer.DialContext(ctx, "udp", host)
 	if err != nil {
 		return 0, 0, fmt.Errorf("连接失败")

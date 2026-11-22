@@ -64,7 +64,7 @@ func TestSetupStorageUsesOnlyDeploymentRootAndClosesAfterSetup(t *testing.T) {
 	if rec.Code != 200 || !samePath(out.Path, libraryDir) || !out.Writable {
 		t.Fatalf("result: %d %+v", rec.Code, out)
 	}
-	setupDone = true
+	webUser, webPassword = "admin", "test-password"
 	rec = httptest.NewRecorder()
 	setupStorageHandler(rec, r)
 	if rec.Code != 403 {

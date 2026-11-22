@@ -234,5 +234,5 @@ func deleteItemRecords(ids []int, deleteFiles bool) (mediaDeleteResult, error) {
 		clearTransfer(item.ID)
 		removeDownloaderTask(item.Downloader, item.TaskID)
 	}
-	return deleteSavedMedia(media), nil
+	return deleteSavedMedia(media, mediaRoots()), nil
 }
