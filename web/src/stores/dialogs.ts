@@ -16,6 +16,8 @@ export interface PlayerEntry {
   episode: string
   fansub_group: string
   quality: string
+  /** 用于判断容器格式（流地址没有扩展名） */
+  file_path: string
 }
 
 /** 传给播放器组件的展示信息 */
@@ -29,6 +31,8 @@ export interface PlayerSource {
   sub: string
   /** 连播提示里显示的下一集名 */
   nextLabel: string
+  /** 源文件路径，用于判断是否为 MKV */
+  file_path: string
 }
 
 interface DialogState {

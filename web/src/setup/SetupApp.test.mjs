@@ -180,20 +180,25 @@ test('自动登录失败保留已安装结果，保存失败保留输入供重�
   assert.equal(failed.state.msg.value, '模拟失败')
 })
 
-test('无账户的内置 BT 模式也需要明确确认，确认和保存期间防止重复操作', async () => {
+test('完成和跳过都必须设置账户，确认和保存期间防止重复操作', async () => {
   const h = setup()
   await h.state.loadStatus()
-  let resolveConfirm
-  h.confirm(() => new Promise(resolve => { resolveConfirm = resolve }))
-  const pending = h.state.finish()
   await h.state.finish()
   await h.state.skip()
+  assert.equal(h.confirmations.length, 0)
+  assert.equal(h.writes.length, 0)
+  assert.ok(h.state.msg.value.includes('用户名和密码'))
+  account(h)
+  let resolveConfirm
+  h.confirm(() => new Promise(resolve => { resolveConfirm = resolve }))
+  const pending = h.state.skip()
+  await h.state.skip()
+  await h.state.finish()
   assert.equal(h.confirmations.length, 1)
   assert.equal(h.writes.length, 0)
   resolveConfirm(false)
   await pending
   assert.equal(h.writes.length, 0)
-  h.confirm(async () => true)
   let resolveSave
   h.save(() => new Promise(resolve => { resolveSave = resolve }))
   const saving = h.state.finish()
@@ -247,7 +252,8 @@ test('安装向导直接从保存目录进入确认，不再配置或提交 RSS 
   assert.equal(h.state.completed.value, true)
   const skipped = setup()
   await skipped.state.loadStatus()
+  account(skipped)
   await skipped.state.skip()
-  assert.deepEqual(Object.keys(skipped.writes[0]), [])
+  assert.deepEqual(Object.keys(skipped.writes[0]), ['web_user', 'web_password'])
   assert.equal(skipped.state.completed.value, true)
 })

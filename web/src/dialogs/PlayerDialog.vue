@@ -28,6 +28,7 @@ const source = computed<PlayerSource | null>(() => {
     badge,
     sub,
     nextLabel: nextEntry.value?.title === e.title ? epTitle(nextEntry.value) : nextEntry.value?.title || '',
+    file_path: e.file_path,
   }
 })
 

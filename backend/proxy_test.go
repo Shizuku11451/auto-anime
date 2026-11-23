@@ -110,3 +110,14 @@ func TestRedactProxyHidesCredentials(t *testing.T) {
 		t.Fatalf("redacted nil proxy: %q", got)
 	}
 }
+
+func TestRejectLinkLocal(t *testing.T) {
+	for addr, blocked := range map[string]bool{
+		"169.254.169.254:80": true, "[fe80::1]:80": true, "0.0.0.0:80": true,
+		"192.168.1.10:8080": false, "127.0.0.1:80": false, "8.8.8.8:443": false,
+	} {
+		if err := rejectLinkLocal("tcp", addr, nil); (err != nil) != blocked {
+			t.Errorf("%s: blocked=%v want %v", addr, err != nil, blocked)
+		}
+	}
+}

@@ -9,7 +9,7 @@ import { MODE_LABEL } from '@/api/types'
 import type { SetupResult, SetupStatus, SetupStorageResult } from '@/api/types'
 
 const STEPS = [
-  { key: 'account', title: '管理员账户', icon: UserRound, hint: '建议创建账户，保护订阅与下载管理；这是 Auto-Anime 的账户，与 NAS 账户无关。' },
+  { key: 'account', title: '管理员账户', icon: UserRound, hint: '创建账户以保护订阅与下载管理；这是 Auto-Anime 的账户，与 NAS 账户无关。' },
   { key: 'download', title: '下载方式', icon: HardDrive, hint: '默认使用内置 BT 下载器，也可连接已有下载器或选择本地直链。' },
   { key: 'storage', title: '保存目录', icon: FolderOpen, hint: '选择整理好的番剧放在哪里，飞牛影视、Emby 或 Jellyfin 扫描这个目录。' },
   { key: 'network', title: '确认并开始', icon: Globe, hint: '已沿用部署配置；未配置时默认直连、每 30 分钟同步。确认后即可开始添加订阅。' },
@@ -153,9 +153,9 @@ async function checkStorage() {
 
 function validateAccount(): string {
   const u = form.user.trim()
-  if ((u || form.pass) && (!u || !form.pass)) return '用户名和密码需要一起填写，或都留空跳过'
-  if (form.pass && form.pass.length < 6) return '密码至少 6 位'
-  if (form.pass && form.pass !== form.pass2) return '两次输入的密码不一致'
+  if (!u || !form.pass) return '请设置管理员用户名和密码'
+  if (form.pass.length < 6) return '密码至少 6 位'
+  if (form.pass !== form.pass2) return '两次输入的密码不一致'
   return ''
 }
 
@@ -270,28 +270,24 @@ async function finish() {
     msg.value = err
     return
   }
-  const body = collect()
-  if (!body.web_user) {
-    confirming.value = true
-    let ok = false
-    try {
-      ok = await confirmDialog('尚未设置管理员账户', '能访问此服务的人都可以管理订阅、下载和设置。仍要在不启用登录的情况下继续吗？', { okText: '仍要继续', danger: true })
-    } finally { confirming.value = false }
-    if (!ok) return
-  }
-  await submit(body)
+  await submit(collect())
 }
 
 async function skip() {
   if (locked.value || completed.value) return
   msg.value = ''
+  const err = validateAccount()
+  if (err) {
+    msg.value = err
+    return
+  }
   confirming.value = true
   let ok = false
   try {
-    ok = await confirmDialog('使用部署默认配置', '不保存当前填写的内容，也不启用登录或配置搜索源。能访问此服务的人都可以管理订阅与下载；之后可在设置页创建账户、配置搜索源，或直接添加 RSS。', { okText: '使用默认配置', danger: true })
+    ok = await confirmDialog('使用部署默认配置', '只保存管理员账户，其余填写的内容不保存，也不配置搜索源；之后可在设置页修改，或直接添加 RSS。', { okText: '使用默认配置' })
   } finally { confirming.value = false }
   if (!ok) return
-  await submit({})
+  await submit({ web_user: form.user.trim(), web_password: form.pass })
 }
 
 function enterPanel() {

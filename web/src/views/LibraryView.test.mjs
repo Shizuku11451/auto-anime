@@ -26,7 +26,7 @@ function fixture(t, { query = {}, storage = new Map(), dialogOpen = false } = {}
   const localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)) }
   const modules = {
     vue: { ...vue, onMounted() {}, onBeforeUnmount(fn) { unmount = fn } },
-    '@vueuse/core': { useResizeObserver(_target, callback) { resize = callback }, useIntervalFn() {}, useEventListener(_target, _event, fn) { keydown = fn } },
+    '@vueuse/core': { useResizeObserver(_target, callback) { resize = callback }, useIntervalFn() {}, useDocumentVisibility: () => ({ value: 'visible' }), useEventListener(_target, _event, fn) { keydown = fn } },
     'vue-router': {
       useRoute: () => route,
       useRouter: () => ({ push: next => routes.push(next), replace: next => { replaced.push(next.query); route.query = next.query; return Promise.resolve() } }),

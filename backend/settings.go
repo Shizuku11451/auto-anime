@@ -145,10 +145,10 @@ func applyStoredSettings(stored map[string]string) {
 }
 
 // setupRequired reports whether the first-run wizard should run: the service
-// has no usable credentials at all and the wizard was not skipped.
+// has no usable credentials. Without them every API would be open to the LAN,
+// so even instances that once skipped the wizard are sent back to it.
 func setupRequired() bool {
-	cfg := runtimeConfig()
-	return !cfg.setupDone && cfg.webHash == "" && (cfg.webUser == "" || cfg.webPassword == "")
+	return !authEnabled()
 }
 
 // v1 SHA-256 is read-only legacy support; successful authentication upgrades it.
@@ -543,7 +543,7 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不支持", 405)
 		return
 	}
-	if !allowSetupWrite(w, r) {
+	if !allowSameOriginWrite(w, r) {
 		return
 	}
 	in, ok := decodeSettings(w, r)
@@ -552,9 +552,12 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	cfg := runtimeConfig()
-	if cfg.setupDone || authEnabled() {
+	if authEnabled() {
 		http.Error(w, "已完成初始化，请登录后在设置页修改", http.StatusForbidden)
+		return
+	}
+	if in.WebUser == nil || strings.TrimSpace(*in.WebUser) == "" || in.WebPassword == nil || *in.WebPassword == "" {
+		http.Error(w, "请设置管理员用户名和密码", 400)
 		return
 	}
 	if err := saveSettings(in, true); err != nil {

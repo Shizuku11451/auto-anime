@@ -13,9 +13,12 @@ const source = parse(readFileSync(new URL('./ItemsView.vue', import.meta.url), '
 const compiled = compile(source + '\nexport { selected, selecting, batch, batchRunning, batchFailures, downloadable, pausable, resumable, control, search, applySearch, clearFilters, changePage, selectVisible, toggle, queryPending, refreshItems, refreshing, refreshMessage, play };')
 const status = { exports: {} }
 runInNewContext(compile(readFileSync(new URL('../utils/status.ts', import.meta.url), 'utf8')), status)
+const queue = { exports: {} }
+runInNewContext(compile(readFileSync(new URL('../utils/playerQueue.ts', import.meta.url), 'utf8')), queue)
 
 function itemsView(t) {
-  const calls = [], messages = [], queries = [], playback = []
+  const calls = [], messages = [], queries = [], playback = [], gets = []
+  let detail = async () => { throw new Error('offline') }
   let refreshed = 0
   let confirmation = async () => true
   let debouncedSearch
@@ -42,10 +45,11 @@ function itemsView(t) {
       is: id => busy.value.has(id),
       run: async (id, fn) => { if (busy.value.has(id)) return; busy.value.add(id); try { return await fn() } finally { busy.value.delete(id) } },
     }) },
-    '@/api/client': { http: { post: async (...args) => { calls.push(args); return response() } }, errorMessage: e => e.message },
+    '@/api/client': { http: { post: async (...args) => { calls.push(args); return response() }, get: async (url) => { gets.push(url); return detail() } }, errorMessage: e => e.message },
     '@/stores/confirm': { confirmDialog: (...args) => confirmation(...args) },
     '@/stores/toast': { toast: Object.fromEntries(['success', 'info', 'error'].map(type => [type, message => messages.push({ type, message })])) },
     '@/utils/status': status.exports,
+    '@/utils/playerQueue': queue.exports,
   }
   const context = { exports: {}, require: id => {
     assert.ok(id in modules, `unexpected setup import: ${id}`)
@@ -54,21 +58,29 @@ function itemsView(t) {
   const scope = vue.effectScope()
   scope.run(() => runInNewContext(compiled, context))
   t.after(() => scope.stop())
-  return { component: context.exports, store, calls, messages, queries, playback, refreshed: () => refreshed, respond: fn => { response = fn }, confirm: fn => { confirmation = fn }, debounce: () => debouncedSearch() }
+  return { component: context.exports, store, calls, messages, queries, playback, gets, detail: fn => { detail = fn }, refreshed: () => refreshed, respond: fn => { response = fn }, confirm: fn => { confirmation = fn }, debounce: () => debouncedSearch() }
 }
 
-test('最近条目播放按条目指定、番剧设置、标题解析、第一季的优先级展示和排序', (t) => {
+test('最近条目播放读取番剧详情，连播列表包含其他分页的剧集并按季/集排序', async (t) => {
   const h = itemsView(t)
-  h.store.animes.value = [{ id: 10, season: 3 }, { id: 11, season: 0 }]
-  const item = (id, anime_id, season, season_auto, episode = '01') => ({
-    id, anime_id, season, season_auto, episode, anime_title: '验收动画', title: '原始标题',
-    status: '已保存', file_path: `/${id}.mp4`, fansub_group: 'QA', quality: '1080P',
-  })
-  h.store.items.value = [item(1, 10, 4, 2), item(2, 10, 0, 2), item(3, 11, 0, 2, '02'), item(4, 11, 0, 0), item(5, 11, 0, 2)]
-  h.component.play(h.store.items.value[2])
+  const r = (id, season, episode, status = '已保存') => ({ id, season, episode, status, file_path: `/${id}.mkv`, fansub_group: 'QA', quality: '1080P' })
+  h.detail(async () => ({ title: '验收动画', meta_name_cn: '', seasons: [
+    { season: 2, episodes: [{ episode: '02', items: [r(3, 0, '02')] }, { episode: '01', items: [r(5, 0, '01')] }], loose: [] },
+    { season: 1, episodes: [{ episode: '01', items: [r(4, 0, '01'), r(6, 0, '02', '下载中')] }], loose: [r(1, 4, '')] },
+  ] }))
+  await h.component.play({ id: 3, anime_id: 11, season: 0, season_auto: 2, episode: '02', title: '原始标题', status: '已保存' })
+  assert.deepEqual(h.gets, ['/api/animes/11'])
   const [entries, startId] = h.playback[0]
-  assert.deepEqual(Array.from(entries, x => [x.id, x.season]), [[4, 1], [5, 2], [3, 2], [2, 3], [1, 4]])
+  assert.deepEqual(Array.from(entries, x => [x.id, x.season, x.file_path]), [[4, 1, '/4.mkv'], [1, 4, '/1.mkv'], [5, 2, '/5.mkv'], [3, 2, '/3.mkv']])
   assert.equal(startId, 3)
+})
+
+test('最近条目播放在详情读取失败时只播当前条目，季号回退到番剧设置', async (t) => {
+  const h = itemsView(t)
+  h.store.animes.value = [{ id: 10, season: 3 }]
+  await h.component.play({ id: 2, anime_id: 10, season: 0, season_auto: 2, episode: '01', anime_title: '验收动画', title: '原始标题', file_path: '/2.mp4' })
+  const [entries] = h.playback[0]
+  assert.deepEqual(Array.from(entries, x => [x.id, x.season, x.title]), [[2, 3, '验收动画']])
 })
 
 test('批量控制仅提交符合操作状态的选中任务，并保留失败条目供重试', async (t) => {

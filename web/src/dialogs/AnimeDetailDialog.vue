@@ -18,7 +18,7 @@ import { confirmDialog, lastConfirmChecked } from '@/stores/confirm'
 import { seasonLabel } from '@/utils/format'
 import { BANGUMI_COLLECTION_LABELS, type MediaDeleteResult, type ResourceItem } from '@/api/types'
 import { isDownloading } from '@/utils/status'
-import type { PlayerEntry } from '@/stores/dialogs'
+import { playerEntry, playerQueue } from '@/utils/playerQueue'
 import { relocationSummary } from '@/composables/relocation'
 const dialogs = useDialogs()
 const store = useAppStore()
@@ -124,40 +124,8 @@ async function remove(item: ResourceItem) {
 function play(item: ResourceItem) {
   const d = s.data
   if (!d) return
-  const name = d.meta_name_cn || d.title
-  const entries: PlayerEntry[] = []
-  for (const se of [...d.seasons].sort((a, b) => a.season - b.season)) {
-    const rows = [...se.episodes.flatMap((ep) => ep.items), ...se.loose]
-    rows.sort((a, b) => epNo(a) - epNo(b))
-    for (const r of rows) {
-      if (r.status !== '已保存' || !r.file_path) continue
-      entries.push({
-        id: r.id,
-        title: name,
-        season: r.season > 0 ? r.season : se.season,
-        episode: r.episode,
-        fansub_group: r.fansub_group,
-        quality: r.quality,
-      })
-    }
-  }
-  dialogs.openPlayer(entries.length ? entries : [toEntry(name, item)], item.id)
-}
-
-function toEntry(name: string, r: ResourceItem): PlayerEntry {
-  return {
-    id: r.id,
-    title: name,
-    season: r.season > 0 ? r.season : 1,
-    episode: r.episode,
-    fansub_group: r.fansub_group,
-    quality: r.quality,
-  }
-}
-
-function epNo(x: { episode: string }): number {
-  const n = Number.parseFloat(x.episode)
-  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
+  const entries = playerQueue(d)
+  dialogs.openPlayer(entries.length ? entries : [playerEntry(d.meta_name_cn || d.title, item)], item.id)
 }
 </script>
 

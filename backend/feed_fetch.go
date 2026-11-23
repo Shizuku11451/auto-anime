@@ -108,6 +108,11 @@ func backfillItemPageURL(link, page string) error {
 	if page == "" {
 		return nil
 	}
+	// Most synced rows are already filled; a read avoids a write tx per item.
+	var missing bool
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM items WHERE link=? AND COALESCE(page_url,'')='')", link).Scan(&missing); err != nil || !missing {
+		return err
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err

@@ -114,6 +114,11 @@ async function onTick() {
     location.reload()
     return
   }
+  // Docker 等无法原地替换的安装：已暂存，等用户重启后生效
+  if (latest?.pending && latest.status === 'installing') {
+    stopPolling()
+    return
+  }
   // 请求持续失败说明服务正在重启，继续等待
   if (!latest) restarting.value = true
   if (Date.now() > restartDeadline) {

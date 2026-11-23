@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -68,12 +69,9 @@ func collectSavedMedia(q interface {
 	return out, rows.Err()
 }
 
-func deleteSavedMedia(list []savedMedia) mediaDeleteResult {
+// roots 须在删除番剧记录之前读取，否则其自定义存储目录已不在库中。
+func deleteSavedMedia(list []savedMedia, roots []string) mediaDeleteResult {
 	out := mediaDeleteResult{}
-	if len(list) == 0 {
-		return out
-	}
-	roots := mediaRoots()
 	for _, media := range list {
 		if err := deleteOneMedia(media, roots); err != nil {
 			out.Failed = append(out.Failed, fmt.Sprintf("%s：%v", filepath.Base(media.Path), err))
@@ -97,6 +95,9 @@ func deleteOneMedia(media savedMedia, roots []string) error {
 		return fmt.Errorf("不在媒体目录内，已保留")
 	}
 	source, rel, sidecars, err := migrationSource(p, media.ID)
+	if errors.Is(err, errForeignArchive) {
+		return fmt.Errorf("文件属于其他条目，已保留")
+	}
 	if err != nil {
 		info, statErr := os.Lstat(p)
 		if statErr != nil || !info.Mode().IsRegular() {

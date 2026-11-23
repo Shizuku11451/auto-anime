@@ -238,12 +238,25 @@ func TestMiddlewareRoutesFreshInstanceToSetup(t *testing.T) {
 		}
 	}
 
-	// 跳过引导后恢复完全开放。
+	// 旧版本跳过引导留下的 setup_done=1 不再放行：没有凭据仍回到引导。
 	setupDone = true
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("open instance after skipping setup: %d", rec.Code)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/setup" {
+		t.Fatalf("skipped setup without credentials: %d", rec.Code)
+	}
+	// 跨站写请求在认证之前就被拒绝。
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "http://nas.test/api/items/manage", strings.NewReader("{}"))
+	req.Header.Set("Origin", "http://nas.test:3000")
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin write: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	setupHandler(rec, httptest.NewRequest("POST", "http://nas.test/api/setup", strings.NewReader(`{"web_user":"","web_password":""}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("setup without credentials: %d", rec.Code)
 	}
 }
 
